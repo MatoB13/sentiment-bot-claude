@@ -41,8 +41,9 @@ class Trade(Base):
 
 class CycleLog(Base):
     """Zaznam KAZDEHO analytickeho cyklu - aj tych, kde sa neotvorila pozicia
-    (rejected risk managerom, direction=none, alebo chyba). Sluzi na spatnu
-    kontrolu rozhodnuti (dashboard, buduca kalibracia) aj ked ziadny Trade nevznikol."""
+    (rejected risk managerom, direction=none, chyba, alebo skipped lebo uz bezi
+    ina pozicia). Sluzi na spatnu kontrolu rozhodnuti (dashboard, buduca
+    kalibracia) aj ked ziadny Trade nevznikol."""
     __tablename__ = "cycle_logs"
 
     id = Column(Integer, primary_key=True)
@@ -60,7 +61,7 @@ class CycleLog(Base):
     take_profit_price = Column(Float, nullable=True)
     reasoning = Column(String, nullable=True)
 
-    outcome = Column(String)            # opened | rejected | error
+    outcome = Column(String)            # opened | rejected | error | skipped
     reject_reason = Column(String, nullable=True)
 
     trade_id = Column(Integer, nullable=True)  # ak outcome=opened, id v `trades`

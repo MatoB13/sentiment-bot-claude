@@ -10,10 +10,6 @@ import strike_client
 from db import CycleLog, Trade, get_session
 
 
-def has_open_position(session) -> bool:
-    return session.query(Trade).filter(Trade.status == "open").count() > 0
-
-
 def _config_snapshot() -> dict:
     """Aktualne aktivne trading/risk nastavenia - uklada sa s kazdym cyklom, aby
     dashboard vzdy zobrazoval presne to, s cim bot naozaj bezal (zmena v Railway
@@ -36,8 +32,16 @@ def run_cycle():
     print(f"\n=== [trade_cycle] {datetime.now(timezone.utc).isoformat()} ===")
     session = get_session()
     try:
-        if has_open_position(session):
-            print("[trade_cycle] Uz existuje otvorena pozicia, preskakujem.")
+        open_trade = session.query(Trade).filter(Trade.status == "open").first()
+        if open_trade:
+            print(f"[trade_cycle] Uz existuje otvorena pozicia (trade_id={open_trade.id}), preskakujem.")
+            session.add(CycleLog(
+                config_snapshot=_config_snapshot(),
+                outcome="skipped",
+                reject_reason=f"Uz existuje otvorena pozicia (trade_id={open_trade.id}).",
+                trade_id=open_trade.id,
+            ))
+            session.commit()
             return
 
         market_meta = strike_client.get_market(config.STRIKE_NAS100_SYMBOL)
