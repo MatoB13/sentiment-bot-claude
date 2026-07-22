@@ -80,11 +80,16 @@ Potom vyhodnoť situáciu a vráť rozhodnutie podľa formátu zo system promptu
 """
 
 
-def analyze(ta: dict, cross_market: dict, session: dict, social: list[dict]) -> dict:
+def analyze(ta: dict, cross_market: dict, session: dict, social: list[dict]) -> tuple[dict, list[dict]]:
+    """Vrati (decision, web_search_log). web_search_log je zoznam
+    {"query": str, "sources": [{"title", "url", "page_age"}]} pre kazde
+    vyhladavanie, ktore Claude spravil - sluzi na audit (co realne citas,
+    aby sa dalo neskor rozhodnut o whitelist/blacklist domen)."""
     if not config.ANTHROPIC_API_KEY:
         raise RuntimeError("ANTHROPIC_API_KEY nie je nastavený")
 
     messages = [{"role": "user", "content": _build_user_prompt(ta, cross_market, session, social)}]
+    web_search_log: list[dict] = []
 
     # server-side web_search moze pri velmi dlhom hladani vratit stop_reason=pause_turn -
     # v takom pripade treba poslat konverzaciu znova a nechat ju dokoncit (max 1 pokracovanie).
@@ -107,17 +112,41 @@ def analyze(ta: dict, cross_market: dict, session: dict, social: list[dict]) -> 
         )
         resp.raise_for_status()
         data = resp.json()
+        content_blocks = data.get("content", [])
+        web_search_log.extend(_extract_web_search_log(content_blocks))
 
         if data.get("stop_reason") == "pause_turn":
-            messages = messages + [{"role": "assistant", "content": data["content"]}]
+            messages = messages + [{"role": "assistant", "content": content_blocks}]
             continue
 
-        text = "".join(block.get("text", "") for block in data.get("content", []))
+        text = "".join(block.get("text", "") for block in content_blocks)
         decision = _parse_json(text)
         _validate_decision(decision)
-        return decision
+        return decision, web_search_log
 
     raise RuntimeError("Claude neposkytol finalnu odpoved po pause_turn pokracovani")
+
+
+def _extract_web_search_log(content_blocks: list) -> list[dict]:
+    """Sparuje kazde web_search volanie (server_tool_use) s jeho vysledkami
+    (web_search_tool_result), aby sme vedeli presne, ake query a ake zdroje
+    (title/url/page_age) Claude pouzil. Obsah stranok samotny nevidime -
+    Strike/Anthropic ho posiela sifrovany (encrypted_content), citame len metadata."""
+    log = []
+    pending_query = None
+    for block in content_blocks:
+        if block.get("type") == "server_tool_use" and block.get("name") == "web_search":
+            pending_query = block.get("input", {}).get("query")
+        elif block.get("type") == "web_search_tool_result":
+            results = block.get("content", [])
+            sources = [
+                {"title": r.get("title"), "url": r.get("url"), "page_age": r.get("page_age")}
+                for r in results
+                if isinstance(results, list) and r.get("type") == "web_search_result"
+            ] if isinstance(results, list) else []
+            log.append({"query": pending_query, "sources": sources})
+            pending_query = None
+    return log
 
 
 def _parse_json(text: str) -> dict:

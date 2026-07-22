@@ -60,6 +60,7 @@ class CycleLog(Base):
     stop_loss_price = Column(Float, nullable=True)
     take_profit_price = Column(Float, nullable=True)
     reasoning = Column(String, nullable=True)
+    web_search_log = Column(JSON, nullable=True)  # [{"query", "sources": [{"title","url","page_age"}]}]
 
     outcome = Column(String)            # opened | rejected | error | skipped
     reject_reason = Column(String, nullable=True)
