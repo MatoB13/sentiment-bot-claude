@@ -24,9 +24,10 @@ EDITABLE_NUMERIC = [
     ("MONITOR_INTERVAL_MINUTES", float, "Ako casto sa kontroluju otvorene pozicie (minuty)"),
     ("POSITION_MAX_HOURS", float, "Max. drzanie pozicie pred force-close (hodiny)"),
     ("MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
-    ("RISK_PCT", float, "% zostatku riskovane na jeden obchod"),
-    ("MAX_LEVERAGE", int, "Maximalna paka"),
-    ("ACCOUNT_BALANCE_USD", float, "Predpokladany zostatok uctu (USD) pre position sizing"),
+    ("MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
+    ("LEVERAGE", int, "Fixna paka (notional = MARGIN_USD x LEVERAGE)"),
+    ("DEFAULT_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
+    ("DEFAULT_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
 ]
 
 

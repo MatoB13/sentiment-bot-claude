@@ -39,8 +39,9 @@ Ako syntetizovať viacero signálov (nepočítaj váhy mechanicky, posúď to ak
 Pravidlá:
 - Buď konzervatívny: ak signály nie sú jasné alebo sú protichodné, zvoľ "none" a nízku confidence.
 - confidence je 0-100 a má odrážať reálnu neistotu (60 je "mierne naklonený", 90+ je vzácne).
-- stop_loss_price a take_profit_price uveď ako absolútnu cenu NAS100 (nie percentá),
-  vychádzajúc z last_price a ATR (napr. SL cca 1-1.5x ATR, TP s pomerom risk:reward aspoň 1:1.5).
+- stop_loss_price a take_profit_price uveď ako absolútnu cenu NAS100 (nie percentá).
+  Cieľové % vzdialenosti od aktuálnej ceny dostaneš v user správe - drž sa v ich blízkosti
+  (môžeš sa mierne odchýliť podľa ATR/kontextu, ale nie výrazne mimo).
 - reasoning: max 3-4 vety, fakticky, bez floskúl; spomeň najdôležitejší faktor(y), ktoré rozhodli.
 - Po prípadnom vyhľadávaní odpovedz VÝLUČNE JSON objektom, žiadny iný text, žiadne markdown bloky.
 
@@ -66,6 +67,12 @@ def _build_user_prompt(ta: dict, cross_market: dict, session: dict, social: list
 
 ## Social media sentiment
 {social_block}
+
+## Cielove SL/TP vzdialenosti
+Stop-loss cca {config.DEFAULT_SL_PCT}% od aktuálnej ceny, take-profit cca {config.DEFAULT_TP_PCT}%
+(pri LONG: stop_loss_price = last_price * (1 - {config.DEFAULT_SL_PCT}/100), take_profit_price =
+last_price * (1 + {config.DEFAULT_TP_PCT}/100); pri SHORT opačne). Môžeš sa mierne odchýliť podľa
+ATR/kontextu, ale nie výrazne mimo tento rozsah.
 
 Ak je to relevantné, over si cez web_search aktuálne správy k NAS100/megacap firmám a
 nadchádzajúce makro eventy (CPI/FOMC/NFP/earnings) za posledných ~12 hodín / najbližších 24h.

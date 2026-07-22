@@ -45,6 +45,14 @@ TRADE_INTERVAL_HOURS = _float("TRADE_INTERVAL_HOURS", 4)
 MONITOR_INTERVAL_MINUTES = _float("MONITOR_INTERVAL_MINUTES", 10)
 POSITION_MAX_HOURS = _float("POSITION_MAX_HOURS", 24)
 MIN_CONFIDENCE = _int("MIN_CONFIDENCE", 65)
-RISK_PCT = _float("RISK_PCT", 1.0)
-MAX_LEVERAGE = _int("MAX_LEVERAGE", 5)
-ACCOUNT_BALANCE_USD = _float("ACCOUNT_BALANCE_USD", 1000)
+
+# Fixny position sizing: kazdy obchod pouzije rovnaky margin a leverage
+# (napr. $100 margin x 40x leverage = $4000 notional/buying power).
+MARGIN_USD = _float("MARGIN_USD", 100)
+LEVERAGE = _int("LEVERAGE", 40)
+
+# Cielove SL/TP ako % od live ceny - Claude navrhuje konkretnu cenu v ramci
+# tolerancie okolo tychto hodnot (viz risk_manager.py). Pri danom leverage
+# to zodpoveda DEFAULT_SL_PCT*LEVERAGE % / DEFAULT_TP_PCT*LEVERAGE % pohybu na marzi.
+DEFAULT_SL_PCT = _float("DEFAULT_SL_PCT", 0.4)
+DEFAULT_TP_PCT = _float("DEFAULT_TP_PCT", 0.6)

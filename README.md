@@ -78,7 +78,10 @@ Pozri `.env.example` — najdôležitejšie:
 - `DRY_RUN` — `true`/`false`
 - `TRADE_INTERVAL_HOURS` — ako často sa má bežať analytický cyklus (napr. `4`)
 - `MONITOR_INTERVAL_MINUTES` — ako často sa kontrolujú otvorené pozície (napr. `10`)
-- `RISK_PCT`, `MAX_LEVERAGE`, `MIN_CONFIDENCE`
+- `MIN_CONFIDENCE` - min. confidence pre otvorenie obchodu
+- `MARGIN_USD`, `LEVERAGE` - fixny margin+leverage na kazdy obchod (notional = MARGIN_USD x LEVERAGE)
+- `DEFAULT_SL_PCT`, `DEFAULT_TP_PCT` - cielove SL/TP ako % od live ceny; Claude navrhuje presnu
+  cenu v tolerancii 0.5x-2x okolo tychto hodnot (viz `risk_manager.py`)
 
 ## Deploy na Railway
 

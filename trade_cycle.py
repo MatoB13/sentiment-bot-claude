@@ -25,9 +25,10 @@ def _config_snapshot() -> dict:
         "monitor_interval_minutes": config.MONITOR_INTERVAL_MINUTES,
         "position_max_hours": config.POSITION_MAX_HOURS,
         "min_confidence": config.MIN_CONFIDENCE,
-        "risk_pct": config.RISK_PCT,
-        "max_leverage": config.MAX_LEVERAGE,
-        "account_balance_usd": config.ACCOUNT_BALANCE_USD,
+        "margin_usd": config.MARGIN_USD,
+        "leverage": config.LEVERAGE,
+        "default_sl_pct": config.DEFAULT_SL_PCT,
+        "default_tp_pct": config.DEFAULT_TP_PCT,
     }
 
 
