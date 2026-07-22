@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import (Column, DateTime, Float, Integer, String, Boolean,
-                         create_engine)
+                         JSON, create_engine)
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 import config
@@ -37,6 +37,32 @@ class Trade(Base):
     pnl_usd = Column(Float, nullable=True)
 
     dry_run = Column(Boolean, default=False)
+
+
+class CycleLog(Base):
+    """Zaznam KAZDEHO analytickeho cyklu - aj tych, kde sa neotvorila pozicia
+    (rejected risk managerom, direction=none, alebo chyba). Sluzi na spatnu
+    kontrolu rozhodnuti (dashboard, buduca kalibracia) aj ked ziadny Trade nevznikol."""
+    __tablename__ = "cycle_logs"
+
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    live_price = Column(Float, nullable=True)
+    ta = Column(JSON, nullable=True)
+    cross_market = Column(JSON, nullable=True)
+    session_data = Column(JSON, nullable=True)
+
+    direction = Column(String, nullable=True)       # long | short | none
+    confidence = Column(Integer, nullable=True)
+    stop_loss_price = Column(Float, nullable=True)
+    take_profit_price = Column(Float, nullable=True)
+    reasoning = Column(String, nullable=True)
+
+    outcome = Column(String)            # opened | rejected | error
+    reject_reason = Column(String, nullable=True)
+
+    trade_id = Column(Integer, nullable=True)  # ak outcome=opened, id v `trades`
 
 
 _engine = create_engine(config.DATABASE_URL, future=True)

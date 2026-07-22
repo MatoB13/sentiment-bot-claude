@@ -7,7 +7,7 @@ import market_data
 import risk_manager
 import social_sentiment
 import strike_client
-from db import Trade, get_session
+from db import CycleLog, Trade, get_session
 
 
 def has_open_position(session) -> bool:
@@ -38,8 +38,20 @@ def run_cycle():
             decision = claude_analyst.analyze(ta, cross_market, market_session, social)
         except Exception as e:
             print(f"[trade_cycle] Claude analyza zlyhala, preskakujem cyklus: {e}")
+            session.add(CycleLog(
+                live_price=live_price, ta=ta, cross_market=cross_market, session_data=market_session,
+                outcome="error", reject_reason=str(e),
+            ))
+            session.commit()
             return
         print(f"[trade_cycle] Claude rozhodnutie: {decision}")
+
+        cycle_log = CycleLog(
+            live_price=live_price, ta=ta, cross_market=cross_market, session_data=market_session,
+            direction=decision.get("direction"), confidence=decision.get("confidence"),
+            stop_loss_price=decision.get("stop_loss_price"), take_profit_price=decision.get("take_profit_price"),
+            reasoning=decision.get("reasoning"),
+        )
 
         try:
             sized = risk_manager.validate_and_size(
@@ -48,6 +60,10 @@ def run_cycle():
             )
         except risk_manager.RejectedTrade as e:
             print(f"[trade_cycle] Obchod zamietnuty risk managerom: {e}")
+            cycle_log.outcome = "rejected"
+            cycle_log.reject_reason = str(e)
+            session.add(cycle_log)
+            session.commit()
             return
 
         print(f"[trade_cycle] Otvaram {sized['direction']} | leverage={sized['leverage']} "
@@ -87,6 +103,10 @@ def run_cycle():
             trade.strategy_id = result.get("strategy_id")
 
         session.add(trade)
+        session.flush()  # priradi trade.id pred zapisom do cycle_log
+        cycle_log.outcome = "opened"
+        cycle_log.trade_id = trade.id
+        session.add(cycle_log)
         session.commit()
     finally:
         session.close()
