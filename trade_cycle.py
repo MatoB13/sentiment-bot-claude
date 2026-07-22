@@ -112,15 +112,48 @@ def run_cycle():
         if config.DRY_RUN:
             print("[trade_cycle] DRY_RUN=true - obchod sa NEODOSLAL na Strike, iba zalogovany do DB.")
         else:
-            result = strike_client.open_bracket_position(
-                direction=sized["direction"],
-                size=sized["size"],
-                leverage=sized["leverage"],
-                stop_loss_price=sized["stop_loss_price"],
-                take_profit_price=sized["take_profit_price"],
-            )
+            try:
+                result = strike_client.open_bracket_position(
+                    direction=sized["direction"],
+                    size=sized["size"],
+                    leverage=sized["leverage"],
+                    stop_loss_price=sized["stop_loss_price"],
+                    take_profit_price=sized["take_profit_price"],
+                )
+            except Exception as e:
+                # Otvorenie na Strike zlyhalo uplne (API chyba, nedostatok prostriedkov...) -
+                # ziadna pozicia nevznikla, ale nesmieme stratit stopu po tomto pokuse.
+                print(f"[trade_cycle] Otvorenie pozicie na Strike zlyhalo: {e}")
+                cycle_log.outcome = "error"
+                cycle_log.reject_reason = f"open_position_failed: {e}"
+                session.add(cycle_log)
+                session.commit()
+                return
+
             print(f"[trade_cycle] Strike odpoved: {result}")
             trade.strategy_id = result.get("strategy_id")
+
+            # Bezpecnostna kontrola: ak SL alebo TP noha bracket objednavky zlyhala
+            # pripojit sa (Strike ju z nejakeho dovodu odmietol), pozicia by bola
+            # nechranena az do dalsieho position_monitor cyklu (az 10 min). Radsej
+            # ju hned teraz nudzovo zatvorime, nez by cakala nechranena na burze.
+            if not result.get("sl_client_order_id") or not result.get("tp_client_order_id"):
+                print(
+                    "[trade_cycle] KRITICKE: chyba sl_client_order_id alebo "
+                    "tp_client_order_id v odpovedi - pozicia je NECHRANENA. "
+                    "Nudzovo zatvaram okamzite."
+                )
+                try:
+                    strike_client.cancel_all_orders(trade.symbol)
+                    strike_client.close_position_market(
+                        sized["direction"], sized["size"], trade.symbol
+                    )
+                    trade.status = "closed_by_safety"
+                    trade.close_reason = "missing_sl_or_tp_leg_after_open"
+                    trade.closed_at = datetime.now(timezone.utc)
+                except Exception as e:
+                    print(f"[trade_cycle] CHYBA pri nudzovom zatvoreni: {e}")
+                    trade.close_reason = f"missing_sl_or_tp_leg_AND_safety_close_failed: {e}"
 
         session.add(trade)
         session.flush()  # priradi trade.id pred zapisom do cycle_log

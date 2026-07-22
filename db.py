@@ -32,7 +32,7 @@ class Trade(Base):
     expires_at = Column(DateTime)
     closed_at = Column(DateTime, nullable=True)
 
-    status = Column(String, default="open")  # open | closed_by_exchange | closed_by_timeout | dry_run
+    status = Column(String, default="open")  # open | closed_by_exchange | closed_by_timeout | closed_by_safety | dry_run
     close_reason = Column(String, nullable=True)
     pnl_usd = Column(Float, nullable=True)
 
