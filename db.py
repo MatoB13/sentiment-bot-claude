@@ -1,0 +1,48 @@
+from datetime import datetime, timezone
+
+from sqlalchemy import (Column, DateTime, Float, Integer, String, Boolean,
+                         create_engine)
+from sqlalchemy.orm import declarative_base, sessionmaker
+
+import config
+
+Base = declarative_base()
+
+
+class Trade(Base):
+    __tablename__ = "trades"
+
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, default=config.STRIKE_NAS100_SYMBOL)
+    direction = Column(String)          # "Long" / "Short"
+    confidence = Column(Integer)
+    reasoning = Column(String)
+
+    entry_price = Column(Float)
+    stop_loss_price = Column(Float)
+    take_profit_price = Column(Float)
+    leverage = Column(Integer)
+    size = Column(Float)              # pozicna velkost v base-asset jednotkach (napr. NAS100 kontrakty)
+    notional_usd = Column(Float)
+    margin_usd = Column(Float)        # pozadovana marza (notional / leverage)
+
+    strategy_id = Column(String, nullable=True)  # Strike bracket-order strategy_id
+
+    opened_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    expires_at = Column(DateTime)
+    closed_at = Column(DateTime, nullable=True)
+
+    status = Column(String, default="open")  # open | closed_by_exchange | closed_by_timeout | dry_run
+    close_reason = Column(String, nullable=True)
+    pnl_usd = Column(Float, nullable=True)
+
+    dry_run = Column(Boolean, default=False)
+
+
+_engine = create_engine(config.DATABASE_URL, future=True)
+Base.metadata.create_all(_engine)
+SessionLocal = sessionmaker(bind=_engine, future=True)
+
+
+def get_session():
+    return SessionLocal()
