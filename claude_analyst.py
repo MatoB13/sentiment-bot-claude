@@ -96,7 +96,7 @@ def analyze(ta: dict, cross_market: dict, session: dict, social: list[dict]) -> 
                 "tools": [{"type": "web_search_20260209", "name": "web_search", "max_uses": 5}],
                 "messages": messages,
             },
-            timeout=240,
+            timeout=300,
         )
         resp.raise_for_status()
         data = resp.json()

@@ -52,6 +52,7 @@ class CycleLog(Base):
     ta = Column(JSON, nullable=True)
     cross_market = Column(JSON, nullable=True)
     session_data = Column(JSON, nullable=True)
+    config_snapshot = Column(JSON, nullable=True)  # aktivne trading/risk nastavenia v case cyklu
 
     direction = Column(String, nullable=True)       # long | short | none
     confidence = Column(Integer, nullable=True)

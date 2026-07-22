@@ -14,6 +14,23 @@ def has_open_position(session) -> bool:
     return session.query(Trade).filter(Trade.status == "open").count() > 0
 
 
+def _config_snapshot() -> dict:
+    """Aktualne aktivne trading/risk nastavenia - uklada sa s kazdym cyklom, aby
+    dashboard vzdy zobrazoval presne to, s cim bot naozaj bezal (zmena v Railway
+    env premennych sa prejavi uz na dalsom cykle, bez rucnej synchronizacie)."""
+    return {
+        "symbol": config.STRIKE_NAS100_SYMBOL,
+        "dry_run": config.DRY_RUN,
+        "trade_interval_hours": config.TRADE_INTERVAL_HOURS,
+        "monitor_interval_minutes": config.MONITOR_INTERVAL_MINUTES,
+        "position_max_hours": config.POSITION_MAX_HOURS,
+        "min_confidence": config.MIN_CONFIDENCE,
+        "risk_pct": config.RISK_PCT,
+        "max_leverage": config.MAX_LEVERAGE,
+        "account_balance_usd": config.ACCOUNT_BALANCE_USD,
+    }
+
+
 def run_cycle():
     print(f"\n=== [trade_cycle] {datetime.now(timezone.utc).isoformat()} ===")
     session = get_session()
@@ -40,6 +57,7 @@ def run_cycle():
             print(f"[trade_cycle] Claude analyza zlyhala, preskakujem cyklus: {e}")
             session.add(CycleLog(
                 live_price=live_price, ta=ta, cross_market=cross_market, session_data=market_session,
+                config_snapshot=_config_snapshot(),
                 outcome="error", reject_reason=str(e),
             ))
             session.commit()
@@ -48,6 +66,7 @@ def run_cycle():
 
         cycle_log = CycleLog(
             live_price=live_price, ta=ta, cross_market=cross_market, session_data=market_session,
+            config_snapshot=_config_snapshot(),
             direction=decision.get("direction"), confidence=decision.get("confidence"),
             stop_loss_price=decision.get("stop_loss_price"), take_profit_price=decision.get("take_profit_price"),
             reasoning=decision.get("reasoning"),
