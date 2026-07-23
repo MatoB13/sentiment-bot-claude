@@ -318,17 +318,25 @@ def _parse_json(text: str) -> dict:
         raise ValueError(f"Claude nevrátil validný JSON: {text!r}")
     candidate = text[start:]
 
+    # raw_decode parsuje len PRVY validny JSON objekt od zaciatku retazca a
+    # ignoruje cokolvek za nim - na rozdiel od json.loads (ktory vyzaduje, aby
+    # CELY retazec bol validny JSON) tak prezije, aj ked Claude napriek zakazu v
+    # system prompte obali odpoved do ```json ... ``` markdown fence (zvysne
+    # "\n```" za zatvorenou zlozenou zatvorkou by json.loads odmietol ako
+    # "Extra data" a cele inak validne rozhodnutie by sa zahodilo ako chyba).
+    decoder = json.JSONDecoder()
     try:
-        return json.loads(candidate)
+        obj, _ = decoder.raw_decode(candidate)
+        return obj
     except json.JSONDecodeError:
         pass
 
     # Model obcas vynecha zatvaraciu zlozenu zatvorku na konci objektu - dohodneme ju.
-    if not candidate.endswith("}"):
-        try:
-            return json.loads(candidate + "}")
-        except json.JSONDecodeError:
-            pass
+    try:
+        obj, _ = decoder.raw_decode(candidate + "}")
+        return obj
+    except json.JSONDecodeError:
+        pass
 
     raise ValueError(f"Claude nevrátil validný JSON: {text!r}")
 
