@@ -303,11 +303,11 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
               f"cache_read={usage.get('cache_read_input_tokens')} output={usage.get('output_tokens')}")
 
         if data.get("stop_reason") == "pause_turn":
-            # posledny blok predchadzajucej assistant odpovede oznacime ako dalsi cache
-            # breakpoint, aby pokracovanie znova necitalo (a neplatilo) uz raz poslane
-            # tool-result data na plnu cenu.
-            if content_blocks:
-                content_blocks[-1] = {**content_blocks[-1], "cache_control": {"type": "ephemeral"}}
+            # NEZNACIME cache_control na tento blok: cyklus ma tvrdy strop 2 volania
+            # (range(2) nizsie), takze pokracovanie o par riadkov nizsie je VZDY
+            # posledne - ziadne 3. volanie uz nikdy nepride precitat si tento zapis
+            # spat. Oznacenie by teda len zaplatilo cache-write prirazku (~25%) na
+            # casto velky blok (web_search vysledky) bez akejkolvek sance na navratnost.
             messages = messages + [{"role": "assistant", "content": content_blocks}]
             continue
 
