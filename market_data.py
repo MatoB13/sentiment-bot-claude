@@ -135,13 +135,60 @@ def _fetch_snapshot(tickers: dict, period: str = "10d", interval: str = "1d") ->
 
 
 def get_cross_market_snapshot() -> dict:
-    """S&P500/Russell/SOX/VIX/DXY/US10Y/US13W/ropa/zlato - cross-market konfirmacia."""
+    """S&P500/Russell/SOX/VIX/DXY/US10Y/US13W/ropa/zlato - cross-market konfirmacia.
+    Denne sviecky su tu zamerne: tento blok ma overovat SIRSI trendovu konfirmaciu,
+    nie vnutrodenny sum, a "vcerajsia uzavierka" je pre tento ucel dostatocna."""
     return _fetch_snapshot(CROSS_MARKET_TICKERS)
 
 
+def _pct_change_since(closes: pd.Series, ref_ts, hours: float) -> float | None:
+    """Najde bar najblizsie k (ref_ts - hours) a vrati % zmenu k poslednemu baru.
+    Casovo zalozene hladanie namiesto pevneho poctu riadkov - rozne trhy maju rôzny
+    pocet hodinovych barov za den (NAS100 futures obchoduje takmer 24h/den, Nikkei
+    len ~6.5h/den), takze "pred 5 dnami" by pri fixnom riadkovom posune znamenalo
+    pre kazdy ticker inu skutocnu casovu vzdialenost."""
+    target_ts = ref_ts - pd.Timedelta(hours=hours)
+    idx = closes.index.get_indexer([target_ts], method="nearest")[0]
+    if idx < 0 or idx >= len(closes) - 1:
+        return None
+    base = float(closes.iloc[idx])
+    if base == 0:
+        return None
+    return round(float((closes.iloc[-1] - base) / base * 100), 2)
+
+
+def _fetch_session_snapshot(tickers: dict, period: str = "10d", interval: str = "1h") -> dict:
+    """Ako _fetch_snapshot, ale na hodinovych svieckach s casovo zalozenym vyhladavanim
+    (_pct_change_since) namiesto dennej uzavierky. Session alignment ma zachytit
+    POSLEDNY skutocny pohyb danej relacie (Azia/Europa/US), nie vcerajsiu uzavierku,
+    ktora uz moze byt o cely obchodny den stara."""
+    symbols = list(tickers.values())
+    df = yf.download(symbols, period=period, interval=interval, progress=False,
+                      auto_adjust=True, group_by="ticker")
+
+    result = {}
+    for name, symbol in tickers.items():
+        try:
+            closes = df[symbol]["Close"].dropna()
+            if closes.empty:
+                result[name] = None
+                continue
+            ref_ts = closes.index[-1]
+            result[name] = {
+                "last": round(float(closes.iloc[-1]), 2),
+                "change_24h_pct": _pct_change_since(closes, ref_ts, hours=24),
+                "change_5d_pct": _pct_change_since(closes, ref_ts, hours=5 * 24),
+            }
+        except Exception:
+            result[name] = None
+    return result
+
+
 def get_session_snapshot() -> dict:
-    """Azia (Nikkei/HangSeng) -> Europa (DAX) -> US futures - session alignment."""
-    return _fetch_snapshot(SESSION_TICKERS)
+    """Azia (Nikkei/HangSeng) -> Europa (DAX) -> US futures - session alignment.
+    Hodinove sviecky + casovo zalozeny vypocet (nie denna uzavierka), aby to
+    zachytilo skutocny posledny pohyb kazdej relacie, nie zastaraly denny close."""
+    return _fetch_session_snapshot(SESSION_TICKERS)
 
 
 if __name__ == "__main__":
