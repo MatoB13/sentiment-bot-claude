@@ -4,6 +4,7 @@ cerstve spravy cez vstavany server-side web_search nastroj (ziadny NewsAPI kluc 
 a vrati strukturovane rozhodnutie.
 """
 import json
+from datetime import datetime, timezone
 
 import requests
 
@@ -15,6 +16,12 @@ social-media sentiment. Máš k dispozícii nástroj web_search - použi ho na v
 správ o Nasdaq-100 firmách (Apple, Microsoft, Nvidia, Amazon, Alphabet, Meta, Broadcom, Tesla...),
 Fed/makro dátach (CPI, PPI, NFP, FOMC), alebo geopolitike, ktoré by mohli hýbať trhom v najbližších
 24 hodinách. Vyhľadávaj len ak to dáva zmysel (max. niekoľko vyhľadávaní).
+
+Presný aktuálny dátum a čas dostaneš v user správe - VŽDY ho zahrň do vyhľadávacích dotazov
+(napr. "NAS100 news July 22 2026", nie len "NAS100 news"), inak web_search občas vráti staré
+výsledky (mesiace/roky staré) namiesto aktuálnych. Pri hodnotení výsledkov skontroluj ich
+page_age/dátum - ak je správa staršia než obdobie od posledného cyklu (dostaneš ho v user
+správe), ber ju len ako pozadový kontext, nie ako novú informáciu ktorá mení rozhodnutie.
 
 Tvoja úloha je vyhodnotiť, či má zmysel otvoriť LONG, SHORT, alebo neobchodovať (NONE)
 na horizont max. 24 hodín, s konkrétnym stop-lossom a take-profitom.
@@ -43,20 +50,43 @@ Pravidlá:
   Cieľové % vzdialenosti od aktuálnej ceny dostaneš v user správe - drž sa v ich blízkosti
   (môžeš sa mierne odchýliť podľa ATR/kontextu, ale nie výrazne mimo).
 - reasoning: max 3-4 vety, fakticky, bez floskúl; spomeň najdôležitejší faktor(y), ktoré rozhodli.
+  Ak dostaneš predpoklady z predchádzajúceho cyklu, výslovne spomeň, či stále platia alebo sa
+  niečo zmenilo.
+- key_assumptions: 1-2 vety - kľúčové fakty/očakávania, na ktorých toto rozhodnutie stojí
+  (napr. konkrétny očakávaný event a jeho dátum, prevládajúci naratív, aktívny katalyzátor).
+  Toto dostane budúci cyklus na overenie, či ešte platí - ber to ako odkaz "čo si myslím, že
+  je teraz pravda" pre svoje budúce ja.
 - Po prípadnom vyhľadávaní odpovedz VÝLUČNE JSON objektom, žiadny iný text, žiadne markdown bloky.
 
 Formát:
-{"direction": "long|short|none", "confidence": 0-100, "stop_loss_price": number, "take_profit_price": number, "reasoning": "string"}
+{"direction": "long|short|none", "confidence": 0-100, "stop_loss_price": number, "take_profit_price": number, "reasoning": "string", "key_assumptions": "string"}
 """
 
 
-def _build_user_prompt(ta: dict, cross_market: dict, session: dict, social: list[dict]) -> str:
+def _build_user_prompt(ta: dict, cross_market: dict, session: dict, social: list[dict],
+                        prev_assumptions: str | None) -> str:
     social_block = "\n".join(
         f"- ({p.get('likes')}♥/{p.get('retweets')}rt) {p.get('text')}"
         for p in social[:15]
     ) or "(social sentiment nie je zapnutý/dostupný)"
 
-    return f"""## Technická analýza NAS100
+    now = datetime.now(timezone.utc)
+    interval_h = config.TRADE_INTERVAL_HOURS
+
+    prev_block = (
+        f'"{prev_assumptions}"\n\nOver si cez web_search, či tieto predpoklady stále platia, '
+        f"alebo sa niečo zmenilo (event už prebehol, správa sa nenaplnila, sentiment sa otočil...). "
+        f"V reasoning výslovne napíš, či držia alebo čo sa zmenilo."
+        if prev_assumptions else
+        "(žiadne - toto je prvý cyklus alebo predchádzajúci nemal záznam)"
+    )
+
+    return f"""## Aktuálny dátum a čas
+{now.strftime('%A, %d. %B %Y, %H:%M')} UTC ({now.isoformat()})
+Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/správy za posledných
+~{interval_h} hodín, staršie ber len ako pozadový kontext (nie ako novú informáciu).
+
+## Technická analýza NAS100
 {json.dumps(ta, indent=2, ensure_ascii=False)}
 
 ## Cross-market kontext (S&P500, Russell 2000, SOX, VIX, DXY, US10Y/US13W výnosy, ropa, zlato)
@@ -68,6 +98,9 @@ def _build_user_prompt(ta: dict, cross_market: dict, session: dict, social: list
 ## Social media sentiment
 {social_block}
 
+## Kľúčové predpoklady z predchádzajúceho cyklu (~{interval_h}h dozadu)
+{prev_block}
+
 ## Cielove SL/TP vzdialenosti
 Stop-loss cca {config.DEFAULT_SL_PCT}% od aktuálnej ceny, take-profit cca {config.DEFAULT_TP_PCT}%
 (pri LONG: stop_loss_price = last_price * (1 - {config.DEFAULT_SL_PCT}/100), take_profit_price =
@@ -75,20 +108,26 @@ last_price * (1 + {config.DEFAULT_TP_PCT}/100); pri SHORT opačne). Môžeš sa 
 ATR/kontextu, ale nie výrazne mimo tento rozsah.
 
 Ak je to relevantné, over si cez web_search aktuálne správy k NAS100/megacap firmám a
-nadchádzajúce makro eventy (CPI/FOMC/NFP/earnings) za posledných ~12 hodín / najbližších 24h.
-Potom vyhodnoť situáciu a vráť rozhodnutie podľa formátu zo system promptu.
+nadchádzajúce makro eventy (CPI/FOMC/NFP/earnings) za posledných ~{interval_h}h / najbližších 24h -
+nezabudni do query zahrnúť aktuálny dátum. Potom vyhodnoť situáciu a vráť rozhodnutie podľa
+formátu zo system promptu.
 """
 
 
-def analyze(ta: dict, cross_market: dict, session: dict, social: list[dict]) -> tuple[dict, list[dict]]:
+def analyze(ta: dict, cross_market: dict, session: dict, social: list[dict],
+            prev_assumptions: str | None = None) -> tuple[dict, list[dict]]:
     """Vrati (decision, web_search_log). web_search_log je zoznam
     {"query": str, "sources": [{"title", "url", "page_age"}]} pre kazde
     vyhladavanie, ktore Claude spravil - sluzi na audit (co realne citas,
-    aby sa dalo neskor rozhodnut o whitelist/blacklist domen)."""
+    aby sa dalo neskor rozhodnut o whitelist/blacklist domen).
+
+    prev_assumptions: kluc_assumptions z minuleho cyklu (ak existuje) - Claude
+    ho dostane na explicitne overenie, ci este plati."""
     if not config.ANTHROPIC_API_KEY:
         raise RuntimeError("ANTHROPIC_API_KEY nie je nastavený")
 
-    messages = [{"role": "user", "content": _build_user_prompt(ta, cross_market, session, social)}]
+    messages = [{"role": "user",
+                 "content": _build_user_prompt(ta, cross_market, session, social, prev_assumptions)}]
     web_search_log: list[dict] = []
 
     # server-side web_search moze pri velmi dlhom hladani vratit stop_reason=pause_turn -

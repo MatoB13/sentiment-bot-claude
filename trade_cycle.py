@@ -56,8 +56,18 @@ def run_cycle():
         print(f"[trade_cycle] Session: {market_session}")
         print(f"[trade_cycle] Nacitanych {len(social)} social prispevkov (spravy hlada Claude sam cez web_search).")
 
+        prev_log = (
+            session.query(CycleLog)
+            .filter(CycleLog.key_assumptions.isnot(None))
+            .order_by(CycleLog.created_at.desc())
+            .first()
+        )
+        prev_assumptions = prev_log.key_assumptions if prev_log else None
+
         try:
-            decision, web_search_log = claude_analyst.analyze(ta, cross_market, market_session, social)
+            decision, web_search_log = claude_analyst.analyze(
+                ta, cross_market, market_session, social, prev_assumptions,
+            )
         except Exception as e:
             print(f"[trade_cycle] Claude analyza zlyhala, preskakujem cyklus: {e}")
             session.add(CycleLog(
@@ -77,6 +87,7 @@ def run_cycle():
             stop_loss_price=decision.get("stop_loss_price"), take_profit_price=decision.get("take_profit_price"),
             reasoning=decision.get("reasoning"),
             web_search_log=web_search_log,
+            key_assumptions=decision.get("key_assumptions"),
         )
 
         try:
