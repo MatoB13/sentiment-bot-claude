@@ -70,7 +70,7 @@ ENABLE_GOLD = _bool("ENABLE_GOLD", "true")
 # su len predpoklady podla existujuceho NAS100-USD pomenovacieho vzoru.
 STRIKE_NVDA_SYMBOL = os.getenv("STRIKE_NVDA_SYMBOL", "NVDA-USD")
 STRIKE_ADA_SYMBOL = os.getenv("STRIKE_ADA_SYMBOL", "ADA-USD")
-STRIKE_GOLD_SYMBOL = os.getenv("STRIKE_GOLD_SYMBOL", "GOLD-USD")
+STRIKE_GOLD_SYMBOL = os.getenv("STRIKE_GOLD_SYMBOL", "XAU-USD")
 
 # Min. confidence pre otvorenie obchodu - defaultne rovnake ako NAS100, ale
 # nastavitelne zvlast (napr. ak by sa niektory asset ukazal menej/viac predikovatelny).
