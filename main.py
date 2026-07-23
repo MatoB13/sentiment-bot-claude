@@ -8,6 +8,7 @@ import assets
 import config
 import position_monitor
 import trade_cycle
+import watch_monitor
 
 
 def main():
@@ -36,6 +37,13 @@ def main():
                        minutes=config.MONITOR_INTERVAL_MINUTES,
                        next_run_time=now + timedelta(minutes=config.MONITOR_INTERVAL_MINUTES),
                        id="position_monitor")
+    # Rovnaky (lacny, cakty) interval ako position_monitor - watch_monitor nerobi
+    # ziadne Claude/web_search volanie, kym sa sledovana cenova podmienka reálne
+    # nesplni (viz watch_monitor.py).
+    scheduler.add_job(watch_monitor.check_watch_triggers, "interval",
+                       minutes=config.MONITOR_INTERVAL_MINUTES,
+                       next_run_time=now + timedelta(minutes=config.MONITOR_INTERVAL_MINUTES),
+                       id="watch_monitor")
     scheduler.start()
 
     # spusti oba joby hned na starte, potom uz podla intervalu. Na rozdiel od
@@ -51,6 +59,10 @@ def main():
         position_monitor.check_open_trades()
     except Exception as e:
         print(f"[main] check_open_trades zlyhal neocakavane: {e}")
+    try:
+        watch_monitor.check_watch_triggers()
+    except Exception as e:
+        print(f"[main] check_watch_triggers zlyhal neocakavane: {e}")
 
     try:
         while True:

@@ -116,6 +116,8 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             reasoning=decision.get("reasoning"),
             web_search_log=web_search_log,
             key_assumptions=decision.get("key_assumptions"),
+            watch_price=decision.get("watch_price"),
+            watch_direction=decision.get("watch_direction"),
         )
 
         try:
@@ -211,6 +213,33 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
         session.commit()
     finally:
         session.close()
+
+
+def run_triggered_check(asset: dict) -> None:
+    """Mimoriadny (watch-triggered) cyklus LEN pre jeden asset, mimo bezneho
+    zdielaneho hodinoveho tiku - vola ho watch_monitor.py, ked live cena splni
+    watch_price/watch_direction podmienku z posledneho rozhodnutia pre tento
+    asset. Makro data (cross-market/session/BTC proxy) sa fetchuju cerstvo -
+    yfinance je zdarma, takze jediny realny naklad tu je samotne Claude
+    volanie v run_cycle_for_asset - presne to je zmysel: platit za mimoriadnu
+    analyzu len ked sa sledovana podmienka NAOZAJ splni, nie podla casu."""
+    name = asset["name"]
+    print(f"[trade_cycle] [{name}] mimoriadny beh (watch trigger)")
+    try:
+        cross_market = market_data.get_cross_market_snapshot()
+        market_session = market_data.get_session_snapshot()
+    except Exception as e:
+        print(f"[trade_cycle] [{name}] makro fetch pre mimoriadny beh zlyhal, preskakujem: {e}")
+        return
+
+    btc_proxy = None
+    if asset.get("needs_btc_proxy"):
+        try:
+            btc_proxy = market_data.get_btc_proxy_snapshot()
+        except Exception as e:
+            print(f"[trade_cycle] [{name}] BTC proxy fetch zlyhal (pokracujem bez neho): {e}")
+
+    run_cycle_for_asset(asset, cross_market, market_session, btc_proxy)
 
 
 def run_all_cycles() -> None:

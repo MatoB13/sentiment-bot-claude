@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import requests
 
 import config
+import market_data
 
 _EQUITY_MACRO_RULES = """- **Cross-market konfirmácia**: Ak S&P500, Russell 2000 aj SOX (semikondukcia) potvrdzujú
   smer {instrument}, zvyšuje to istotu. Divergencia (napr. SOX klesá kým {instrument} rastie) je varovanie.
@@ -109,10 +110,19 @@ ASSET_TEXT = {
 }
 
 SYSTEM_PROMPT_TEMPLATE = """Si skúsený intradenný analytik pre {label}.
-Dostaneš technickú analýzu (TA) {instrument}, cross-market kontext, session alignment{btc_proxy_note}
-a prípadne social-media sentiment. Máš k dispozícii nástroj web_search - použi ho na vyhľadanie
-čerstvých {news_focus}, ktoré by mohli hýbať cenou v najbližších 24 hodinách. Vyhľadávaj len ak
-to dáva zmysel (max. niekoľko vyhľadávaní).
+Dostaneš technickú analýzu (TA) {instrument} - vrátane `recent_candles`, surových posledných
+{candle_bars} hodinových sviečok [open,high,low,close] - cross-market kontext, session
+alignment{btc_proxy_note} a prípadne social-media sentiment. Máš k dispozícii nástroj web_search -
+použi ho na vyhľadanie čerstvých {news_focus}, ktoré by mohli hýbať cenou v najbližších 24
+hodinách. Vyhľadávaj len ak to dáva zmysel (max. niekoľko vyhľadávaní).
+
+`recent_candles` použi na vlastné posúdenie cenovej štruktúry - kde je nedávny support/resistance,
+či je cena v rangi alebo trenduje, kde bol posledný swing high/low, či prebehol breakout. Opíš to
+vlastnými slovami (napr. "cena opakovane odrazila od X", "range medzi X a Y"), NIE pomenovaním
+klasických formácií (cup-and-handle, hlava-ramená, diamanty, trojuholníky a pod.) - tie majú v
+akademickej literatúre slabú a nekonzistentnú empirickú oporu naprieč trhmi/obdobiami, na rozdiel
+od matematicky presne definovaných indikátorov (RSI/MACD/EMA/Bollinger), a ich hranice sú navyše
+subjektívne. Radšej konkrétna cenová úroveň/pozorovanie než pomenovaný tvar.
 
 Presný aktuálny dátum a čas dostaneš v user správe - VŽDY ho zahrň do vyhľadávacích dotazov
 (napr. "{instrument} news July 22 2026", nie len "{instrument} news"), inak web_search občas vráti
@@ -153,10 +163,18 @@ Pravidlá:
   (napr. konkrétny očakávaný event a jeho dátum, prevládajúci naratív, aktívny katalyzátor).
   Toto dostane budúci cyklus na overenie, či ešte platí - ber to ako odkaz "čo si myslím, že
   je teraz pravda" pre svoje budúce ja.
+- watch_price/watch_direction (VOLITEĽNÉ, len ak direction="none"): ak vidíš konkrétnu cenovú
+  úroveň, ktorej potvrdenie/prekonanie by čoskoro (rádovo minúty až pár hodín, nie celý ďalší
+  {interval_hours}h cyklus) zmenilo rozhodnutie - najmä keď je confidence blízko prahu na
+  obchodovanie - vráť watch_price (číslo, presná cena {instrument}) a watch_direction ("above" ak
+  čakáš na potvrdenie NAD touto cenou, "below" ak POD ňou). Toto spustí lacný poller sledujúci
+  live cenu, ktorý ťa mimoriadne zavolá znova AK sa podmienka splní, namiesto čakania na ďalší
+  pravidelný cyklus. Ak takú úroveň nevidíš, alebo je direction="long"/"short" (pozícia sa už
+  otvára), nastav OBOJE na null.
 - Po prípadnom vyhľadávaní odpovedz VÝLUČNE JSON objektom, žiadny iný text, žiadne markdown bloky.
 
 Formát:
-{{"direction": "long|short|none", "confidence": 0-100, "stop_loss_price": number, "take_profit_price": number, "reasoning": "string", "key_assumptions": "string"}}
+{{"direction": "long|short|none", "confidence": 0-100, "stop_loss_price": number, "take_profit_price": number, "reasoning": "string", "key_assumptions": "string", "watch_price": number|null, "watch_direction": "above"|"below"|null}}
 """
 
 
@@ -169,6 +187,8 @@ def _system_prompt(asset: dict) -> str:
         news_focus=text["news_focus"],
         macro_rules=text["macro_rules"].format(instrument=asset["name"]),
         btc_proxy_note=btc_proxy_note,
+        candle_bars=market_data.RECENT_CANDLES_BARS,
+        interval_hours=config.TRADE_INTERVAL_HOURS,
     )
 
 
@@ -380,3 +400,13 @@ def _validate_decision(decision: dict) -> None:
         raise ValueError(f"Neplatný smer: {decision['direction']}")
     if not (0 <= decision["confidence"] <= 100):
         raise ValueError(f"Neplatná confidence: {decision['confidence']}")
+
+    # watch_price/watch_direction su volitelne (len pri direction="none") - ak
+    # ich model vratil, over aspon zakladny tvar, ale nechyb, ak chybaju uplne
+    # (staré/nechcene cykly ich nemusia mat).
+    watch_direction = decision.get("watch_direction")
+    if watch_direction is not None and watch_direction not in ("above", "below"):
+        raise ValueError(f"Neplatny watch_direction: {watch_direction!r}")
+    watch_price = decision.get("watch_price")
+    if watch_price is not None and not isinstance(watch_price, (int, float)):
+        raise ValueError(f"Neplatny watch_price: {watch_price!r}")

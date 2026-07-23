@@ -13,6 +13,12 @@ import pandas as pd
 import pandas_ta as ta
 import yfinance as yf
 
+# Kolko poslednych hodinovych sviecok posielame Claude ako surovy podklad na
+# posudenie strukturu (support/resistance, breakout, swing high/low) - viz
+# _recent_candles(). 48 = ~2 dni, kompromis medzi uzitocnym kontextom a
+# tokenmi/cenou (kazda sviecka pridava ~4 cisla do promptu).
+RECENT_CANDLES_BARS = 48
+
 
 def fetch_ohlcv(symbol: str = "NQ=F", fallback: str | None = "^NDX",
                  period: str = "30d", interval: str = "1h") -> pd.DataFrame:
@@ -61,8 +67,30 @@ def compute_indicators(df: pd.DataFrame) -> dict:
         "bollinger_upper": round(float(last[bbu_col]), 6) if pd.notna(last[bbu_col]) else None,
         "atr14": round(float(last["atr14"]), 6) if pd.notna(last["atr14"]) else None,
         "trend": _trend_label(last),
+        "recent_candles_note": (
+            f"posledných {RECENT_CANDLES_BARS} hodinových sviečok [open,high,low,close], "
+            "od najstaršej po najnovšiu (posledná = aktuálna)"
+        ),
+        "recent_candles": _recent_candles(df, RECENT_CANDLES_BARS),
     }
     return summary
+
+
+def _recent_candles(df: pd.DataFrame, bars: int) -> list[list]:
+    """Kompaktny zoznam [open,high,low,close] za poslednych `bars` hodinovych
+    sviecok - Claude na zaklade toho sam posudi strukturu trhu (support/
+    resistance, breakout, swing high/low) ako skuseny analytik pozerajuci sa na
+    graf, namiesto kodovania konkretnych pomenovanych formacii (cup&handle,
+    diamanty a pod. - maju slabu a nekonzistentnu empiricku oporu naprieč
+    studiami, na rozdiel od matematicky presne definovanych indikatorov
+    vyssie). Bez timestampov - poradie + aktualny cas z user promptu stacia,
+    a setria to tokeny."""
+    recent = df.tail(bars)
+    return [
+        [round(float(r.open), 6), round(float(r.high), 6),
+         round(float(r.low), 6), round(float(r.close), 6)]
+        for r in recent.itertuples()
+    ]
 
 
 def _trend_label(last_row) -> str:

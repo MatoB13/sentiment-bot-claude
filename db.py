@@ -64,6 +64,16 @@ class CycleLog(Base):
     web_search_log = Column(JSON, nullable=True)  # [{"query", "sources": [{"title","url","page_age"}]}]
     key_assumptions = Column(String, nullable=True)  # kluc. predpoklady tohto rozhodnutia - overuju sa dalsi cyklus
 
+    # Ak direction=none, ale Claude vidi konkretnu uroven cakajucu na potvrdenie
+    # (napr. retest), sem si ulozi cenu + smer na sledovanie. watch_monitor.py
+    # kazdych MONITOR_INTERVAL_MINUTES kontroluje live cenu voci TOMUTO
+    # (najnovsiemu pre dany symbol) zaznamu - ak sa splni, spusti mimoriadny
+    # (platny) Claude cyklus len pre tento asset. Novy CycleLog z takeho behu sa
+    # automaticky stane najnovsim zaznamom, cim stary watch prirodzene "zanikne"
+    # (poller vzdy pozera len na najnovsi riadok pre dany symbol).
+    watch_price = Column(Float, nullable=True)
+    watch_direction = Column(String, nullable=True)  # "above" | "below"
+
     outcome = Column(String)            # opened | rejected | error | skipped
     reject_reason = Column(String, nullable=True)
 
