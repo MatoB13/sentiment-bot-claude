@@ -46,6 +46,26 @@ _CRYPTO_MACRO_RULES = """- **BTC beta**: {instrument} sa dlhodobo správa ako vy
   veľký protokolový upgrade/hardfork, hack/exploit v ekosystéme, veľká burzová likvidačná kaskáda)
   alebo makro event (CPI/FOMC/NFP), buď výrazne konzervatívnejší (nízka confidence alebo "none")."""
 
+_COMMODITY_MACRO_RULES = """- **Reálne výnosy (US10Y) a DXY sú hlavný hýbateľ**: Rýchlo rastúce výnosy/dolár sú protivietor pre
+  {instrument} (vyššia opportunity cost držania neúročeného aktíva), klesajúce výnosy/dolár sú vietor
+  v chrbát. Toto je zvyčajne silnejší signál než čokoľvek iné v cross-market bloku.
+- **VIX režim - OPAČNÝ vzťah než pri akciách/kryptu**: Rastúci VIX (risk-off) je zvyčajne BÝČÍ signál
+  pre {instrument} (safe-haven dopyt) - presný opak toho, ako VIX pôsobí na rizikové aktíva. Ak VIX
+  rastie ale {instrument} nereaguje rastom, je to dôležitá divergencia - over, či risk-off nie je
+  spôsobený práve rastúcimi výnosmi (to je pre {instrument} protichodný signál k safe-haven dopytu).
+- **Cross-market kontext ako diagnostika POVAHY risk-off, nie priamy signál**: Ak S&P500/Nasdaq
+  padajú súčasne s rastúcim VIX A rastúcimi výnosmi, over či ide o "flight to safety" (býčie pre
+  {instrument}) alebo "risk-off kvôli vyšším sadzbám" (protichodné signály - vyššie výnosy tlačia
+  dole, strach tlačí hore, čistý efekt nejasný, buď opatrnejší).
+- **Geopolitické riziko**: Eskalácia (vojenský konflikt, sankcie, obchodné vojny) je zvyčajne býčí
+  katalyzátor pre {instrument} nezávisle od ostatných faktorov.
+- **Centrálne banky/inštitucionálny dopyt**: Správy o veľkých nákupoch zlata centrálnymi bankami
+  (najmä PBOC a iné EM centrálne banky diverzifikujúce od USD) sú strednodobý býčí naratív.
+- **Market Reaction Score**: rovnako dôležité ako inde - porovnaj obsah správy s reálnou cenovou
+  reakciou {instrument}.
+- **Event Risk Gate**: FOMC/CPI/PPI/NFP sú KĽÚČOVÉ eventy pre {instrument} (priamo hýbu výnosmi/DXY
+  očakávaniami) - pred takým eventom buď výrazne konzervatívnejší (nízka confidence alebo "none")."""
+
 ASSET_TEXT = {
     "NAS100": {
         "label": "index NAS100 (Nasdaq-100)",
@@ -75,6 +95,16 @@ ASSET_TEXT = {
             'krypto naratíve (BTC dominance, risk-on/off sentiment, veľké likvidácie na trhu)'
         ),
         "macro_rules": _CRYPTO_MACRO_RULES,
+    },
+    "GOLD": {
+        "label": "komoditu GOLD (zlato) perpetuál",
+        "news_focus": (
+            'správach o Fed politike a očakávaniach sadzieb (FOMC, CPI, PPI, NFP, dot-plot '
+            'komentáre), sile dolára (DXY), reálnych výnosoch (US10Y mínus infláčné očakávania), '
+            'geopolitickom riziku (vojnové konflikty, sankcie), a nákupoch zlata centrálnymi '
+            'bankami (najmä PBOC a iné EM centrálne banky)'
+        ),
+        "macro_rules": _COMMODITY_MACRO_RULES,
     },
 }
 

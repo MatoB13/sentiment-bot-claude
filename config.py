@@ -57,37 +57,45 @@ LEVERAGE = _int("LEVERAGE", 40)
 DEFAULT_SL_PCT = _float("DEFAULT_SL_PCT", 0.4)
 DEFAULT_TP_PCT = _float("DEFAULT_TP_PCT", 0.6)
 
-# --- Druhy a treti asset: NVDA (akcia) a ADA (krypto) - bezia v tom istom cykle
-# ako NAS100 a zdielaju s nim cross-market/session makro fetch (viz assets.py,
-# trade_cycle.run_all_cycles), ale maju uplne nezavisly risk/poziciu/rozhodnutie.
+# --- Druhy, treti a stvrty asset: NVDA (akcia), ADA (krypto) a GOLD (komodita) -
+# bezia v tom istom cykle ako NAS100 a zdielaju s nim cross-market/session makro
+# fetch (viz assets.py, trade_cycle.run_all_cycles), ale maju uplne nezavisly
+# risk/poziciu/rozhodnutie. GOLD je zamerne pridany ako protivietor k prevazne
+# risk-on smerovaniu NAS100/NVDA/ADA (safe-haven, opacna VIX polarita).
 ENABLE_NVDA = _bool("ENABLE_NVDA", "true")
 ENABLE_ADA = _bool("ENABLE_ADA", "true")
+ENABLE_GOLD = _bool("ENABLE_GOLD", "true")
 
 # Presny symbol/asset identifikator zisti cez strike_client.get_markets() - toto
 # su len predpoklady podla existujuceho NAS100-USD pomenovacieho vzoru.
 STRIKE_NVDA_SYMBOL = os.getenv("STRIKE_NVDA_SYMBOL", "NVDA-USD")
 STRIKE_ADA_SYMBOL = os.getenv("STRIKE_ADA_SYMBOL", "ADA-USD")
+STRIKE_GOLD_SYMBOL = os.getenv("STRIKE_GOLD_SYMBOL", "GOLD-USD")
 
 # Min. confidence pre otvorenie obchodu - defaultne rovnake ako NAS100, ale
-# nastavitelne zvlast (napr. ak by sa ADA/NVDA ukazali menej/viac predikovatelne).
+# nastavitelne zvlast (napr. ak by sa niektory asset ukazal menej/viac predikovatelny).
 NVDA_MIN_CONFIDENCE = _int("NVDA_MIN_CONFIDENCE", MIN_CONFIDENCE)
 ADA_MIN_CONFIDENCE = _int("ADA_MIN_CONFIDENCE", MIN_CONFIDENCE)
+GOLD_MIN_CONFIDENCE = _int("GOLD_MIN_CONFIDENCE", MIN_CONFIDENCE)
 
 NVDA_MARGIN_USD = _float("NVDA_MARGIN_USD", MARGIN_USD)
 ADA_MARGIN_USD = _float("ADA_MARGIN_USD", MARGIN_USD)
+GOLD_MARGIN_USD = _float("GOLD_MARGIN_USD", MARGIN_USD)
 
-# Nizsia paka nez NAS100 (40x) - NVDA aj ADA maju vyssiu vnutrodennu volatilitu,
-# takze rovnaka paka by pri bezneho pohybe trhu znamenala vyssie riziko likvidacie.
+# Nizsia paka nez NAS100 (40x) - vsetky tri maju vyssiu vnutrodennu volatilitu
+# nez index, takze rovnaka paka by pri bezneho pohybe trhu znamenala vyssie
+# riziko likvidacie. GOLD je menej volatilne nez NVDA/ADA, ale volatilnejsie nez
+# index NAS100, takze paka je medzi NAS100 a NVDA.
 NVDA_LEVERAGE = _int("NVDA_LEVERAGE", 10)
 ADA_LEVERAGE = _int("ADA_LEVERAGE", 6)
+GOLD_LEVERAGE = _int("GOLD_LEVERAGE", 20)
 
 # Sirsie SL/TP % nez NAS100 (0.4/0.6) - kalibrovane na typicku dennu volatilitu
-# jednotlivej megacap akcie (NVDA) a krypto assetu (ADA), pri zachovani rovnakeho
-# risk:reward pomeru (SL:TP = 1:1.5) ako pri NAS100. Priblizne 2.5x-3x sirsie SL/TP
-# pre NVDA (jednotliva akcia je volatilnejsia nez index) a 4x-9x sirsie pre ADA
-# (krypto je volatilnejsie nez akcie), s primerane nizsou pakou pre bezpecny buffer
-# do likvidacie (~1/leverage).
+# jednotlivej megacap akcie (NVDA), krypto assetu (ADA) a komodity (GOLD), pri
+# zachovani rovnakeho risk:reward pomeru (SL:TP = 1:1.5) ako pri NAS100.
 NVDA_SL_PCT = _float("NVDA_SL_PCT", 1.5)
 NVDA_TP_PCT = _float("NVDA_TP_PCT", 2.25)
 ADA_SL_PCT = _float("ADA_SL_PCT", 3.5)
 ADA_TP_PCT = _float("ADA_TP_PCT", 5.25)
+GOLD_SL_PCT = _float("GOLD_SL_PCT", 0.8)
+GOLD_TP_PCT = _float("GOLD_TP_PCT", 1.2)

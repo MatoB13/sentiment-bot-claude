@@ -49,6 +49,13 @@ ASSET_NUMERIC = {
         ("ADA_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
         ("ADA_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
     ],
+    "GOLD": [
+        ("GOLD_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
+        ("GOLD_MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
+        ("GOLD_LEVERAGE", int, "Fixna paka (notional = margin x leverage)"),
+        ("GOLD_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
+        ("GOLD_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
+    ],
 }
 
 # Spatna kompatibilita s povodnym menom pouzivanym nizsie v kode.
@@ -86,7 +93,7 @@ def reload_app_modules():
     importlib.reload(config)
 
 
-st.title("Sentiment Bot (NAS100 + NVDA + ADA) — Dashboard")
+st.title("Sentiment Bot (NAS100 + NVDA + ADA + GOLD) — Dashboard")
 
 env_values = load_env()
 
@@ -123,22 +130,26 @@ with tabs[0]:
 
     _render_numeric(SHARED_NUMERIC)
 
-    asset_tabs = st.tabs(["NAS100", "NVDA", "ADA"])
-    for asset_name, asset_tab in zip(["NAS100", "NVDA", "ADA"], asset_tabs):
+    ASSET_NAMES = ["NAS100", "NVDA", "ADA", "GOLD"]
+    OPTIONAL_ASSETS = ["NVDA", "ADA", "GOLD"]  # NAS100 beri vzdy, ostatne su ENABLE_* prepinatelne
+
+    asset_tabs = st.tabs(ASSET_NAMES)
+    for asset_name, asset_tab in zip(ASSET_NAMES, asset_tabs):
         with asset_tab:
             _render_numeric(ASSET_NUMERIC[asset_name])
 
-    enable_cols = st.columns(2)
-    enable_nvda_current = str(env_values.get("ENABLE_NVDA", "true")).lower() in ("1", "true", "yes", "on")
-    enable_ada_current = str(env_values.get("ENABLE_ADA", "true")).lower() in ("1", "true", "yes", "on")
-    enable_nvda_new = enable_cols[0].toggle("ENABLE_NVDA", value=enable_nvda_current)
-    enable_ada_new = enable_cols[1].toggle("ENABLE_ADA", value=enable_ada_current)
+    enable_cols = st.columns(len(OPTIONAL_ASSETS))
+    enable_new = {}
+    for col, asset_name in zip(enable_cols, OPTIONAL_ASSETS):
+        env_key = f"ENABLE_{asset_name}"
+        current = str(env_values.get(env_key, "true")).lower() in ("1", "true", "yes", "on")
+        enable_new[env_key] = col.toggle(env_key, value=current)
 
     if st.button("Ulozit konfiguraciu", type="primary"):
         to_save = {k: str(v) for k, v in new_values.items()}
         to_save["DRY_RUN"] = "true" if dry_run_new else "false"
-        to_save["ENABLE_NVDA"] = "true" if enable_nvda_new else "false"
-        to_save["ENABLE_ADA"] = "true" if enable_ada_new else "false"
+        for env_key, value in enable_new.items():
+            to_save[env_key] = "true" if value else "false"
         save_env_values(to_save)
         reload_app_modules()
         st.success("Ulozene do .env.")
@@ -155,7 +166,7 @@ with tabs[0]:
 with tabs[1]:
     import assets as assets_module
 
-    asset_choice = st.selectbox("Asset", ["NAS100", "NVDA", "ADA"])
+    asset_choice = st.selectbox("Asset", [a["name"] for a in assets_module.ALL_ASSETS])
     selected_asset = {a["name"]: a for a in assets_module.ALL_ASSETS}[asset_choice]
 
     if st.button("Nacitat live dáta"):

@@ -1,11 +1,13 @@
-# Sentiment Bot (Strike Finance) — NAS100 + NVDA + ADA
+# Sentiment Bot (Strike Finance) — NAS100 + NVDA + ADA + GOLD
 
 Automatizovaný multi-asset obchodný bot na Strike Finance: **NAS100** (index),
-**NVDA** (akcia) a **ADA** (krypto perpetuál). Kazdy asset je nezávislý "bot" —
-vlastná pozícia, vlastný risk (SL/TP %, leverage, margin, min. confidence),
-vlastné rozhodnutie od Claude — ale všetky bežia v **jednom scheduler cykle** a
-zdieľajú cross-market/session (a pre ADA aj BTC-proxy) makro fetch, takže sa
-tie isté dáta nesťahujú 3x (viz `assets.py`, `trade_cycle.run_all_cycles`).
+**NVDA** (akcia), **ADA** (krypto perpetuál) a **GOLD** (komodita, zámerne
+pridaná ako protivietor k prevažne risk-on smerovaniu ostatných troch — safe-haven
+asset, opačná polarita VIX). Každý asset je nezávislý "bot" — vlastná pozícia,
+vlastný risk (SL/TP %, leverage, margin, min. confidence), vlastné rozhodnutie od
+Claude — ale všetky bežia v **jednom scheduler cykle** a zdieľajú cross-market/
+session (a pre ADA aj BTC-proxy) makro fetch, takže sa tie isté dáta nesťahujú
+4x (viz `assets.py`, `trade_cycle.run_all_cycles`).
 
 **Ako to funguje (jeden cyklus, `trade_cycle.run_all_cycles`):**
 
@@ -13,10 +15,10 @@ tie isté dáta nesťahujú 3x (viz `assets.py`, `trade_cycle.run_all_cycles`).
    sa zavolajú **RAZ** pre celý cyklus (nie per asset). Ak je aktívna ADA, pridá sa
    ešte `get_btc_proxy_snapshot()` (BTC ako krypto-makro proxy, tiež cez yfinance,
    žiadny nový platený zdroj).
-1. Pre každý aktívny asset z `assets.py` (NAS100/NVDA/ADA):
-   - `market_data.py` stiahne cenové dáta (NAS100 cez `^NDX`/`NQ=F` proxy, NVDA a
-     ADA-USD priamo) a spočíta TA indikátory (RSI, MACD, EMA20/50/200, Bollinger
-     Bands, ATR, trend).
+1. Pre každý aktívny asset z `assets.py` (NAS100/NVDA/ADA/GOLD):
+   - `market_data.py` stiahne cenové dáta (NAS100 cez `^NDX`/`NQ=F` proxy, NVDA,
+     ADA-USD a GOLD cez `GC=F`/`GLD` fallback priamo) a spočíta TA indikátory
+     (RSI, MACD, EMA20/50/200, Bollinger Bands, ATR, trend).
    - (voliteľne) `social_sentiment.py` stiahne najnovšie tweety/posty s
      relevantnými hashtagmi/cashtagmi pre daný asset cez X API.
    - `claude_analyst.py` pošle TA dáta + zdieľaný makro kontext do Claude
@@ -46,7 +48,7 @@ jeden dlhodobo bežiaci proces na Railway (worker service). `TRADE_INTERVAL_HOUR
 a `MONITOR_INTERVAL_MINUTES` sú **zdieľané pre všetky assety** (bežia v tom istom
 tiku) — zmena v Railway env sa prejaví pre všetky naraz.
 
-Assety možno jednotlivo vypnúť cez `ENABLE_NVDA`/`ENABLE_ADA` (NAS100 beží vždy).
+Assety možno jednotlivo vypnúť cez `ENABLE_NVDA`/`ENABLE_ADA`/`ENABLE_GOLD` (NAS100 beží vždy).
 
 ## ⚠️ Dôležité upozornenia
 
@@ -57,7 +59,7 @@ Assety možno jednotlivo vypnúť cez `ENABLE_NVDA`/`ENABLE_ADA` (NAS100 beží 
   base-asset jednotkách, nie notional USD. Overené voči
   https://docs.strikefinance.org/api/trade/orders a
   https://docs.strikefinance.org/api/trade/trading.
-- NVDA a ADA majú nižšiu default paku a širšie SL/TP % než NAS100 (viz
+- NVDA, ADA a GOLD majú nižšiu default paku a širšie SL/TP % než NAS100 (viz
   `.env.example`) — sú kalibrované na vyššiu typickú volatilitu jednotlivej akcie
   resp. krypta, ale over si to sám na pár dňoch DRY_RUN dát pred ostrým behom.
 - Spusti bota najprv s `DRY_RUN=true` — všetko sa vygeneruje a zaloguje/zapíše do DB,
@@ -99,8 +101,8 @@ Pozri `.env.example` — najdôležitejšie:
 
 - `ANTHROPIC_API_KEY` — tvoj Anthropic API kľúč (analytik)
 - `STRIKE_API_PRIVATE_KEY` / `STRIKE_API_PUBLIC_KEY` — API wallet ku Strike (Ed25519, vygeneruj na app.strikefinance.org/api-keys)
-- `STRIKE_NAS100_SYMBOL` / `STRIKE_NVDA_SYMBOL` / `STRIKE_ADA_SYMBOL` — presný symbol/market
-  identifikátor pre daný asset na Strike (zisti cez `get_markets()` v `strike_client.py`)
+- `STRIKE_NAS100_SYMBOL` / `STRIKE_NVDA_SYMBOL` / `STRIKE_ADA_SYMBOL` / `STRIKE_GOLD_SYMBOL` — presný
+  symbol/market identifikátor pre daný asset na Strike (zisti cez `get_markets()` v `strike_client.py`)
 - `TWITTER_BEARER_TOKEN` — voliteľné, X API v2 (platený tier na zmysluplný recent search)
 - `DATABASE_URL` — pre trvalé uloženie histórie obchodov použi Railway Postgres plugin
   (SQLite súbor na Railway sa stratí pri každom redeployi!)
@@ -108,11 +110,14 @@ Pozri `.env.example` — najdôležitejšie:
 - `TRADE_INTERVAL_HOURS` — ako často beží analytický cyklus (napr. `4`) — **zdieľané pre všetky assety**
 - `MONITOR_INTERVAL_MINUTES` — ako často sa kontrolujú otvorené pozície (napr. `10`) — zdieľané
 - `POSITION_MAX_HOURS` — max. držanie pozície pred force-close — zdieľané
-- `ENABLE_NVDA` / `ENABLE_ADA` — `true`/`false`, vypnutie/zapnutie daného bota (NAS100 beží vždy)
-- `MIN_CONFIDENCE`, `NVDA_MIN_CONFIDENCE`, `ADA_MIN_CONFIDENCE` - min. confidence pre otvorenie obchodu (per asset)
-- `MARGIN_USD`/`NVDA_MARGIN_USD`/`ADA_MARGIN_USD`, `LEVERAGE`/`NVDA_LEVERAGE`/`ADA_LEVERAGE` -
+- `ENABLE_NVDA` / `ENABLE_ADA` / `ENABLE_GOLD` — `true`/`false`, vypnutie/zapnutie daného bota (NAS100 beží vždy)
+- `MIN_CONFIDENCE`, `NVDA_MIN_CONFIDENCE`, `ADA_MIN_CONFIDENCE`, `GOLD_MIN_CONFIDENCE` - min. confidence
+  pre otvorenie obchodu (per asset)
+- `MARGIN_USD`/`NVDA_MARGIN_USD`/`ADA_MARGIN_USD`/`GOLD_MARGIN_USD`,
+  `LEVERAGE`/`NVDA_LEVERAGE`/`ADA_LEVERAGE`/`GOLD_LEVERAGE` -
   fixny margin+leverage na kazdy obchod (notional = margin x leverage), per asset
-- `DEFAULT_SL_PCT`/`NVDA_SL_PCT`/`ADA_SL_PCT`, `DEFAULT_TP_PCT`/`NVDA_TP_PCT`/`ADA_TP_PCT` - cielove
+- `DEFAULT_SL_PCT`/`NVDA_SL_PCT`/`ADA_SL_PCT`/`GOLD_SL_PCT`,
+  `DEFAULT_TP_PCT`/`NVDA_TP_PCT`/`ADA_TP_PCT`/`GOLD_TP_PCT` - cielove
   SL/TP ako % od live ceny (per asset); Claude navrhuje presnu cenu v tolerancii 0.5x-2x okolo
   tychto hodnot (viz `risk_manager.py`)
 
@@ -133,7 +138,7 @@ Pozri `.env.example` — najdôležitejšie:
 |---|---|
 | `main.py` | scheduler, entrypoint |
 | `config.py` | centrálne env premenné (zdieľané + per-asset) |
-| `assets.py` | registry assetov (NAS100/NVDA/ADA) - symbol, TA ticker, SL/TP%, leverage, margin, min_confidence |
+| `assets.py` | registry assetov (NAS100/NVDA/ADA/GOLD) - symbol, TA ticker, SL/TP%, leverage, margin, min_confidence |
 | `db.py` | SQLAlchemy modely `Trade`/`CycleLog` (obe majú `symbol`) + session |
 | `market_data.py` | OHLCV + TA indikátory (per asset), zdieľaný cross-market/session/BTC-proxy fetch |
 | `social_sentiment.py` | (voliteľné) X/Twitter sentiment, per asset query |
