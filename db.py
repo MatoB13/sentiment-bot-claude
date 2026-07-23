@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import (Column, DateTime, Float, Integer, String, Boolean,
-                         JSON, create_engine)
+                         JSON, create_engine, inspect, text)
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 import config
@@ -61,6 +61,7 @@ class CycleLog(Base):
     take_profit_price = Column(Float, nullable=True)
     reasoning = Column(String, nullable=True)
     web_search_log = Column(JSON, nullable=True)  # [{"query", "sources": [{"title","url","page_age"}]}]
+    key_assumptions = Column(String, nullable=True)  # kluc. predpoklady tohto rozhodnutia - overuju sa dalsi cyklus
 
     outcome = Column(String)            # opened | rejected | error | skipped
     reject_reason = Column(String, nullable=True)
@@ -68,8 +69,28 @@ class CycleLog(Base):
     trade_id = Column(Integer, nullable=True)  # ak outcome=opened, id v `trades`
 
 
+def _ensure_columns(engine) -> None:
+    """create_all() vytvori len chybajuce TABULKY, nikdy nepridá stlpec do uz
+    existujucej tabulky. Toto je poor-man's migration: pri kazdom starte
+    porovna model so skutocnou DB a chybajuce stlpce dopichne cez ALTER TABLE.
+    Bezpecne pre pridavanie novych nullable stlpcov (nas jediny use-case)."""
+    inspector = inspect(engine)
+    for table in Base.metadata.sorted_tables:
+        if not inspector.has_table(table.name):
+            continue  # cela tabulka je nova - tu uz vytvoril create_all()
+        existing = {col["name"] for col in inspector.get_columns(table.name)}
+        for column in table.columns:
+            if column.name in existing:
+                continue
+            col_type = column.type.compile(engine.dialect)
+            with engine.begin() as conn:
+                conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type}'))
+            print(f"[db] Pridany chybajuci stlpec {table.name}.{column.name} ({col_type})")
+
+
 _engine = create_engine(config.DATABASE_URL, future=True)
 Base.metadata.create_all(_engine)
+_ensure_columns(_engine)
 SessionLocal = sessionmaker(bind=_engine, future=True)
 
 
