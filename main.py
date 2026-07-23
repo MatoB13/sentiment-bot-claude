@@ -20,9 +20,19 @@ def main():
                        minutes=config.MONITOR_INTERVAL_MINUTES, id="position_monitor")
     scheduler.start()
 
-    # spusti oba joby hned na starte, potom uz podla intervalu
-    trade_cycle.run_cycle()
-    position_monitor.check_open_trades()
+    # spusti oba joby hned na starte, potom uz podla intervalu. Na rozdiel od
+    # scheduler.add_job beh tu nie je nicim odchytavany - nezachytena vynimka by
+    # zhodila cely worker proces (Railway by ho restartoval, co sposobovalo
+    # viachodinove diery v historii). Kazdy job si chyby loguje/zaznamenava sam,
+    # tu len zabranime celkovemu padu procesu pri necakanej vynimke.
+    try:
+        trade_cycle.run_cycle()
+    except Exception as e:
+        print(f"[main] run_cycle zlyhal neocakavane: {e}")
+    try:
+        position_monitor.check_open_trades()
+    except Exception as e:
+        print(f"[main] check_open_trades zlyhal neocakavane: {e}")
 
     try:
         while True:

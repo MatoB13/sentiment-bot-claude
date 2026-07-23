@@ -44,17 +44,30 @@ def run_cycle():
             session.commit()
             return
 
-        market_meta = strike_client.get_market(config.STRIKE_NAS100_SYMBOL)
-        live_price = float(market_meta["mark_price"])
+        try:
+            market_meta = strike_client.get_market(config.STRIKE_NAS100_SYMBOL)
+            live_price = float(market_meta["mark_price"])
 
-        ta = market_data.get_market_snapshot()
-        cross_market = market_data.get_cross_market_snapshot()
-        market_session = market_data.get_session_snapshot()
-        social = social_sentiment.fetch_recent_posts()
-        print(f"[trade_cycle] Strike live_price={live_price} | TA: {ta}")
-        print(f"[trade_cycle] Cross-market: {cross_market}")
-        print(f"[trade_cycle] Session: {market_session}")
-        print(f"[trade_cycle] Nacitanych {len(social)} social prispevkov (spravy hlada Claude sam cez web_search).")
+            ta = market_data.get_market_snapshot()
+            cross_market = market_data.get_cross_market_snapshot()
+            market_session = market_data.get_session_snapshot()
+            social = social_sentiment.fetch_recent_posts()
+            print(f"[trade_cycle] Strike live_price={live_price} | TA: {ta}")
+            print(f"[trade_cycle] Cross-market: {cross_market}")
+            print(f"[trade_cycle] Session: {market_session}")
+            print(f"[trade_cycle] Nacitanych {len(social)} social prispevkov (spravy hlada Claude sam cez web_search).")
+        except Exception as e:
+            # Strike/yfinance API vypadok tu predtym zhodil cely cyklus neodchytenou
+            # vynimkou - ak islo o ten uvodny priamy beh v main.py (mimo schedulera),
+            # spadol cely worker proces a Railway ho restartoval, co sposobilo viachodinove
+            # diery v historii bez akejkolvek stopy. Radsej zalogujeme a bezpecne preskocime.
+            print(f"[trade_cycle] Zber trhovych dat zlyhal, preskakujem cyklus: {e}")
+            session.add(CycleLog(
+                config_snapshot=_config_snapshot(),
+                outcome="error", reject_reason=f"market_data_fetch_failed: {e}",
+            ))
+            session.commit()
+            return
 
         prev_log = (
             session.query(CycleLog)
