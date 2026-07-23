@@ -1,5 +1,6 @@
 """Entrypoint - beh na Railway ako worker service (Procfile: worker: python main.py)."""
 import time
+from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -13,11 +14,22 @@ def main():
     print(f"DRY_RUN={config.DRY_RUN} | TRADE_INTERVAL_HOURS={config.TRADE_INTERVAL_HOURS} "
           f"| MONITOR_INTERVAL_MINUTES={config.MONITOR_INTERVAL_MINUTES}")
 
+    # Prve spustenie kazdeho jobu je explicitne volanie nizsie ("hned na starte"),
+    # takze scheduler ma zacat tikat az o jeden cely interval neskor - inak by sa
+    # prvy beh zdvojil. POZOR: next_run_time=None (povodny pokus, ako tomu predist)
+    # job namiesto toho NATRVALO vypne - APScheduler uz nikdy sam nenastavi dalsi
+    # beh, kym ho nieco explicitne neprebudi. Over. Preto tu musi byt konkretny
+    # buduci cas, nie None.
+    now = datetime.now(timezone.utc)
     scheduler = BackgroundScheduler(timezone="UTC")
     scheduler.add_job(trade_cycle.run_cycle, "interval",
-                       hours=config.TRADE_INTERVAL_HOURS, next_run_time=None, id="trade_cycle")
+                       hours=config.TRADE_INTERVAL_HOURS,
+                       next_run_time=now + timedelta(hours=config.TRADE_INTERVAL_HOURS),
+                       id="trade_cycle")
     scheduler.add_job(position_monitor.check_open_trades, "interval",
-                       minutes=config.MONITOR_INTERVAL_MINUTES, id="position_monitor")
+                       minutes=config.MONITOR_INTERVAL_MINUTES,
+                       next_run_time=now + timedelta(minutes=config.MONITOR_INTERVAL_MINUTES),
+                       id="position_monitor")
     scheduler.start()
 
     # spusti oba joby hned na starte, potom uz podla intervalu. Na rozdiel od
