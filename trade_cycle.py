@@ -76,10 +76,11 @@ def run_cycle():
             .first()
         )
         prev_assumptions = prev_log.key_assumptions if prev_log else None
+        prev_cycle_time = prev_log.created_at if prev_log else None
 
         try:
             decision, web_search_log = claude_analyst.analyze(
-                ta, cross_market, market_session, social, prev_assumptions,
+                ta, cross_market, market_session, social, prev_assumptions, prev_cycle_time,
             )
         except Exception as e:
             print(f"[trade_cycle] Claude analyza zlyhala, preskakujem cyklus: {e}")

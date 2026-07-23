@@ -23,6 +23,20 @@ výsledky (mesiace/roky staré) namiesto aktuálnych. Pri hodnotení výsledkov 
 page_age/dátum - ak je správa staršia než obdobie od posledného cyklu (dostaneš ho v user
 správe), ber ju len ako pozadový kontext, nie ako novú informáciu ktorá mení rozhodnutie.
 
+Toto je INKREMENTÁLNE hľadanie, nie hľadanie od nuly: predpoklady z predchádzajúceho cyklu
+(ak existujú) už pokrývajú stav sveta do svojho času. Tvojou úlohou je zistiť LEN ČO PRIBUDLO
+alebo SA ZMENILO odvtedy (typicky posledné ~4h) - nie znova zbierať celý kontext. Formuluj
+dotazy cielene na najnovšie dianie (napr. "[firma] news today", "NAS100 futures [dátum] [čas]"),
+nie všeobecné prehľady, ktoré ťa zavalia starším materiálom.
+
+Kvalita zdrojov: ak sa dá, uprednostni priamy/primárny zdroj pred sekundárnym prevykladom -
+oficiálna tlačová správa firmy na jej investor-relations stránke alebo SEC/EDGAR filing namiesto
+blogového zhrnutia, oficiálne dáta z bls.gov/federalreserve.gov namiesto komentára tretej strany,
+Reuters/Bloomberg/AP namiesto menej známych agregátorov. Bežné finančné weby (Yahoo Finance,
+Investing.com, CNBC a pod.) sú v poriadku ak primárny zdroj nie je ľahko dostupný, ale ak je to
+priamočiare (napr. dopyt na "[firma] investor relations press release" alebo "site:sec.gov"),
+skús najprv originál.
+
 Tvoja úloha je vyhodnotiť, či má zmysel otvoriť LONG, SHORT, alebo neobchodovať (NONE)
 na horizont max. 24 hodín, s konkrétnym stop-lossom a take-profitom.
 
@@ -64,7 +78,8 @@ Formát:
 
 
 def _build_user_prompt(ta: dict, cross_market: dict, session: dict, social: list[dict],
-                        prev_assumptions: str | None) -> str:
+                        prev_assumptions: str | None,
+                        prev_cycle_time: datetime | None = None) -> str:
     social_block = "\n".join(
         f"- ({p.get('likes')}♥/{p.get('retweets')}rt) {p.get('text')}"
         for p in social[:15]
@@ -73,13 +88,22 @@ def _build_user_prompt(ta: dict, cross_market: dict, session: dict, social: list
     now = datetime.now(timezone.utc)
     interval_h = config.TRADE_INTERVAL_HOURS
 
-    prev_block = (
-        f'"{prev_assumptions}"\n\nOver si cez web_search, či tieto predpoklady stále platia, '
-        f"alebo sa niečo zmenilo (event už prebehol, správa sa nenaplnila, sentiment sa otočil...). "
-        f"V reasoning výslovne napíš, či držia alebo čo sa zmenilo."
-        if prev_assumptions else
-        "(žiadne - toto je prvý cyklus alebo predchádzajúci nemal záznam)"
-    )
+    if prev_assumptions and prev_cycle_time:
+        since_str = prev_cycle_time.strftime('%A, %d. %B %Y, %H:%M UTC')
+        prev_block = (
+            f'"{prev_assumptions}"\n\n(tieto predpoklady pochádzajú z cyklu o {since_str})\n\n'
+            f"Hľadaj VÝLUČNE, čo pribudlo/zmenilo sa OD {since_str} - nie celý kontext od nuly. "
+            f"Over, či tieto predpoklady stále platia, alebo sa niečo zmenilo (event už prebehol, "
+            f"správa sa nenaplnila, sentiment sa otočil...). V reasoning výslovne napíš, či držia "
+            f"alebo čo sa zmenilo."
+        )
+    elif prev_assumptions:
+        prev_block = (
+            f'"{prev_assumptions}"\n\nOver si cez web_search, či tieto predpoklady stále platia, '
+            f"alebo sa niečo zmenilo. V reasoning výslovne napíš, či držia alebo čo sa zmenilo."
+        )
+    else:
+        prev_block = "(žiadne - toto je prvý cyklus alebo predchádzajúci nemal záznam)"
 
     return f"""## Aktuálny dátum a čas
 {now.strftime('%A, %d. %B %Y, %H:%M')} UTC ({now.isoformat()})
@@ -115,14 +139,17 @@ formátu zo system promptu.
 
 
 def analyze(ta: dict, cross_market: dict, session: dict, social: list[dict],
-            prev_assumptions: str | None = None) -> tuple[dict, list[dict]]:
+            prev_assumptions: str | None = None,
+            prev_cycle_time: datetime | None = None) -> tuple[dict, list[dict]]:
     """Vrati (decision, web_search_log). web_search_log je zoznam
     {"query": str, "sources": [{"title", "url", "page_age"}]} pre kazde
     vyhladavanie, ktore Claude spravil - sluzi na audit (co realne citas,
     aby sa dalo neskor rozhodnut o whitelist/blacklist domen).
 
     prev_assumptions: kluc_assumptions z minuleho cyklu (ak existuje) - Claude
-    ho dostane na explicitne overenie, ci este plati."""
+    ho dostane na explicitne overenie, ci este plati.
+    prev_cycle_time: kedy prev_assumptions vznikli - umoznuje formulovat hladanie
+    ako presny inkrement ("co pribudlo OD X"), nie vagne "za poslednych ~4h"."""
     if not config.ANTHROPIC_API_KEY:
         raise RuntimeError("ANTHROPIC_API_KEY nie je nastavený")
 
@@ -132,7 +159,8 @@ def analyze(ta: dict, cross_market: dict, session: dict, social: list[dict],
     # prompt + user sprava platili nanovo na plnu cenu pri kazdom pokracovani.
     messages = [{"role": "user",
                  "content": [{"type": "text",
-                               "text": _build_user_prompt(ta, cross_market, session, social, prev_assumptions),
+                               "text": _build_user_prompt(ta, cross_market, session, social,
+                                                           prev_assumptions, prev_cycle_time),
                                "cache_control": {"type": "ephemeral"}}]}]
     web_search_log: list[dict] = []
 
