@@ -126,8 +126,14 @@ def analyze(ta: dict, cross_market: dict, session: dict, social: list[dict],
     if not config.ANTHROPIC_API_KEY:
         raise RuntimeError("ANTHROPIC_API_KEY nie je nastavený")
 
+    # cache_control na systemovom prompte aj user sprave: ak Claude narazi na
+    # pause_turn (casto sa stava pri viacerych web_search volaniach), musime
+    # poslat celu doterajsiu konverzaciu znova - bez cachovania by sa system
+    # prompt + user sprava platili nanovo na plnu cenu pri kazdom pokracovani.
     messages = [{"role": "user",
-                 "content": _build_user_prompt(ta, cross_market, session, social, prev_assumptions)}]
+                 "content": [{"type": "text",
+                               "text": _build_user_prompt(ta, cross_market, session, social, prev_assumptions),
+                               "cache_control": {"type": "ephemeral"}}]}]
     web_search_log: list[dict] = []
 
     # server-side web_search moze pri velmi dlhom hladani vratit stop_reason=pause_turn -
@@ -143,7 +149,8 @@ def analyze(ta: dict, cross_market: dict, session: dict, social: list[dict],
             json={
                 "model": config.CLAUDE_MODEL,
                 "max_tokens": 4096,
-                "system": SYSTEM_PROMPT,
+                "system": [{"type": "text", "text": SYSTEM_PROMPT,
+                            "cache_control": {"type": "ephemeral"}}],
                 "tools": [{"type": "web_search_20260209", "name": "web_search", "max_uses": 5}],
                 "messages": messages,
             },
@@ -153,8 +160,17 @@ def analyze(ta: dict, cross_market: dict, session: dict, social: list[dict],
         data = resp.json()
         content_blocks = data.get("content", [])
         web_search_log.extend(_extract_web_search_log(content_blocks))
+        usage = data.get("usage", {})
+        print(f"[claude_analyst] usage: input={usage.get('input_tokens')} "
+              f"cache_write={usage.get('cache_creation_input_tokens')} "
+              f"cache_read={usage.get('cache_read_input_tokens')} output={usage.get('output_tokens')}")
 
         if data.get("stop_reason") == "pause_turn":
+            # posledny blok predchadzajucej assistant odpovede oznacime ako dalsi cache
+            # breakpoint, aby pokracovanie znova necitalo (a neplatilo) uz raz poslane
+            # tool-result data na plnu cenu.
+            if content_blocks:
+                content_blocks[-1] = {**content_blocks[-1], "cache_control": {"type": "ephemeral"}}
             messages = messages + [{"role": "assistant", "content": content_blocks}]
             continue
 
