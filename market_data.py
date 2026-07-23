@@ -1,22 +1,24 @@
 """
-Ziskanie cenovych dat pre NAS100 a vypocet TA indikatorov.
+Ziskanie cenovych dat pre obchodovane assety (NAS100/NVDA/ADA) a vypocet TA
+indikatorov.
 
-NAS100 na Strike je syntetický perpetuál sledujúci index Nasdaq-100.
-Pre historické OHLCV a TA pouzivame verejny proxy feed (^NDX index alebo
-NQ=F futures) cez yfinance - realna vstupna/vystupna cena obchodu sa berie
-z live ceny na Strike (strike_client.get_markets()), TA slúži len ako kontext
-pre rozhodovanie.
+NAS100 na Strike je syntetický perpetuál sledujúci index Nasdaq-100 - pre
+historické OHLCV a TA pouzivame verejny proxy feed (^NDX index alebo NQ=F
+futures) cez yfinance. NVDA a ADA-USD su na yfinance dostupne priamo (ziadny
+proxy netreba). Realna vstupna/vystupna cena obchodu sa vzdy berie z live ceny
+na Strike (strike_client.get_markets()), TA slúži len ako kontext pre
+rozhodovanie.
 """
 import pandas as pd
 import pandas_ta as ta
 import yfinance as yf
 
 
-def fetch_ohlcv(symbol: str = "NQ=F", period: str = "30d", interval: str = "1h") -> pd.DataFrame:
+def fetch_ohlcv(symbol: str = "NQ=F", fallback: str | None = "^NDX",
+                 period: str = "30d", interval: str = "1h") -> pd.DataFrame:
     df = yf.download(symbol, period=period, interval=interval, progress=False, auto_adjust=True)
-    if df.empty:
-        # fallback na index misto futures
-        df = yf.download("^NDX", period=period, interval=interval, progress=False, auto_adjust=True)
+    if df.empty and fallback:
+        df = yf.download(fallback, period=period, interval=interval, progress=False, auto_adjust=True)
     df.columns = [c[0].lower() if isinstance(c, tuple) else c.lower() for c in df.columns]
     return df.dropna()
 
@@ -43,18 +45,21 @@ def compute_indicators(df: pd.DataFrame) -> dict:
     bbl_col = [c for c in df.columns if c.startswith("BBL_")][0]
     bbu_col = [c for c in df.columns if c.startswith("BBU_")][0]
 
+    # 6 desatinnych miest namiesto 2 - NAS100/NVDA sa 2 desatinami nepokazi, ale
+    # ADA sa obchoduje pod $1 (napr. 0.4523), kde by zaokruhlenie na 2 miesta
+    # znamenalo strate presnosti porovnatelnu s celou SL/TP vzdialenostou.
     summary = {
-        "last_price": round(float(last["close"]), 2),
+        "last_price": round(float(last["close"]), 6),
         "change_24h_pct": round(float(change_24h_pct), 2),
         "rsi14": round(float(last["rsi14"]), 1) if pd.notna(last["rsi14"]) else None,
-        "macd": round(float(last[macd_col]), 2) if pd.notna(last[macd_col]) else None,
-        "macd_signal": round(float(last[macds_col]), 2) if pd.notna(last[macds_col]) else None,
-        "ema20": round(float(last["ema20"]), 2) if pd.notna(last["ema20"]) else None,
-        "ema50": round(float(last["ema50"]), 2) if pd.notna(last["ema50"]) else None,
-        "ema200": round(float(last["ema200"]), 2) if pd.notna(last["ema200"]) else None,
-        "bollinger_lower": round(float(last[bbl_col]), 2) if pd.notna(last[bbl_col]) else None,
-        "bollinger_upper": round(float(last[bbu_col]), 2) if pd.notna(last[bbu_col]) else None,
-        "atr14": round(float(last["atr14"]), 2) if pd.notna(last["atr14"]) else None,
+        "macd": round(float(last[macd_col]), 6) if pd.notna(last[macd_col]) else None,
+        "macd_signal": round(float(last[macds_col]), 6) if pd.notna(last[macds_col]) else None,
+        "ema20": round(float(last["ema20"]), 6) if pd.notna(last["ema20"]) else None,
+        "ema50": round(float(last["ema50"]), 6) if pd.notna(last["ema50"]) else None,
+        "ema200": round(float(last["ema200"]), 6) if pd.notna(last["ema200"]) else None,
+        "bollinger_lower": round(float(last[bbl_col]), 6) if pd.notna(last[bbl_col]) else None,
+        "bollinger_upper": round(float(last[bbu_col]), 6) if pd.notna(last[bbu_col]) else None,
+        "atr14": round(float(last["atr14"]), 6) if pd.notna(last["atr14"]) else None,
         "trend": _trend_label(last),
     }
     return summary
@@ -74,8 +79,8 @@ def _trend_label(last_row) -> str:
     return "mild_downtrend"
 
 
-def get_market_snapshot() -> dict:
-    df = fetch_ohlcv()
+def get_market_snapshot(symbol: str = "NQ=F", fallback: str | None = "^NDX") -> dict:
+    df = fetch_ohlcv(symbol, fallback)
     return compute_indicators(df)
 
 
@@ -191,8 +196,18 @@ def get_session_snapshot() -> dict:
     return _fetch_session_snapshot(SESSION_TICKERS)
 
 
+def get_btc_proxy_snapshot() -> dict | None:
+    """Volny krypto-makro proxy pre ADA (BTC beta) - rovnaky yfinance feed ako
+    cross-market/session bloky vyssie, ziadny novy platony zdroj netreba.
+    Pouziva sa len v ADA prompte (viz assets.ADA['needs_btc_proxy'] a
+    claude_analyst._build_user_prompt)."""
+    snap = _fetch_session_snapshot({"btc": "BTC-USD"})
+    return snap.get("btc")
+
+
 if __name__ == "__main__":
     import json
     print(json.dumps(get_market_snapshot(), indent=2))
     print(json.dumps(get_cross_market_snapshot(), indent=2))
     print(json.dumps(get_session_snapshot(), indent=2))
+    print(json.dumps(get_btc_proxy_snapshot(), indent=2))

@@ -4,13 +4,16 @@ from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
+import assets
 import config
 import position_monitor
 import trade_cycle
 
 
 def main():
-    print("=== NAS100 Sentiment Bot ===")
+    active = [a["name"] for a in assets.enabled_assets()]
+    print("=== Sentiment Bot (multi-asset) ===")
+    print(f"Aktivne assety: {active}")
     print(f"DRY_RUN={config.DRY_RUN} | TRADE_INTERVAL_HOURS={config.TRADE_INTERVAL_HOURS} "
           f"| MONITOR_INTERVAL_MINUTES={config.MONITOR_INTERVAL_MINUTES}")
 
@@ -20,9 +23,12 @@ def main():
     # job namiesto toho NATRVALO vypne - APScheduler uz nikdy sam nenastavi dalsi
     # beh, kym ho nieco explicitne neprebudi. Over. Preto tu musi byt konkretny
     # buduci cas, nie None.
+    # POZOR: TRADE_INTERVAL_HOURS/MONITOR_INTERVAL_MINUTES su zdielane pre VSETKY
+    # assety (NAS100/NVDA/ADA bezia v tom istom tiku) - zmena v Railway env sa
+    # prejavi pre vsetky naraz.
     now = datetime.now(timezone.utc)
     scheduler = BackgroundScheduler(timezone="UTC")
-    scheduler.add_job(trade_cycle.run_cycle, "interval",
+    scheduler.add_job(trade_cycle.run_all_cycles, "interval",
                        hours=config.TRADE_INTERVAL_HOURS,
                        next_run_time=now + timedelta(hours=config.TRADE_INTERVAL_HOURS),
                        id="trade_cycle")
@@ -38,9 +44,9 @@ def main():
     # viachodinove diery v historii). Kazdy job si chyby loguje/zaznamenava sam,
     # tu len zabranime celkovemu padu procesu pri necakanej vynimke.
     try:
-        trade_cycle.run_cycle()
+        trade_cycle.run_all_cycles()
     except Exception as e:
-        print(f"[main] run_cycle zlyhal neocakavane: {e}")
+        print(f"[main] run_all_cycles zlyhal neocakavane: {e}")
     try:
         position_monitor.check_open_trades()
     except Exception as e:

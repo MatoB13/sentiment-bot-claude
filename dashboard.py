@@ -15,20 +15,44 @@ import pandas as pd
 import streamlit as st
 from dotenv import dotenv_values
 
-st.set_page_config(page_title="NAS100 Sentiment Bot", layout="wide")
+st.set_page_config(page_title="Sentiment Bot (multi-asset)", layout="wide")
 
 ENV_PATH = os.path.join(os.path.dirname(__file__), ".env")
 
-EDITABLE_NUMERIC = [
-    ("TRADE_INTERVAL_HOURS", float, "Ako casto bezi analyticky cyklus (hodiny)"),
+# Zdielane pre vsetky assety (NAS100/NVDA/ADA bezia v tom istom cykle).
+SHARED_NUMERIC = [
+    ("TRADE_INTERVAL_HOURS", float, "Ako casto bezi analyticky cyklus - ZDIELANE pre vsetky assety (hodiny)"),
     ("MONITOR_INTERVAL_MINUTES", float, "Ako casto sa kontroluju otvorene pozicie (minuty)"),
     ("POSITION_MAX_HOURS", float, "Max. drzanie pozicie pred force-close (hodiny)"),
-    ("MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
-    ("MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
-    ("LEVERAGE", int, "Fixna paka (notional = MARGIN_USD x LEVERAGE)"),
-    ("DEFAULT_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
-    ("DEFAULT_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
 ]
+
+# Per-asset risk parametre (NAS100 pouziva povodne bezpredponove nazvy env premennych).
+ASSET_NUMERIC = {
+    "NAS100": [
+        ("MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
+        ("MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
+        ("LEVERAGE", int, "Fixna paka (notional = MARGIN_USD x LEVERAGE)"),
+        ("DEFAULT_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
+        ("DEFAULT_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
+    ],
+    "NVDA": [
+        ("NVDA_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
+        ("NVDA_MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
+        ("NVDA_LEVERAGE", int, "Fixna paka (notional = margin x leverage)"),
+        ("NVDA_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
+        ("NVDA_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
+    ],
+    "ADA": [
+        ("ADA_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
+        ("ADA_MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
+        ("ADA_LEVERAGE", int, "Fixna paka (notional = margin x leverage)"),
+        ("ADA_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
+        ("ADA_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
+    ],
+}
+
+# Spatna kompatibilita s povodnym menom pouzivanym nizsie v kode.
+EDITABLE_NUMERIC = SHARED_NUMERIC + ASSET_NUMERIC["NAS100"]
 
 
 def load_env() -> dict:
@@ -62,7 +86,7 @@ def reload_app_modules():
     importlib.reload(config)
 
 
-st.title("NAS100 Sentiment Bot — Dashboard")
+st.title("Sentiment Bot (NAS100 + NVDA + ADA) — Dashboard")
 
 env_values = load_env()
 
@@ -70,33 +94,51 @@ tabs = st.tabs(["Konfiguracia", "Live trh", "Spustit cyklus", "Historia obchodov
 
 # --- Konfiguracia ---
 with tabs[0]:
-    st.subheader("Trading / risk parametre")
+    st.subheader("Zdielane parametre (vsetky assety bezia v tom istom cykle)")
     st.caption("Zmeny sa ulozia priamo do .env a prejavia sa hned (bez restartu).")
 
     dry_run_current = str(env_values.get("DRY_RUN", "true")).lower() in ("1", "true", "yes", "on")
     dry_run_new = st.toggle("DRY_RUN (ak vypnute, bot posiela REALNE obchody na Strike!)",
                              value=dry_run_current)
     if dry_run_current and not dry_run_new:
-        st.warning("Vypinas DRY_RUN. Dalsie spustenie cyklu posle SKUTOCNY obchod na Strike "
-                   "s realnymi penazmi. Uisti sa, ze si over vsetko v tomto dashboarde predtym.")
+        st.warning("Vypinas DRY_RUN. Dalsie spustenie cyklu posle SKUTOCNE obchody na Strike "
+                   "(za vsetky aktivne assety) s realnymi penazmi. Uisti sa, ze si over vsetko "
+                   "v tomto dashboarde predtym.")
 
     new_values = {}
-    cols = st.columns(2)
-    for idx, (key, cast, help_text) in enumerate(EDITABLE_NUMERIC):
-        col = cols[idx % 2]
-        current = env_values.get(key, "")
-        try:
-            current_cast = cast(current)
-        except (TypeError, ValueError):
-            current_cast = 0
-        if cast is int:
-            new_values[key] = col.number_input(key, value=int(current_cast), step=1, help=help_text)
-        else:
-            new_values[key] = col.number_input(key, value=float(current_cast), help=help_text)
+
+    def _render_numeric(fields, cols_count=2):
+        cols = st.columns(cols_count)
+        for idx, (key, cast, help_text) in enumerate(fields):
+            col = cols[idx % cols_count]
+            current = env_values.get(key, "")
+            try:
+                current_cast = cast(current)
+            except (TypeError, ValueError):
+                current_cast = 0
+            if cast is int:
+                new_values[key] = col.number_input(key, value=int(current_cast), step=1, help=help_text)
+            else:
+                new_values[key] = col.number_input(key, value=float(current_cast), help=help_text)
+
+    _render_numeric(SHARED_NUMERIC)
+
+    asset_tabs = st.tabs(["NAS100", "NVDA", "ADA"])
+    for asset_name, asset_tab in zip(["NAS100", "NVDA", "ADA"], asset_tabs):
+        with asset_tab:
+            _render_numeric(ASSET_NUMERIC[asset_name])
+
+    enable_cols = st.columns(2)
+    enable_nvda_current = str(env_values.get("ENABLE_NVDA", "true")).lower() in ("1", "true", "yes", "on")
+    enable_ada_current = str(env_values.get("ENABLE_ADA", "true")).lower() in ("1", "true", "yes", "on")
+    enable_nvda_new = enable_cols[0].toggle("ENABLE_NVDA", value=enable_nvda_current)
+    enable_ada_new = enable_cols[1].toggle("ENABLE_ADA", value=enable_ada_current)
 
     if st.button("Ulozit konfiguraciu", type="primary"):
         to_save = {k: str(v) for k, v in new_values.items()}
         to_save["DRY_RUN"] = "true" if dry_run_new else "false"
+        to_save["ENABLE_NVDA"] = "true" if enable_nvda_new else "false"
+        to_save["ENABLE_ADA"] = "true" if enable_ada_new else "false"
         save_env_values(to_save)
         reload_app_modules()
         st.success("Ulozene do .env.")
@@ -111,6 +153,11 @@ with tabs[0]:
 
 # --- Live trh ---
 with tabs[1]:
+    import assets as assets_module
+
+    asset_choice = st.selectbox("Asset", ["NAS100", "NVDA", "ADA"])
+    selected_asset = {a["name"]: a for a in assets_module.ALL_ASSETS}[asset_choice]
+
     if st.button("Nacitat live dáta"):
         st.session_state["refresh_market"] = True
 
@@ -120,7 +167,7 @@ with tabs[1]:
             import market_data
 
             try:
-                market_meta = strike_client.get_market(os.environ.get("STRIKE_NAS100_SYMBOL", "NAS100-USD"))
+                market_meta = strike_client.get_market(selected_asset["strike_symbol"])
                 st.metric("Strike mark_price", market_meta.get("mark_price"))
                 st.json({k: market_meta[k] for k in
                          ["symbol", "mark_price", "index_price", "last_price", "bid1_price",
@@ -130,23 +177,30 @@ with tabs[1]:
                 st.error(f"Strike API chyba: {e}")
 
             try:
-                ta = market_data.get_market_snapshot()
-                st.subheader("Technicka analyza (yfinance proxy)")
+                ta = market_data.get_market_snapshot(selected_asset["yf_symbol"], selected_asset.get("yf_fallback"))
+                st.subheader(f"Technicka analyza {asset_choice} (yfinance proxy)")
                 st.json(ta)
             except Exception as e:
                 st.error(f"market_data chyba: {e}")
 
             try:
-                st.subheader("Cross-market kontext")
+                st.subheader("Cross-market kontext (zdielane pre vsetky assety)")
                 st.json(market_data.get_cross_market_snapshot())
             except Exception as e:
                 st.error(f"cross-market chyba: {e}")
 
             try:
-                st.subheader("Session alignment")
+                st.subheader("Session alignment (zdielane pre vsetky assety)")
                 st.json(market_data.get_session_snapshot())
             except Exception as e:
                 st.error(f"session chyba: {e}")
+
+            if selected_asset.get("needs_btc_proxy"):
+                try:
+                    st.subheader("BTC proxy (krypto-makro pre ADA)")
+                    st.json(market_data.get_btc_proxy_snapshot())
+                except Exception as e:
+                    st.error(f"BTC proxy chyba: {e}")
 
 # --- Spustit cyklus ---
 with tabs[2]:
@@ -154,12 +208,12 @@ with tabs[2]:
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("Spustit analyticky cyklus teraz", type="primary"):
+        if st.button("Spustit analyticky cyklus teraz (vsetky assety)", type="primary"):
             import trade_cycle
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):
                 try:
-                    trade_cycle.run_cycle()
+                    trade_cycle.run_all_cycles()
                 except Exception as e:
                     print(f"CHYBA: {e}")
             st.code(buf.getvalue() or "(ziadny vystup)")
@@ -193,6 +247,7 @@ with tabs[3]:
     else:
         rows = [{
             "id": t.id,
+            "symbol": t.symbol,
             "status": t.status,
             "direction": t.direction,
             "confidence": t.confidence,

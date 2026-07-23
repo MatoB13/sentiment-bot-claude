@@ -1,7 +1,10 @@
 """
-Zavola Claude (Anthropic API) s TA kontextom. Claude si sam (podla potreby) vyhlada
-cerstve spravy cez vstavany server-side web_search nastroj (ziadny NewsAPI kluc netreba)
-a vrati strukturovane rozhodnutie.
+Zavola Claude (Anthropic API) s TA kontextom pre dany asset (NAS100/NVDA/ADA).
+Claude si sam (podla potreby) vyhlada cerstve spravy cez vstavany server-side
+web_search nastroj (ziadny NewsAPI kluc netreba) a vrati strukturovane
+rozhodnutie. System aj user prompt su parametrizovane podla assets.py profilu -
+rovnaky syntetizacny ramec (cross-market/VIX/session/event-risk-gate) ako pri
+NAS100, len s inym news-focusom a (pre krypto) inou vahou makro signalov.
 """
 import json
 from datetime import datetime, timezone
@@ -10,23 +13,87 @@ import requests
 
 import config
 
-SYSTEM_PROMPT = """Si skúsený intradenný analytik pre index NAS100 (Nasdaq-100).
-Dostaneš technickú analýzu (TA) NAS100, cross-market kontext, session alignment a prípadne
-social-media sentiment. Máš k dispozícii nástroj web_search - použi ho na vyhľadanie čerstvých
-správ o Nasdaq-100 firmách (Apple, Microsoft, Nvidia, Amazon, Alphabet, Meta, Broadcom, Tesla...),
-Fed/makro dátach (CPI, PPI, NFP, FOMC), alebo geopolitike, ktoré by mohli hýbať trhom v najbližších
-24 hodinách. Vyhľadávaj len ak to dáva zmysel (max. niekoľko vyhľadávaní).
+_EQUITY_MACRO_RULES = """- **Cross-market konfirmácia**: Ak S&P500, Russell 2000 aj SOX (semikondukcia) potvrdzujú
+  smer {instrument}, zvyšuje to istotu. Divergencia (napr. SOX klesá kým {instrument} rastie) je varovanie.
+- **VIX režim**: Rastúci VIX = risk-off nálada, najmä ak {instrument} zároveň rastie (divergencia =
+  krehký rally). Nízky/klesajúci VIX podporuje trendové pokračovanie.
+- **Dlhopisy (US10Y/US13W)**: Rýchlo rastúce výnosy zvyknú tlačiť na rastové/tech akcie ({instrument}
+  je citlivé na reálne výnosy) - ber to ako protivietor pre LONG ak výnosy prudko rastú.
+- **Ropa/zlato**: Prudký nárast oboch naraz často signalizuje geopolitické riziko/inflačné obavy.
+- **Session alignment**: Zhoda smeru Ázia → Európa → US futures zvyšuje istotu; nezhoda znižuje.
+- **Market Reaction Score**: Kľúčové - ak sú správy pozitívne ale cena/futures nereagujú rastom
+  (alebo naopak), to hovorí viac než samotná správa. Vždy porovnaj obsah správ s reálnou cenovou
+  reakciou.
+- **Event Risk Gate**: Ak cez web_search zistíš, že sa v najbližších hodinách očakáva veľký
+  makro report (CPI, FOMC rozhodnutie, NFP) alebo kľúčové earnings megacap firiem (vrátane {instrument}
+  samotného, ak je to jednotlivá akcia), buď výrazne konzervatívnejší (nízka confidence alebo
+  "none") - volatilita okolo takých eventov je nepredvídateľná aj pri jasnom technickom obraze."""
+
+_CRYPTO_MACRO_RULES = """- **BTC beta**: {instrument} sa dlhodobo správa ako vysoko-beta krypto asset voči BTC - ak BTC
+  prudko rastie/klesá, {instrument} to zvykne nasledovať (často zosilnene). Divergencia (BTC
+  stabilný, {instrument} sa sám prudko hýbe) znamená idiosynkratický katalyzátor, nie širší trh -
+  vtedy je dôležitejšie špecifické spravodajstvo než BTC proxy dáta.
+- **Rizikový režim cez equity trhy**: S&P500/Nasdaq a VIX sú sekundárny, ale relevantný kontext -
+  krypto sa obchoduje čiastočne ako risk-on/off asset korelovaný s akciami, najmä pri veľkých
+  makro eventoch (Fed, CPI). Neber to ako hlavný signál, len ako potvrdenie/varovanie.
+- **Dolár/dlhopisy (DXY/výnosy)**: rýchlo rastúci dolár a výnosy sú všeobecný protivietor pre
+  rizikové aktíva vrátane krypta, ale vplyv je slabší a pomalší než pri akciách.
+- **Session alignment**: menej relevantné pre krypto (obchoduje sa 24/7) - ber len ako slabý
+  kontext risk-on/off nálady z Ázie/Európy/US, nie ako priamy signál pre {instrument}.
+- **Market Reaction Score**: Kľúčové - ak sú správy pozitívne ale cena/BTC nereaguje rastom
+  (alebo naopak), to hovorí viac než samotná správa.
+- **Event Risk Gate**: Ak cez web_search zistíš významný krypto-špecifický event (SEC rozhodnutie,
+  veľký protokolový upgrade/hardfork, hack/exploit v ekosystéme, veľká burzová likvidačná kaskáda)
+  alebo makro event (CPI/FOMC/NFP), buď výrazne konzervatívnejší (nízka confidence alebo "none")."""
+
+ASSET_TEXT = {
+    "NAS100": {
+        "label": "index NAS100 (Nasdaq-100)",
+        "news_focus": (
+            'správy o Nasdaq-100 firmách (Apple, Microsoft, Nvidia, Amazon, Alphabet, Meta, '
+            'Broadcom, Tesla...), Fed/makro dátach (CPI, PPI, NFP, FOMC), alebo geopolitike'
+        ),
+        "macro_rules": _EQUITY_MACRO_RULES,
+    },
+    "NVDA": {
+        "label": "akciu NVDA (Nvidia)",
+        "news_focus": (
+            'správy o Nvidii samotnej (earnings, guidance, produktové announcementy), '
+            'AI-capex objednávkach veľkých zákazníkov (Microsoft, Meta, Google, Amazon, OpenAI), '
+            'exportných reštrikciách na Čínu, konkurencii (AMD, Broadcom custom silicon, Google '
+            'TPU) a dodávateľskom reťazci (TSMC, SK Hynix, Samsung), popri Fed/makro dátach '
+            '(CPI, PPI, NFP, FOMC)'
+        ),
+        "macro_rules": _EQUITY_MACRO_RULES,
+    },
+    "ADA": {
+        "label": "krypto ADA (Cardano) perpetuál",
+        "news_focus": (
+            'správy o Cardano ekosystéme (governance/Voltaire hlasovania, protokolové upgrady, '
+            'DeFi TVL/aktivita na Strike Finance/Minswap/Liqwid), ETF/regulačných správach '
+            '(SEC filings, spot ETF rozhodnutia), burzových listingoch/delistingoch, a širšom '
+            'krypto naratíve (BTC dominance, risk-on/off sentiment, veľké likvidácie na trhu)'
+        ),
+        "macro_rules": _CRYPTO_MACRO_RULES,
+    },
+}
+
+SYSTEM_PROMPT_TEMPLATE = """Si skúsený intradenný analytik pre {label}.
+Dostaneš technickú analýzu (TA) {instrument}, cross-market kontext, session alignment{btc_proxy_note}
+a prípadne social-media sentiment. Máš k dispozícii nástroj web_search - použi ho na vyhľadanie
+čerstvých {news_focus}, ktoré by mohli hýbať cenou v najbližších 24 hodinách. Vyhľadávaj len ak
+to dáva zmysel (max. niekoľko vyhľadávaní).
 
 Presný aktuálny dátum a čas dostaneš v user správe - VŽDY ho zahrň do vyhľadávacích dotazov
-(napr. "NAS100 news July 22 2026", nie len "NAS100 news"), inak web_search občas vráti staré
-výsledky (mesiace/roky staré) namiesto aktuálnych. Pri hodnotení výsledkov skontroluj ich
+(napr. "{instrument} news July 22 2026", nie len "{instrument} news"), inak web_search občas vráti
+staré výsledky (mesiace/roky staré) namiesto aktuálnych. Pri hodnotení výsledkov skontroluj ich
 page_age/dátum - ak je správa staršia než obdobie od posledného cyklu (dostaneš ho v user
 správe), ber ju len ako pozadový kontext, nie ako novú informáciu ktorá mení rozhodnutie.
 
 Toto je INKREMENTÁLNE hľadanie, nie hľadanie od nuly: predpoklady z predchádzajúceho cyklu
 (ak existujú) už pokrývajú stav sveta do svojho času. Tvojou úlohou je zistiť LEN ČO PRIBUDLO
 alebo SA ZMENILO odvtedy (typicky posledné ~4h) - nie znova zbierať celý kontext. Formuluj
-dotazy cielene na najnovšie dianie (napr. "[firma] news today", "NAS100 futures [dátum] [čas]"),
+dotazy cielene na najnovšie dianie (napr. "[téma] news today", "{instrument} [dátum] [čas]"),
 nie všeobecné prehľady, ktoré ťa zavalia starším materiálom.
 
 Kvalita zdrojov: ak sa dá, uprednostni priamy/primárny zdroj pred sekundárnym prevykladom -
@@ -41,26 +108,12 @@ Tvoja úloha je vyhodnotiť, či má zmysel otvoriť LONG, SHORT, alebo neobchod
 na horizont max. 24 hodín, s konkrétnym stop-lossom a take-profitom.
 
 Ako syntetizovať viacero signálov (nepočítaj váhy mechanicky, posúď to ako skúsený analytik):
-- **Cross-market konfirmácia**: Ak S&P500, Russell 2000 aj SOX (semikondukcia) potvrdzujú
-  smer NAS100, zvyšuje to istotu. Divergencia (napr. SOX klesá kým NAS100 rastie) je varovanie.
-- **VIX režim**: Rastúci VIX = risk-off nálada, najmä ak NAS100 zároveň rastie (divergencia =
-  krehký rally). Nízky/klesajúci VIX podporuje trendové pokračovanie.
-- **Dlhopisy (US10Y/US13W)**: Rýchlo rastúce výnosy zvyknú tlačiť na rastové/tech akcie (NAS100
-  je citlivé na reálne výnosy) - ber to ako protivietor pre LONG ak výnosy prudko rastú.
-- **Ropa/zlato**: Prudký nárast oboch naraz často signalizuje geopolitické riziko/inflačné obavy.
-- **Session alignment**: Zhoda smeru Ázia → Európa → US futures zvyšuje istotu; nezhoda znižuje.
-- **Market Reaction Score**: Kľúčové - ak sú správy pozitívne ale cena/futures nereagujú rastom
-  (alebo naopak), to hovorí viac než samotná správa. Vždy porovnaj obsah správ s reálnou cenovou
-  reakciou.
-- **Event Risk Gate**: Ak cez web_search zistíš, že sa v najbližších hodinách očakáva veľký
-  makro report (CPI, FOMC rozhodnutie, NFP) alebo kľúčové earnings megacap firiem, buď výrazne
-  konzervatívnejší (nízka confidence alebo "none") - volatilita okolo takých eventov je
-  nepredvídateľná aj pri jasnom technickom obraze.
+{macro_rules}
 
 Pravidlá:
 - Buď konzervatívny: ak signály nie sú jasné alebo sú protichodné, zvoľ "none" a nízku confidence.
 - confidence je 0-100 a má odrážať reálnu neistotu (60 je "mierne naklonený", 90+ je vzácne).
-- stop_loss_price a take_profit_price uveď ako absolútnu cenu NAS100 (nie percentá).
+- stop_loss_price a take_profit_price uveď ako absolútnu cenu {instrument} (nie percentá).
   Cieľové % vzdialenosti od aktuálnej ceny dostaneš v user správe - drž sa v ich blízkosti
   (môžeš sa mierne odchýliť podľa ATR/kontextu, ale nie výrazne mimo).
 - reasoning: max 3-4 vety, fakticky, bez floskúl; spomeň najdôležitejší faktor(y), ktoré rozhodli.
@@ -73,13 +126,27 @@ Pravidlá:
 - Po prípadnom vyhľadávaní odpovedz VÝLUČNE JSON objektom, žiadny iný text, žiadne markdown bloky.
 
 Formát:
-{"direction": "long|short|none", "confidence": 0-100, "stop_loss_price": number, "take_profit_price": number, "reasoning": "string", "key_assumptions": "string"}
+{{"direction": "long|short|none", "confidence": 0-100, "stop_loss_price": number, "take_profit_price": number, "reasoning": "string", "key_assumptions": "string"}}
 """
 
 
-def _build_user_prompt(ta: dict, cross_market: dict, session: dict, social: list[dict],
+def _system_prompt(asset: dict) -> str:
+    text = ASSET_TEXT[asset["name"]]
+    btc_proxy_note = ", krypto-makro proxy (BTC)" if asset.get("needs_btc_proxy") else ""
+    return SYSTEM_PROMPT_TEMPLATE.format(
+        label=text["label"],
+        instrument=asset["name"],
+        news_focus=text["news_focus"],
+        macro_rules=text["macro_rules"].format(instrument=asset["name"]),
+        btc_proxy_note=btc_proxy_note,
+    )
+
+
+def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
+                        social: list[dict], btc_proxy: dict | None,
                         prev_assumptions: str | None,
                         prev_cycle_time: datetime | None = None) -> str:
+    instrument = asset["name"]
     social_block = "\n".join(
         f"- ({p.get('likes')}♥/{p.get('retweets')}rt) {p.get('text')}"
         for p in social[:15]
@@ -105,12 +172,19 @@ def _build_user_prompt(ta: dict, cross_market: dict, session: dict, social: list
     else:
         prev_block = "(žiadne - toto je prvý cyklus alebo predchádzajúci nemal záznam)"
 
+    btc_block = ""
+    if btc_proxy is not None:
+        btc_block = (
+            f"\n## Krypto-makro proxy (BTC - risk-on/off referencia pre {instrument})\n"
+            f"{json.dumps(btc_proxy, indent=2, ensure_ascii=False)}\n"
+        )
+
     return f"""## Aktuálny dátum a čas
 {now.strftime('%A, %d. %B %Y, %H:%M')} UTC ({now.isoformat()})
 Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/správy za posledných
 ~{interval_h} hodín, staršie ber len ako pozadový kontext (nie ako novú informáciu).
 
-## Technická analýza NAS100
+## Technická analýza {instrument}
 {json.dumps(ta, indent=2, ensure_ascii=False)}
 
 ## Cross-market kontext (S&P500, Russell 2000, SOX, VIX, DXY, US10Y/US13W výnosy, ropa, zlato)
@@ -118,7 +192,7 @@ Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/sp
 
 ## Session alignment (Ázia -> Európa -> US futures)
 {json.dumps(session, indent=2, ensure_ascii=False)}
-
+{btc_block}
 ## Social media sentiment
 {social_block}
 
@@ -126,19 +200,20 @@ Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/sp
 {prev_block}
 
 ## Cielove SL/TP vzdialenosti
-Stop-loss cca {config.DEFAULT_SL_PCT}% od aktuálnej ceny, take-profit cca {config.DEFAULT_TP_PCT}%
-(pri LONG: stop_loss_price = last_price * (1 - {config.DEFAULT_SL_PCT}/100), take_profit_price =
-last_price * (1 + {config.DEFAULT_TP_PCT}/100); pri SHORT opačne). Môžeš sa mierne odchýliť podľa
+Stop-loss cca {asset['sl_pct']}% od aktuálnej ceny, take-profit cca {asset['tp_pct']}%
+(pri LONG: stop_loss_price = last_price * (1 - {asset['sl_pct']}/100), take_profit_price =
+last_price * (1 + {asset['tp_pct']}/100); pri SHORT opačne). Môžeš sa mierne odchýliť podľa
 ATR/kontextu, ale nie výrazne mimo tento rozsah.
 
-Ak je to relevantné, over si cez web_search aktuálne správy k NAS100/megacap firmám a
+Ak je to relevantné, over si cez web_search aktuálne správy k {instrument}/súvisiacim témam a
 nadchádzajúce makro eventy (CPI/FOMC/NFP/earnings) za posledných ~{interval_h}h / najbližších 24h -
 nezabudni do query zahrnúť aktuálny dátum. Potom vyhodnoť situáciu a vráť rozhodnutie podľa
 formátu zo system promptu.
 """
 
 
-def analyze(ta: dict, cross_market: dict, session: dict, social: list[dict],
+def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: list[dict],
+            btc_proxy: dict | None = None,
             prev_assumptions: str | None = None,
             prev_cycle_time: datetime | None = None) -> tuple[dict, list[dict]]:
     """Vrati (decision, web_search_log). web_search_log je zoznam
@@ -146,12 +221,16 @@ def analyze(ta: dict, cross_market: dict, session: dict, social: list[dict],
     vyhladavanie, ktore Claude spravil - sluzi na audit (co realne citas,
     aby sa dalo neskor rozhodnut o whitelist/blacklist domen).
 
-    prev_assumptions: kluc_assumptions z minuleho cyklu (ak existuje) - Claude
-    ho dostane na explicitne overenie, ci este plati.
+    asset: profil z assets.py (name/asset_class/sl_pct/tp_pct/... - urcuje system
+    prompt aj cielove SL/TP % v user prompte).
+    prev_assumptions: kluc_assumptions z minuleho cyklu TOHTO assetu (ak existuje) -
+    Claude ho dostane na explicitne overenie, ci este plati.
     prev_cycle_time: kedy prev_assumptions vznikli - umoznuje formulovat hladanie
     ako presny inkrement ("co pribudlo OD X"), nie vagne "za poslednych ~4h"."""
     if not config.ANTHROPIC_API_KEY:
         raise RuntimeError("ANTHROPIC_API_KEY nie je nastavený")
+
+    system_prompt = _system_prompt(asset)
 
     # cache_control na systemovom prompte aj user sprave: ak Claude narazi na
     # pause_turn (casto sa stava pri viacerych web_search volaniach), musime
@@ -159,8 +238,8 @@ def analyze(ta: dict, cross_market: dict, session: dict, social: list[dict],
     # prompt + user sprava platili nanovo na plnu cenu pri kazdom pokracovani.
     messages = [{"role": "user",
                  "content": [{"type": "text",
-                               "text": _build_user_prompt(ta, cross_market, session, social,
-                                                           prev_assumptions, prev_cycle_time),
+                               "text": _build_user_prompt(asset, ta, cross_market, session, social,
+                                                           btc_proxy, prev_assumptions, prev_cycle_time),
                                "cache_control": {"type": "ephemeral"}}]}]
     web_search_log: list[dict] = []
 
@@ -177,7 +256,7 @@ def analyze(ta: dict, cross_market: dict, session: dict, social: list[dict],
             json={
                 "model": config.CLAUDE_MODEL,
                 "max_tokens": 4096,
-                "system": [{"type": "text", "text": SYSTEM_PROMPT,
+                "system": [{"type": "text", "text": system_prompt,
                             "cache_control": {"type": "ephemeral"}}],
                 "tools": [{"type": "web_search_20260209", "name": "web_search", "max_uses": 5}],
                 "messages": messages,
@@ -189,7 +268,7 @@ def analyze(ta: dict, cross_market: dict, session: dict, social: list[dict],
         content_blocks = data.get("content", [])
         web_search_log.extend(_extract_web_search_log(content_blocks))
         usage = data.get("usage", {})
-        print(f"[claude_analyst] usage: input={usage.get('input_tokens')} "
+        print(f"[claude_analyst] [{asset['name']}] usage: input={usage.get('input_tokens')} "
               f"cache_write={usage.get('cache_creation_input_tokens')} "
               f"cache_read={usage.get('cache_read_input_tokens')} output={usage.get('output_tokens')}")
 

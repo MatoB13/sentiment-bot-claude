@@ -49,6 +49,7 @@ class CycleLog(Base):
     id = Column(Integer, primary_key=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
+    symbol = Column(String, nullable=True)  # ktory asset (NAS100-USD/NVDA-USD/ADA-USD)
     live_price = Column(Float, nullable=True)
     ta = Column(JSON, nullable=True)
     cross_market = Column(JSON, nullable=True)

@@ -1,4 +1,5 @@
-"""Periodicka kontrola otvorenych pozicii - zaznamenanie zatvorenia a PnL."""
+"""Periodicka kontrola otvorenych pozicii (naprieč vsetkymi assetmi - NAS100/NVDA/ADA)
+- zaznamenanie zatvorenia a PnL."""
 from datetime import datetime, timezone
 
 import config
@@ -33,7 +34,10 @@ def check_open_trades():
             print("[position_monitor] Ziadne otvorene pozicie.")
             return
 
-        live_positions = strike_client.get_positions(symbol=config.STRIKE_NAS100_SYMBOL)
+        # Bez symbol filtra - vsetky otvorene pozicie na ucte v JEDNOM volani,
+        # zdielanom pre vsetky sledovane assety (NAS100/NVDA/ADA), namiesto
+        # samostatneho volania na kazdy symbol zvlast.
+        live_positions = strike_client.get_positions()
         live_by_symbol = {p.get("symbol"): p for p in live_positions}
 
         now = datetime.now(timezone.utc)

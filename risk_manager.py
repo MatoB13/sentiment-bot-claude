@@ -1,10 +1,8 @@
 """Kontroly rozhodnutia od Claude pred realnou exekuciou obchodu."""
 import math
 
-import config
-
 # Claude navrhuje konkretnu SL/TP cenu, ale musi zostat v tejto tolerancii
-# okolo config.DEFAULT_SL_PCT/DEFAULT_TP_PCT (v nasobkoch default vzdialenosti).
+# okolo cieloveho sl_pct/tp_pct (v nasobkoch cielovej vzdialenosti).
 SL_TOLERANCE = (0.5, 2.0)
 TP_TOLERANCE = (0.5, 2.0)
 
@@ -13,14 +11,18 @@ class RejectedTrade(Exception):
     pass
 
 
-def validate_and_size(decision: dict, ta: dict, has_open_position: bool,
-                       live_price: float, market_meta: dict) -> dict:
+def validate_and_size(decision: dict, has_open_position: bool,
+                       live_price: float, market_meta: dict,
+                       min_confidence: int, sl_pct: float, tp_pct: float,
+                       leverage: int, margin_usd: float) -> dict:
     """Vrati dict pripraveny na strike_client.open_bracket_position, alebo vyhodi RejectedTrade.
 
-    Position sizing je fixny: kazdy obchod pouzije config.MARGIN_USD marzy a
-    config.LEVERAGE paku (teda vzdy rovnaky notional = MARGIN_USD * LEVERAGE).
-    SL/TP navrhuje Claude ako absolutnu cenu, ale musi zostat v tolerancii okolo
-    config.DEFAULT_SL_PCT/DEFAULT_TP_PCT (% od live ceny) - viz SL_TOLERANCE/TP_TOLERANCE.
+    Position sizing je fixny: kazdy obchod pouzije `margin_usd` marzy a `leverage`
+    paku (teda vzdy rovnaky notional = margin_usd * leverage). SL/TP navrhuje
+    Claude ako absolutnu cenu, ale musi zostat v tolerancii okolo sl_pct/tp_pct
+    (% od live ceny) - viz SL_TOLERANCE/TP_TOLERANCE. Vsetky risk parametre su
+    per-asset (viz assets.py) - kazdy asset (NAS100/NVDA/ADA) ma vlastnu
+    volatilitou-kalibrovanu konfiguraciu.
 
     live_price: aktualna mark/last cena z strike_client.get_market() (referencna cena burzy,
     presnejsia ako yfinance proxy v `ta`). market_meta: dict z strike_client.get_market()
@@ -28,14 +30,14 @@ def validate_and_size(decision: dict, ta: dict, has_open_position: bool,
     """
 
     if has_open_position:
-        raise RejectedTrade("Uz existuje otvorena NAS100 pozicia - preskakujem cyklus.")
+        raise RejectedTrade("Uz existuje otvorena pozicia pre tento asset - preskakujem cyklus.")
 
     if decision["direction"] == "none":
         raise RejectedTrade(f"Model odporucil 'none' (confidence={decision['confidence']}).")
 
-    if decision["confidence"] < config.MIN_CONFIDENCE:
+    if decision["confidence"] < min_confidence:
         raise RejectedTrade(
-            f"Confidence {decision['confidence']} < MIN_CONFIDENCE {config.MIN_CONFIDENCE}."
+            f"Confidence {decision['confidence']} < MIN_CONFIDENCE {min_confidence}."
         )
 
     sl = decision["stop_loss_price"]
@@ -51,21 +53,21 @@ def validate_and_size(decision: dict, ta: dict, has_open_position: bool,
     sl_distance = abs(live_price - sl)
     tp_distance = abs(tp - live_price)
 
-    default_sl_distance = live_price * (config.DEFAULT_SL_PCT / 100)
-    default_tp_distance = live_price * (config.DEFAULT_TP_PCT / 100)
+    default_sl_distance = live_price * (sl_pct / 100)
+    default_tp_distance = live_price * (tp_pct / 100)
 
     sl_lo, sl_hi = SL_TOLERANCE[0] * default_sl_distance, SL_TOLERANCE[1] * default_sl_distance
     if not (sl_lo <= sl_distance <= sl_hi):
         raise RejectedTrade(
-            f"Stop-loss vzdialenost {sl_distance:.1f} mimo tolerancie okolo defaultu "
-            f"{config.DEFAULT_SL_PCT}% ({sl_lo:.1f}-{sl_hi:.1f})."
+            f"Stop-loss vzdialenost {sl_distance:.4f} mimo tolerancie okolo defaultu "
+            f"{sl_pct}% ({sl_lo:.4f}-{sl_hi:.4f})."
         )
 
     tp_lo, tp_hi = TP_TOLERANCE[0] * default_tp_distance, TP_TOLERANCE[1] * default_tp_distance
     if not (tp_lo <= tp_distance <= tp_hi):
         raise RejectedTrade(
-            f"Take-profit vzdialenost {tp_distance:.1f} mimo tolerancie okolo defaultu "
-            f"{config.DEFAULT_TP_PCT}% ({tp_lo:.1f}-{tp_hi:.1f})."
+            f"Take-profit vzdialenost {tp_distance:.4f} mimo tolerancie okolo defaultu "
+            f"{tp_pct}% ({tp_lo:.4f}-{tp_hi:.4f})."
         )
 
     # smer SL/TP musi davat zmysel voci direction
@@ -78,8 +80,7 @@ def validate_and_size(decision: dict, ta: dict, has_open_position: bool,
     if risk_reward < 1.0:
         raise RejectedTrade(f"Risk:reward {risk_reward:.2f} je horsi ako 1:1 - neobchodujem.")
 
-    leverage = config.LEVERAGE
-    notional_usd = config.MARGIN_USD * leverage
+    notional_usd = margin_usd * leverage
     size = notional_usd / live_price
 
     step = float(market_meta["order_market_step_size"])
