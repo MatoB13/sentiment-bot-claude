@@ -17,6 +17,50 @@ import strike_client
 from db import CycleLog, Trade, get_session
 
 
+# Tolerancia na scheduler jitter/spracovanie predchadzajucich assetov v tom
+# istom cykle - bez nej by drobne oneskorenie (o par sekund) niekedy tesne
+# netrafilo pozadovany interval a preskocilo by sa o cely dalsi tick navyse.
+_TIME_GATE_TOLERANCE_HOURS = 0.05
+
+
+def _required_interval_hours(now: datetime) -> float:
+    """Kolko hodin ma uplynut od posledneho cyklu TOHTO assetu, nez je zase 'na
+    rade' - len pre assety s variable_interval=True (NAS100/NVDA/GOLD). Mimo
+    trading hours a cez vikend podkladovy trh (akcia/futures) realne stoji
+    alebo je velmi ticho (NVDA sa cez vikend vobec neobchoduje), takze hodinova
+    analyza tych istych zastaralych dat je zbytocny naklad."""
+    if now.weekday() >= 5:  # sobota=5, nedela=6
+        return config.WEEKEND_INTERVAL_HOURS
+    if config.TRADING_HOURS_START_UTC <= now.hour < config.TRADING_HOURS_END_UTC:
+        return config.TRADE_INTERVAL_HOURS
+    return config.OFF_HOURS_INTERVAL_HOURS
+
+
+def _is_due(asset: dict, session) -> bool:
+    """True ak asset nema variable_interval (vzdy na rade), alebo ak od jeho
+    posledneho zaznamu uplynul pozadovany interval pre aktualny casovy usek."""
+    if not asset.get("variable_interval"):
+        return True
+
+    now = datetime.now(timezone.utc)
+    required_hours = _required_interval_hours(now)
+
+    last_log = (
+        session.query(CycleLog)
+        .filter(CycleLog.symbol == asset["strike_symbol"])
+        .order_by(CycleLog.created_at.desc())
+        .first()
+    )
+    if last_log is None:
+        return True
+
+    last_time = last_log.created_at
+    if last_time.tzinfo is None:
+        last_time = last_time.replace(tzinfo=timezone.utc)
+    elapsed_hours = (now - last_time).total_seconds() / 3600
+    return elapsed_hours >= required_hours - _TIME_GATE_TOLERANCE_HOURS
+
+
 def _config_snapshot(asset: dict) -> dict:
     """Aktualne aktivne trading/risk nastavenia pre dany asset - uklada sa s
     kazdym cyklom, aby dashboard vzdy zobrazoval presne to, s cim bot naozaj
@@ -26,6 +70,9 @@ def _config_snapshot(asset: dict) -> dict:
         "asset_name": asset["name"],
         "dry_run": config.DRY_RUN,
         "trade_interval_hours": config.TRADE_INTERVAL_HOURS,
+        "variable_interval": asset.get("variable_interval", False),
+        "off_hours_interval_hours": config.OFF_HOURS_INTERVAL_HOURS,
+        "weekend_interval_hours": config.WEEKEND_INTERVAL_HOURS,
         "monitor_interval_minutes": config.MONITOR_INTERVAL_MINUTES,
         "position_max_hours": config.POSITION_MAX_HOURS,
         "min_confidence": asset["min_confidence"],
@@ -45,6 +92,13 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
     print(f"\n--- [{name}] ---")
     session = get_session()
     try:
+        if not _is_due(asset, session):
+            # Ziadny CycleLog zaznam - toto sa deje bezne (kazdy druhy/dalsi tick
+            # mimo trading hours/cez vikend) a nema analyticku hodnotu, len by to
+            # zahltilo historiu signalov nezaujimavymi zaznamami.
+            print(f"[{name}] Mimo aktualneho intervalu (off-hours/vikend gating) - preskakujem.")
+            return
+
         open_trade = session.query(Trade).filter(
             Trade.symbol == symbol, Trade.status == "open",
         ).first()

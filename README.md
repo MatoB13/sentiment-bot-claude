@@ -116,7 +116,12 @@ Pozri `.env.example` — najdôležitejšie:
 - `DATABASE_URL` — pre trvalé uloženie histórie obchodov použi Railway Postgres plugin
   (SQLite súbor na Railway sa stratí pri každom redeployi!)
 - `DRY_RUN` — `true`/`false` — **zdieľané pre všetky assety**
-- `TRADE_INTERVAL_HOURS` — ako často beží analytický cyklus (napr. `4`) — **zdieľané pre všetky assety**
+- `TRADE_INTERVAL_HOURS` — interval cyklu POČAS trading hours (napr. `1`) — **zdieľané pre NAS100/NVDA/GOLD/ADA**
+- `OFF_HOURS_INTERVAL_HOURS` / `WEEKEND_INTERVAL_HOURS` — interval mimo trading hours / cez víkend
+  (default `2`/`6`) — platí LEN pre NAS100/NVDA/GOLD (majú `variable_interval=True` v `assets.py`); ADA
+  je 24/7 a vždy beží na `TRADE_INTERVAL_HOURS`, žiadne skutočné "off hours" pre ňu neexistujú
+- `TRADING_HOURS_START_UTC` / `TRADING_HOURS_END_UTC` — hranice trading hours v UTC (default `13`/`21`,
+  pokrýva NYSE cash session 9:30-16:00 ET v oboch DST stavoch)
 - `MONITOR_INTERVAL_MINUTES` — ako často sa kontrolujú otvorené pozície (napr. `10`) — zdieľané
 - `POSITION_MAX_HOURS` — max. držanie pozície pred force-close — zdieľané
 - `ENABLE_NVDA` / `ENABLE_ADA` / `ENABLE_GOLD` — `true`/`false`, vypnutie/zapnutie daného bota (NAS100 beží vždy)

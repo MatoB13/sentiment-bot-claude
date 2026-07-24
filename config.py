@@ -99,3 +99,16 @@ ADA_SL_PCT = _float("ADA_SL_PCT", 3.5)
 ADA_TP_PCT = _float("ADA_TP_PCT", 5.25)
 GOLD_SL_PCT = _float("GOLD_SL_PCT", 0.8)
 GOLD_TP_PCT = _float("GOLD_TP_PCT", 1.2)
+
+# --- Variabilny interval pre NAS100/NVDA/GOLD (NIE ADA - ta sa obchoduje 24/7,
+# ziadne realne "off hours" pre nu neexistuju). Mimo trading hours a cez vikend
+# podkladovy trh (akcia/futures) realne stoji alebo je velmi ticho (NVDA sa cez
+# vikend vobec neobchoduje), takze hodinova analyza tych istych zastaralych dat
+# je zbytocny naklad. TRADE_INTERVAL_HOURS ostava interval PRE TRADING HOURS aj
+# pre ADA (tá variabilny interval nepouziva vobec).
+OFF_HOURS_INTERVAL_HOURS = _float("OFF_HOURS_INTERVAL_HOURS", 2)
+WEEKEND_INTERVAL_HOURS = _float("WEEKEND_INTERVAL_HOURS", 6)
+# 13-21 UTC pokryva NYSE cash session (9:30-16:00 ET) v oboch DST stavoch
+# (EDT 13:30-20:00 UTC aj EST 14:30-21:00 UTC) bez potreby rieist DST prechody.
+TRADING_HOURS_START_UTC = _int("TRADING_HOURS_START_UTC", 13)
+TRADING_HOURS_END_UTC = _int("TRADING_HOURS_END_UTC", 21)

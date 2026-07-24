@@ -21,7 +21,11 @@ ENV_PATH = os.path.join(os.path.dirname(__file__), ".env")
 
 # Zdielane pre vsetky assety (NAS100/NVDA/ADA bezia v tom istom cykle).
 SHARED_NUMERIC = [
-    ("TRADE_INTERVAL_HOURS", float, "Ako casto bezi analyticky cyklus - ZDIELANE pre vsetky assety (hodiny)"),
+    ("TRADE_INTERVAL_HOURS", float, "Interval POCAS trading hours - ZDIELANE pre vsetky assety (hodiny)"),
+    ("OFF_HOURS_INTERVAL_HOURS", float, "Interval mimo trading hours (len NAS100/NVDA/GOLD, hodiny)"),
+    ("WEEKEND_INTERVAL_HOURS", float, "Interval cez vikend (len NAS100/NVDA/GOLD, hodiny)"),
+    ("TRADING_HOURS_START_UTC", int, "Zaciatok trading hours (UTC hodina)"),
+    ("TRADING_HOURS_END_UTC", int, "Koniec trading hours (UTC hodina)"),
     ("MONITOR_INTERVAL_MINUTES", float, "Ako casto sa kontroluju otvorene pozicie (minuty)"),
     ("POSITION_MAX_HOURS", float, "Max. drzanie pozicie pred force-close (hodiny)"),
 ]

@@ -15,6 +15,12 @@ include_volume: zapnute len pre NAS100/NVDA/GOLD, kde ma yfinance kompletne
 barov s nenulovym volume (a aj tak je to iny trh nez Strike-ov vlastny
 order-book) - zamerne VYPNUTE, aby chybajuce/nulove hodnoty neskreslovali
 priemer a nevytvarali falosne "objemove spike" signaly.
+
+variable_interval: zapnute len pre NAS100/NVDA/GOLD - mimo trading hours a cez
+vikend bezia rjadsie (viz trade_cycle._required_interval_hours), kedze
+podkladovy trh v tom case realne stoji/je tichy. ADA (24/7 krypto) ma toto
+VYPNUTE - beri vzdy na zakladnom TRADE_INTERVAL_HOURS, ziadne realne "off
+hours" pre nu neexistuju.
 """
 import config
 
@@ -32,6 +38,7 @@ NAS100 = {
     "enabled": True,
     "needs_btc_proxy": False,
     "include_volume": True,
+    "variable_interval": True,
 }
 
 NVDA = {
@@ -48,6 +55,7 @@ NVDA = {
     "enabled": config.ENABLE_NVDA,
     "needs_btc_proxy": False,
     "include_volume": True,
+    "variable_interval": True,
 }
 
 ADA = {
@@ -64,6 +72,7 @@ ADA = {
     "enabled": config.ENABLE_ADA,
     "needs_btc_proxy": True,
     "include_volume": False,
+    "variable_interval": False,
 }
 
 GOLD = {
@@ -80,6 +89,7 @@ GOLD = {
     "enabled": config.ENABLE_GOLD,
     "needs_btc_proxy": False,
     "include_volume": True,
+    "variable_interval": True,
 }
 
 ALL_ASSETS = [NAS100, NVDA, ADA, GOLD]
