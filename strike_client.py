@@ -44,18 +44,40 @@ def _sign(method: str, path: str, body_str: str = "") -> dict:
     }
 
 
+# Prechodne infra chyby (burza/proxy docasne nedostupna) - bezpecne opakovat
+# LEN pre GET (citanie, ziadny vedlajsi efekt). POST/DELETE (otvorenie/zatvorenie
+# pozicie a pod.) sa NIKDY neopakuju automaticky - ak by sa odpoved stratila po
+# tom, co sa objednavka na burze uz realne vykonala, retry by mohol omylom
+# spustit rovnaku akciu druhykrat (napr. otvorit poziciu 2x).
+_RETRYABLE_STATUS = {502, 503, 504}
+_MAX_RETRIES = 2
+_RETRY_DELAY_SECONDS = 2
+
+
 def _request(method: str, path: str, body: dict | None = None) -> dict:
     body_str = json.dumps(body, separators=(",", ":")) if body is not None else ""
-    headers = _sign(method, path, body_str)
-    if body is not None:
-        headers["Content-Type"] = "application/json"
-
     url = f"{config.STRIKE_BASE_URL}{path}"
-    resp = requests.request(method.upper(), url, headers=headers,
-                             data=body_str if body is not None else None, timeout=20)
-    if resp.status_code >= 300:
-        raise RuntimeError(f"Strike API {method} {path} -> {resp.status_code}: {resp.text}")
-    return resp.json()
+    attempts = _MAX_RETRIES + 1 if method.upper() == "GET" else 1
+
+    for attempt in range(attempts):
+        # Kazdy pokus potrebuje CERSTVY podpis (timestamp/nonce) - opatovne
+        # pouzitie povodnych headers pri oneskorenom retry by Strike API mohlo
+        # odmietnut ako expirovany/replay podpis.
+        headers = _sign(method, path, body_str)
+        if body is not None:
+            headers["Content-Type"] = "application/json"
+
+        resp = requests.request(method.upper(), url, headers=headers,
+                                 data=body_str if body is not None else None, timeout=20)
+        if resp.status_code >= 300:
+            if resp.status_code in _RETRYABLE_STATUS and attempt < attempts - 1:
+                print(f"[strike_client] {method} {path} -> {resp.status_code} "
+                      f"(prechodna chyba), skusam znova o {_RETRY_DELAY_SECONDS}s "
+                      f"({attempt + 1}/{attempts - 1})...")
+                time.sleep(_RETRY_DELAY_SECONDS)
+                continue
+            raise RuntimeError(f"Strike API {method} {path} -> {resp.status_code}: {resp.text}")
+        return resp.json()
 
 
 def get_account() -> dict:
