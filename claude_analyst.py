@@ -7,6 +7,7 @@ rovnaky syntetizacny ramec (cross-market/VIX/session/event-risk-gate) ako pri
 NAS100, len s inym news-focusom a (pre krypto) inou vahou makro signalov.
 """
 import json
+import re
 from datetime import datetime, timezone
 
 import requests
@@ -361,6 +362,20 @@ def _extract_web_search_log(content_blocks: list) -> list[dict]:
     return log
 
 
+# Znaky, ktore JSON povoluje za spatnym lomitkom (RFC 8259) - vsetko ine je
+# neplatny escape a json.loads/raw_decode na tom padne s "Invalid \escape".
+_VALID_JSON_ESCAPES = set('"\\/bfnrtu')
+
+
+def _fix_invalid_escapes(text: str) -> str:
+    """Claude obcas escapuje znaky, ktore JSON nepozna - najcastejsie apostrof
+    (\\'), ako v Pythone/JS retazcoch, ale JSON pozna len \\" \\\\ \\/ \\b \\f
+    \\n \\r \\t \\uXXXX. Taky neplatny escape zhodi cely inak perfektne validny
+    JSON. Odstranime spatne lomitko pred kazdym znakom, ktory nie je z
+    povoleneho zoznamu (znak samotny ostava zachovany)."""
+    return re.sub(r"\\(.)", lambda m: m.group(0) if m.group(1) in _VALID_JSON_ESCAPES else m.group(1), text)
+
+
 def _parse_json(text: str) -> dict:
     text = text.strip()
     start = text.find("{")
@@ -374,19 +389,18 @@ def _parse_json(text: str) -> dict:
     # system prompte obali odpoved do ```json ... ``` markdown fence (zvysne
     # "\n```" za zatvorenou zlozenou zatvorkou by json.loads odmietol ako
     # "Extra data" a cele inak validne rozhodnutie by sa zahodilo ako chyba).
+    #
+    # Skusame 4 varianty (surovy/so sanitizovanymi escapmi x s/bez dopisanej
+    # zatvaracej zatvorky pre pripad orezaneho vystupu) - prvy, ktory sa
+    # podari naparsovat, sa pouzije.
     decoder = json.JSONDecoder()
-    try:
-        obj, _ = decoder.raw_decode(candidate)
-        return obj
-    except json.JSONDecodeError:
-        pass
-
-    # Model obcas vynecha zatvaraciu zlozenu zatvorku na konci objektu - dohodneme ju.
-    try:
-        obj, _ = decoder.raw_decode(candidate + "}")
-        return obj
-    except json.JSONDecodeError:
-        pass
+    for attempt in (candidate, _fix_invalid_escapes(candidate)):
+        for variant in (attempt, attempt + "}"):
+            try:
+                obj, _ = decoder.raw_decode(variant)
+                return obj
+            except json.JSONDecodeError:
+                pass
 
     raise ValueError(f"Claude nevrátil validný JSON: {text!r}")
 
