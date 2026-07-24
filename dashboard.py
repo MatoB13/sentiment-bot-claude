@@ -188,7 +188,10 @@ with tabs[1]:
                 st.error(f"Strike API chyba: {e}")
 
             try:
-                ta = market_data.get_market_snapshot(selected_asset["yf_symbol"], selected_asset.get("yf_fallback"))
+                ta = market_data.get_market_snapshot(
+                    selected_asset["yf_symbol"], selected_asset.get("yf_fallback"),
+                    include_volume=selected_asset.get("include_volume", False),
+                )
                 st.subheader(f"Technicka analyza {asset_choice} (yfinance proxy)")
                 st.json(ta)
             except Exception as e:

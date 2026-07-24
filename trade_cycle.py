@@ -64,7 +64,8 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             market_meta = strike_client.get_market(symbol)
             live_price = float(market_meta["mark_price"])
 
-            ta = market_data.get_market_snapshot(asset["yf_symbol"], asset.get("yf_fallback"))
+            ta = market_data.get_market_snapshot(asset["yf_symbol"], asset.get("yf_fallback"),
+                                                  include_volume=asset.get("include_volume", False))
             social = social_sentiment.fetch_recent_posts(name)
             print(f"[{name}] Strike live_price={live_price} | TA: {ta}")
             print(f"[{name}] Nacitanych {len(social)} social prispevkov (spravy hlada Claude sam cez web_search).")

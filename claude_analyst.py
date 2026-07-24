@@ -167,7 +167,7 @@ ASSET_TEXT = {
 
 SYSTEM_PROMPT_TEMPLATE = """Si skúsený intradenný analytik pre {label}.
 Dostaneš technickú analýzu (TA) {instrument} - vrátane `recent_candles`, surových posledných
-{candle_bars} hodinových sviečok [open,high,low,close] - cross-market kontext, session
+{candle_bars} hodinových sviečok {candle_format} - cross-market kontext, session
 alignment{btc_proxy_note} a prípadne social-media sentiment. Máš k dispozícii nástroj web_search -
 použi ho na vyhľadanie čerstvých {news_focus}, ktoré by mohli hýbať cenou v najbližších 24
 hodinách. Vyhľadávaj len ak to dáva zmysel (max. niekoľko vyhľadávaní).
@@ -179,6 +179,7 @@ klasických formácií (cup-and-handle, hlava-ramená, diamanty, trojuholníky a
 akademickej literatúre slabú a nekonzistentnú empirickú oporu naprieč trhmi/obdobiami, na rozdiel
 od matematicky presne definovaných indikátorov (RSI/MACD/EMA/Bollinger), a ich hranice sú navyše
 subjektívne. Radšej konkrétna cenová úroveň/pozorovanie než pomenovaný tvar.
+{volume_note}
 
 Presný aktuálny dátum a čas dostaneš v user správe - VŽDY ho zahrň do vyhľadávacích dotazov
 (napr. "{instrument} news July 22 2026", nie len "{instrument} news"), inak web_search občas vráti
@@ -232,9 +233,24 @@ Pravidlá:
 """
 
 
+_VOLUME_NOTE = """
+Sviečky obsahujú aj piaty údaj - `volume` (objem za danú hodinu, z {instrument}
+futures/akciových dát, kompletné a spoľahlivé). Sleduj DIVERGENCIU medzi objemom
+a cenovým pohybom: ak neobvykle vysoký objem (výrazne nad bežným objemom
+posledných sviečok) nespôsobí zodpovedajúci pohyb ceny, alebo cena sa dokonca
+otočí opačným smerom, môže to znamenať, že veľký hráč absorboval danú stranu
+(predaj/nákup) - potenciálny signál vyčerpania/otočky (klasická "climax volume"
+téza z Wyckoff/Volume Spread Analysis). Toto je len JEDEN vstup do tvojho
+úsudku popri ostatných signáloch, nie mechanické pravidlo - vyžaduje kontext
+(je objem naozaj neobvyklý, alebo len bežná variabilita)."""
+
+
 def _system_prompt(asset: dict) -> str:
     text = ASSET_TEXT[asset["name"]]
     btc_proxy_note = ", krypto-makro proxy (BTC)" if asset.get("needs_btc_proxy") else ""
+    include_volume = asset.get("include_volume", False)
+    candle_format = "[open,high,low,close,volume]" if include_volume else "[open,high,low,close]"
+    volume_note = _VOLUME_NOTE.format(instrument=asset["name"]) if include_volume else ""
     return SYSTEM_PROMPT_TEMPLATE.format(
         label=text["label"],
         instrument=asset["name"],
@@ -242,6 +258,8 @@ def _system_prompt(asset: dict) -> str:
         macro_rules=text["macro_rules"].format(instrument=asset["name"]),
         btc_proxy_note=btc_proxy_note,
         candle_bars=market_data.RECENT_CANDLES_BARS,
+        candle_format=candle_format,
+        volume_note=volume_note,
         interval_hours=config.TRADE_INTERVAL_HOURS,
     )
 

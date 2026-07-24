@@ -29,7 +29,7 @@ def fetch_ohlcv(symbol: str = "NQ=F", fallback: str | None = "^NDX",
     return df.dropna()
 
 
-def compute_indicators(df: pd.DataFrame) -> dict:
+def compute_indicators(df: pd.DataFrame, include_volume: bool = False) -> dict:
     df = df.copy()
     df["rsi14"] = ta.rsi(df["close"], length=14)
     macd = ta.macd(df["close"])
@@ -68,24 +68,37 @@ def compute_indicators(df: pd.DataFrame) -> dict:
         "atr14": round(float(last["atr14"]), 6) if pd.notna(last["atr14"]) else None,
         "trend": _trend_label(last),
         "recent_candles_note": (
-            f"posledných {RECENT_CANDLES_BARS} hodinových sviečok [open,high,low,close], "
-            "od najstaršej po najnovšiu (posledná = aktuálna)"
+            f"posledných {RECENT_CANDLES_BARS} hodinových sviečok "
+            + ("[open,high,low,close,volume]" if include_volume else "[open,high,low,close]")
+            + ", od najstaršej po najnovšiu (posledná = aktuálna)"
         ),
-        "recent_candles": _recent_candles(df, RECENT_CANDLES_BARS),
+        "recent_candles": _recent_candles(df, RECENT_CANDLES_BARS, include_volume),
     }
     return summary
 
 
-def _recent_candles(df: pd.DataFrame, bars: int) -> list[list]:
-    """Kompaktny zoznam [open,high,low,close] za poslednych `bars` hodinovych
-    sviecok - Claude na zaklade toho sam posudi strukturu trhu (support/
-    resistance, breakout, swing high/low) ako skuseny analytik pozerajuci sa na
-    graf, namiesto kodovania konkretnych pomenovanych formacii (cup&handle,
-    diamanty a pod. - maju slabu a nekonzistentnu empiricku oporu naprieč
-    studiami, na rozdiel od matematicky presne definovanych indikatorov
-    vyssie). Bez timestampov - poradie + aktualny cas z user promptu stacia,
-    a setria to tokeny."""
+def _recent_candles(df: pd.DataFrame, bars: int, include_volume: bool = False) -> list[list]:
+    """Kompaktny zoznam [open,high,low,close(,volume)] za poslednych `bars`
+    hodinovych sviecok - Claude na zaklade toho sam posudi strukturu trhu
+    (support/resistance, breakout, swing high/low, a ak je volume prítomný aj
+    objemovu divergenciu) ako skuseny analytik pozerajuci sa na graf, namiesto
+    kodovania konkretnych pomenovanych formacii (cup&handle, diamanty a pod. -
+    maju slabu a nekonzistentnu empiricku oporu naprieč studiami, na rozdiel od
+    matematicky presne definovanych indikatorov vyssie). Bez timestampov -
+    poradie + aktualny cas z user promptu stacia, a setria to tokeny.
+
+    include_volume: zapni LEN pre assety s kompletnymi volume datami z
+    yfinance (NAS100/NVDA/GOLD - overene 99-100% pokrytie). ADA-USD ma cez
+    yfinance len ~41% barov s nenulovym volume (aj ine agregovane zdroje, nie
+    Strike-ovo vlastne order-book volume) - nespolahlive na stavanie signalu."""
     recent = df.tail(bars)
+    if include_volume:
+        return [
+            [round(float(r.open), 6), round(float(r.high), 6),
+             round(float(r.low), 6), round(float(r.close), 6),
+             round(float(r.volume), 2)]
+            for r in recent.itertuples()
+        ]
     return [
         [round(float(r.open), 6), round(float(r.high), 6),
          round(float(r.low), 6), round(float(r.close), 6)]
@@ -107,9 +120,10 @@ def _trend_label(last_row) -> str:
     return "mild_downtrend"
 
 
-def get_market_snapshot(symbol: str = "NQ=F", fallback: str | None = "^NDX") -> dict:
+def get_market_snapshot(symbol: str = "NQ=F", fallback: str | None = "^NDX",
+                         include_volume: bool = False) -> dict:
     df = fetch_ohlcv(symbol, fallback)
-    return compute_indicators(df)
+    return compute_indicators(df, include_volume=include_volume)
 
 
 # Cross-market konfirmacia + VIX regime + bond market (viz Market State & Sentiment

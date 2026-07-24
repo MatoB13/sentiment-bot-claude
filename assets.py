@@ -9,6 +9,12 @@ makro fetch, aby sa nefetchovalo to iste 4x (viz trade_cycle.run_all_cycles).
 GOLD je zamerne pridany ako protivietor k prevazne risk-on smerovaniu
 NAS100/NVDA/ADA (safe-haven asset, VIX naň posobi opacne nez na risk-on aktiva -
 viz claude_analyst._COMMODITY_MACRO_RULES).
+
+include_volume: zapnute len pre NAS100/NVDA/GOLD, kde ma yfinance kompletne
+(99-100%) volume data (overene 2026-07-24). Pre ADA je cez yfinance len ~41%
+barov s nenulovym volume (a aj tak je to iny trh nez Strike-ov vlastny
+order-book) - zamerne VYPNUTE, aby chybajuce/nulove hodnoty neskreslovali
+priemer a nevytvarali falosne "objemove spike" signaly.
 """
 import config
 
@@ -25,6 +31,7 @@ NAS100 = {
     "min_confidence": config.MIN_CONFIDENCE,
     "enabled": True,
     "needs_btc_proxy": False,
+    "include_volume": True,
 }
 
 NVDA = {
@@ -40,6 +47,7 @@ NVDA = {
     "min_confidence": config.NVDA_MIN_CONFIDENCE,
     "enabled": config.ENABLE_NVDA,
     "needs_btc_proxy": False,
+    "include_volume": True,
 }
 
 ADA = {
@@ -55,6 +63,7 @@ ADA = {
     "min_confidence": config.ADA_MIN_CONFIDENCE,
     "enabled": config.ENABLE_ADA,
     "needs_btc_proxy": True,
+    "include_volume": False,
 }
 
 GOLD = {
@@ -70,6 +79,7 @@ GOLD = {
     "min_confidence": config.GOLD_MIN_CONFIDENCE,
     "enabled": config.ENABLE_GOLD,
     "needs_btc_proxy": False,
+    "include_volume": True,
 }
 
 ALL_ASSETS = [NAS100, NVDA, ADA, GOLD]
