@@ -27,9 +27,18 @@ session (a pre ADA aj BTC-proxy) makro fetch, takže sa tie isté dáta nesťahu
      `claude_analyst.ASSET_TEXT`) priamo cez Anthropic API (žiadny NewsAPI kľúč
      netreba) — a vráti **štruktúrovanú JSON odpoveď**: smer (long/short/none),
      confidence 0-100, navrhovaný stop-loss a take-profit a krátke zdôvodnenie.
-   - `risk_manager.py` overí rozhodnutie voči **per-asset** risk pravidlám (min.
-     confidence, leverage, SL/TP tolerancia okolo asset-špecifických % z
-     `assets.py`, či už nie je otvorená pozícia PRE TENTO symbol).
+   - `risk_manager.py`: jediný GATE na otvorenie obchodu je **confidence** (per-asset
+     `min_confidence`) - okrem toho už len veci mimo našej kontroly (už otvorená
+     pozícia PRE TENTO symbol, alebo skutočné limity burzy - min. veľkosť/notional
+     objednávky, ktoré Strike API jednoducho neprijme). SL vzdialenosť navrhnutá
+     Claudom sa **vždy použije** (nikdy nezablokuje vstup) - orežie sa len do
+     širokého bezpečnostného rozsahu (0.1x-5x asset-špecifického % z `assets.py`) a
+     umiestni na správnu stranu vstupnej ceny podľa smeru. **TP sa dopočíta z tejto
+     SL vzdialenosti a cieľového pomeru `tp_pct/sl_pct`** namiesto priameho použitia
+     Claude-ovho navrhnutého TP - backtest na historických dátach (2026-07-24)
+     ukázal, že Claude systematicky navrhoval oveľa širší SL než TP (risk:reward
+     0.09-0.17 namiesto cieľových 1.5), čo pri reálnom cenovom vývoji viedlo k
+     stratám aj pri dobrom win-rate (malé výhry, obrovské prehry).
    - Ak prejde kontrolou, `strike_client.py` otvorí pozíciu cez Strike API s daným
      SL/TP na asset-špecifickom symbole.
    - Obchod sa zapíše do DB (`db.py`, `symbol` stĺpec) s časom otvorenia a
@@ -118,8 +127,8 @@ Pozri `.env.example` — najdôležitejšie:
   fixny margin+leverage na kazdy obchod (notional = margin x leverage), per asset
 - `DEFAULT_SL_PCT`/`NVDA_SL_PCT`/`ADA_SL_PCT`/`GOLD_SL_PCT`,
   `DEFAULT_TP_PCT`/`NVDA_TP_PCT`/`ADA_TP_PCT`/`GOLD_TP_PCT` - cielove
-  SL/TP ako % od live ceny (per asset); Claude navrhuje presnu cenu v tolerancii 0.5x-2x okolo
-  tychto hodnot (viz `risk_manager.py`)
+  SL/TP ako % od live ceny (per asset); Claude navrhuje presnu vzdialenost, ktora sa oreze do
+  0.1x-5x tychto hodnot (nikdy nezablokuje vstup - viz `risk_manager.py`)
 
 ## Deploy na Railway
 
@@ -144,6 +153,6 @@ Pozri `.env.example` — najdôležitejšie:
 | `social_sentiment.py` | (voliteľné) X/Twitter sentiment, per asset query |
 | `claude_analyst.py` | zostaví per-asset prompt, zavolá Claude (s `web_search` nástrojom), parsuje JSON rozhodnutie |
 | `strike_client.py` | Ed25519 podpisovanie, open/close position, get positions/markets |
-| `risk_manager.py` | position sizing + sanity kontroly pred exekúciou (per-asset risk parametre) |
+| `risk_manager.py` | position sizing; jediny gate na vstup je confidence, SL/TP sa vzdy pouzije (nikdy nezablokuje) |
 | `trade_cycle.py` | `run_all_cycles()` - zdieľaný makro fetch + loop cez aktívne assety |
 | `position_monitor.py` | kontrola/zatváranie otvorených pozícií naprieč assetmi |

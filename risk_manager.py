@@ -1,10 +1,19 @@
-"""Kontroly rozhodnutia od Claude pred realnou exekuciou obchodu."""
+"""Kontroly rozhodnutia od Claude pred realnou exekuciou obchodu.
+
+Jediny GATE na otvorenie obchodu je confidence (min_confidence) - okrem toho uz
+len veci mimo nasej kontroly: uz otvorena pozicia, direction="none", alebo
+skutocne limity burzy (min. velkost/notional objednavky - to Strike API proste
+neprijme, nie je to nas risk-preference). SL/TP navrhnute Claudom sa POUZIJE
+(prip. upravi), ale nikdy nezablokuje otvorenie pozicie.
+"""
 import math
 
-# Claude navrhuje konkretnu SL/TP cenu, ale musi zostat v tejto tolerancii
-# okolo cieloveho sl_pct/tp_pct (v nasobkoch cielovej vzdialenosti).
-SL_TOLERANCE = (0.5, 2.0)
-TP_TOLERANCE = (0.5, 2.0)
+# Bezpecnostny strop na SL/TP vzdialenost (nasobok cieloveho sl_pct/tp_pct) -
+# NIKDY nezablokuje obchod, len oreze extremnu (typicky chybnu) hodnotu na
+# rozumnu hranicu namiesto doslovneho pouzitia. Dolny strop (SAFETY_FLOOR_MULTIPLE)
+# chrani pred degenerovanou (napr. nulovou) vzdialenostou.
+SAFETY_CAP_MULTIPLE = 5.0
+SAFETY_FLOOR_MULTIPLE = 0.1
 
 
 class RejectedTrade(Exception):
@@ -18,11 +27,28 @@ def validate_and_size(decision: dict, has_open_position: bool,
     """Vrati dict pripraveny na strike_client.open_bracket_position, alebo vyhodi RejectedTrade.
 
     Position sizing je fixny: kazdy obchod pouzije `margin_usd` marzy a `leverage`
-    paku (teda vzdy rovnaky notional = margin_usd * leverage). SL/TP navrhuje
-    Claude ako absolutnu cenu, ale musi zostat v tolerancii okolo sl_pct/tp_pct
-    (% od live ceny) - viz SL_TOLERANCE/TP_TOLERANCE. Vsetky risk parametre su
-    per-asset (viz assets.py) - kazdy asset (NAS100/NVDA/ADA) ma vlastnu
-    volatilitou-kalibrovanu konfiguraciu.
+    paku (teda vzdy rovnaky notional = margin_usd * leverage). Vsetky risk
+    parametre su per-asset (viz assets.py).
+
+    SL: Claude navrhuje absolutnu cenu, z ktorej pouzijeme len VZDIALENOST
+    (abs(live_price - stop_loss_price)), orezanu do SAFETY_FLOOR_MULTIPLE..
+    SAFETY_CAP_MULTIPLE nasobku cieloveho sl_pct (nikdy zamietnutie, len orezanie).
+
+    TP: NEPOUZIVA Claude-ov navrhnuty take_profit_price priamo - namiesto toho sa
+    DOPOCITA z (uz orezanej) SL vzdialenosti a cieloveho pomeru tp_pct/sl_pct, takze
+    risk:reward pomer je VZDY presne zachovany. Dovod (overene backtestom
+    2026-07-24 na historickych cycle_logs): Claude systematicky navrhoval SL
+    vzdialenost oveľa sirsiu nez TP (napr. SL 316-348 bodov vs TP len 29-59 bodov
+    pre NAS100 shorty - risk:reward 0.09-0.17 namiesto cieloveho 1.5), co pri
+    realnom cenovom vyvoji viedlo k systematickym stratam aj pri dobrom win-rate
+    (male vyhry, obrovske prehry). SL od Claude sa NEIGNORUJE (jeho odhad kam
+    siaha invalidacia setupu je uzitocny), len sa TP prestane spoliehat na
+    Claude-ovo (nespolahlive skalibrovane) absolutne cislo.
+
+    Smerova konzistencia: ak by SL/TP vyszli oproti smeru obratene (napr. Claude
+    dal stop_loss_price nad live_price pri LONG), prepocet z ORIENTOVANEJ
+    vzdialenosti + znovu-umiestnenie na spravnu stranu podla smeru to automaticky
+    opravi bez zamietnutia obchodu.
 
     live_price: aktualna mark/last cena z strike_client.get_market() (referencna cena burzy,
     presnejsia ako yfinance proxy v `ta`). market_meta: dict z strike_client.get_market()
@@ -40,45 +66,38 @@ def validate_and_size(decision: dict, has_open_position: bool,
             f"Confidence {decision['confidence']} < MIN_CONFIDENCE {min_confidence}."
         )
 
-    sl = decision["stop_loss_price"]
-    tp = decision["take_profit_price"]
-
     if not live_price:
-        raise RejectedTrade("Chybajuca live cena - nemozem overit SL/TP.")
+        raise RejectedTrade("Chybajuca live cena - nemozem vypocitat SL/TP.")
+
+    sl_distance = abs(live_price - decision["stop_loss_price"])
+    default_sl_distance = live_price * (sl_pct / 100)
+    sl_distance = min(max(sl_distance, SAFETY_FLOOR_MULTIPLE * default_sl_distance),
+                       SAFETY_CAP_MULTIPLE * default_sl_distance)
+
+    # TP dopocitane z (orezanej) SL vzdialenosti a cieloveho pomeru - nie z
+    # Claude-ovho navrhnuteho take_profit_price (viz vysvetlenie vyssie).
+    tp_distance = sl_distance * (tp_pct / sl_pct)
+
+    if decision["direction"] == "long":
+        sl = live_price - sl_distance
+        tp = live_price + tp_distance
+    else:  # short
+        sl = live_price + sl_distance
+        tp = live_price - tp_distance
 
     tick = float(market_meta["order_tick_price"])
     sl = _round_to_tick(sl, tick)
     tp = _round_to_tick(tp, tick)
 
-    sl_distance = abs(live_price - sl)
-    tp_distance = abs(tp - live_price)
-
-    default_sl_distance = live_price * (sl_pct / 100)
-    default_tp_distance = live_price * (tp_pct / 100)
-
-    sl_lo, sl_hi = SL_TOLERANCE[0] * default_sl_distance, SL_TOLERANCE[1] * default_sl_distance
-    if not (sl_lo <= sl_distance <= sl_hi):
-        raise RejectedTrade(
-            f"Stop-loss vzdialenost {sl_distance:.4f} mimo tolerancie okolo defaultu "
-            f"{sl_pct}% ({sl_lo:.4f}-{sl_hi:.4f})."
-        )
-
-    tp_lo, tp_hi = TP_TOLERANCE[0] * default_tp_distance, TP_TOLERANCE[1] * default_tp_distance
-    if not (tp_lo <= tp_distance <= tp_hi):
-        raise RejectedTrade(
-            f"Take-profit vzdialenost {tp_distance:.4f} mimo tolerancie okolo defaultu "
-            f"{tp_pct}% ({tp_lo:.4f}-{tp_hi:.4f})."
-        )
-
-    # smer SL/TP musi davat zmysel voci direction
-    if decision["direction"] == "long" and not (sl < live_price < tp):
-        raise RejectedTrade("Pre LONG musi platit stop_loss < live_price < take_profit.")
-    if decision["direction"] == "short" and not (tp < live_price < sl):
-        raise RejectedTrade("Pre SHORT musi platit take_profit < live_price < stop_loss.")
+    # Ak by zaokruhlenie na tick_size (napr. pri velmi malej, floor-om vynutenej
+    # vzdialenosti) skolabovalo SL/TP naspat presne na live_price, posunieme o
+    # jeden tick spravnym smerom - inak by pozicia mala nulovu ochranu.
+    if sl == live_price:
+        sl = sl - tick if decision["direction"] == "long" else sl + tick
+    if tp == live_price:
+        tp = tp + tick if decision["direction"] == "long" else tp - tick
 
     risk_reward = tp_distance / sl_distance if sl_distance else 0
-    if risk_reward < 1.0:
-        raise RejectedTrade(f"Risk:reward {risk_reward:.2f} je horsi ako 1:1 - neobchodujem.")
 
     notional_usd = margin_usd * leverage
     size = notional_usd / live_price
@@ -93,6 +112,9 @@ def validate_and_size(decision: dict, has_open_position: bool,
     notional_usd = size * live_price
     margin_usd = notional_usd / leverage
 
+    # Toto NIE JE nas risk-preference - je to skutocny limit burzy (Strike API
+    # by objednavku pod touto velkostou proste odmietol), preto tu ostava jedine
+    # tvrde zamietnutie okrem confidence/otvorenej pozicie/direction="none".
     if size < min_size or notional_usd < min_notional:
         raise RejectedTrade(
             f"Vypocitana velkost pozicie {size} ({notional_usd:.2f} USD) je pod minimom "
