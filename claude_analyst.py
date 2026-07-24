@@ -410,20 +410,34 @@ def _extract_web_search_log(content_blocks: list) -> list[dict]:
     """Sparuje kazde web_search volanie (server_tool_use) s jeho vysledkami
     (web_search_tool_result), aby sme vedeli presne, ake query a ake zdroje
     (title/url/page_age) Claude pouzil. Obsah stranok samotny nevidime -
-    Strike/Anthropic ho posiela sifrovany (encrypted_content), citame len metadata."""
+    Strike/Anthropic ho posiela sifrovany (encrypted_content), citame len metadata.
+
+    Ak vyhladavanie ZLYHA (napr. rate limit na strane Anthropic), "content" nie
+    je zoznam vysledkov ale dict/chyba - predtym sme to tichy zapisali ako
+    prazdny zaznam bez naznaku PRECO (presne to sposobilo neistotu pri NAS100
+    cykle 2026-07-24 11:49, kde vsetkych 5 pokusov skoncilo bez zdrojov). Teraz
+    zapiseme aj "error" pole a vypiseme to do konzoly, aby sa to dalo diagnostikovat."""
     log = []
     pending_query = None
     for block in content_blocks:
         if block.get("type") == "server_tool_use" and block.get("name") == "web_search":
             pending_query = block.get("input", {}).get("query")
         elif block.get("type") == "web_search_tool_result":
-            results = block.get("content", [])
-            sources = [
-                {"title": r.get("title"), "url": r.get("url"), "page_age": r.get("page_age")}
-                for r in results
-                if isinstance(results, list) and r.get("type") == "web_search_result"
-            ] if isinstance(results, list) else []
-            log.append({"query": pending_query, "sources": sources})
+            content = block.get("content")
+            entry = {"query": pending_query}
+            if isinstance(content, list):
+                entry["sources"] = [
+                    {"title": r.get("title"), "url": r.get("url"), "page_age": r.get("page_age")}
+                    for r in content if r.get("type") == "web_search_result"
+                ]
+            else:
+                entry["sources"] = []
+                entry["error"] = (
+                    content.get("error_code") if isinstance(content, dict)
+                    else f"unexpected_content_shape:{type(content).__name__}"
+                )
+                print(f"[claude_analyst] web_search zlyhalo: {entry['error']} (query={pending_query!r})")
+            log.append(entry)
             pending_query = None
     return log
 
