@@ -5,15 +5,70 @@ web_search nastroj (ziadny NewsAPI kluc netreba) a vrati strukturovane
 rozhodnutie. System aj user prompt su parametrizovane podla assets.py profilu -
 rovnaky syntetizacny ramec (cross-market/VIX/session/event-risk-gate) ako pri
 NAS100, len s inym news-focusom a (pre krypto) inou vahou makro signalov.
-"""
+
+Rozhodnutie sa ziska cez tool-use (submit_trade_decision), nie parsovanim
+volneho textu ako JSON - Anthropic API garantuje, ze tool input je synakticky
+validny podla schemy, cim odpada cela trieda bugov s pokazenym volnym JSON
+textom (markdown fence, zle escapovane znaky, bludiace znaky a pod. - vsetko
+sa to v praxi stalo, kym sme parsovali text rucne)."""
 import json
-import re
 from datetime import datetime, timezone
 
 import requests
 
 import config
 import market_data
+
+DECISION_TOOL = {
+    "name": "submit_trade_decision",
+    "description": (
+        "Odovzdaj finalne obchodne rozhodnutie. Zavolaj tento nastroj VZDY ako "
+        "posledny krok analyzy, po dokonceni pripadneho web_search prieskumu - "
+        "je to jediny sposob, ako rozhodnutie odovzdat."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "direction": {
+                "type": "string", "enum": ["long", "short", "none"],
+                "description": "Obchodny smer.",
+            },
+            "confidence": {
+                "type": "integer", "minimum": 0, "maximum": 100,
+                "description": "0-100, realna neistota (60 = mierne naklonený, 90+ vzacne).",
+            },
+            "stop_loss_price": {
+                "type": "number",
+                "description": "Absolutna cena stop-lossu (nie percenta).",
+            },
+            "take_profit_price": {
+                "type": "number",
+                "description": "Absolutna cena take-profitu (nie percenta).",
+            },
+            "reasoning": {
+                "type": "string",
+                "description": "Max 3-4 vety, fakticky, bez floskul.",
+            },
+            "key_assumptions": {
+                "type": "string",
+                "description": "1-2 vety - kluc. fakty/ocakavania, na ktorych rozhodnutie stoji.",
+            },
+            "watch_price": {
+                "type": "number",
+                "description": (
+                    "Volitelne - len ked direction=none a vidis konkretnu uroven na "
+                    "sledovanie. Vynechaj cely field, ak nie je relevantny."
+                ),
+            },
+            "watch_direction": {
+                "type": "string", "enum": ["above", "below"],
+                "description": "Volitelne, vzdy spolu s watch_price.",
+            },
+        },
+        "required": ["direction", "confidence", "stop_loss_price", "take_profit_price",
+                     "reasoning", "key_assumptions"],
+    },
+}
 
 _EQUITY_MACRO_RULES = """- **Cross-market konfirmácia**: Ak S&P500, Russell 2000 aj SOX (semikondukcia) potvrdzujú
   smer {instrument}, zvyšuje to istotu. Divergencia (napr. SOX klesá kým {instrument} rastie) je varovanie.
@@ -171,11 +226,9 @@ Pravidlá:
   čakáš na potvrdenie NAD touto cenou, "below" ak POD ňou). Toto spustí lacný poller sledujúci
   live cenu, ktorý ťa mimoriadne zavolá znova AK sa podmienka splní, namiesto čakania na ďalší
   pravidelný cyklus. Ak takú úroveň nevidíš, alebo je direction="long"/"short" (pozícia sa už
-  otvára), nastav OBOJE na null.
-- Po prípadnom vyhľadávaní odpovedz VÝLUČNE JSON objektom, žiadny iný text, žiadne markdown bloky.
-
-Formát:
-{{"direction": "long|short|none", "confidence": 0-100, "stop_loss_price": number, "take_profit_price": number, "reasoning": "string", "key_assumptions": "string", "watch_price": number|null, "watch_direction": "above"|"below"|null}}
+  otvára), vynechaj oba tieto polia úplne.
+- Po dokončení (prípadného) vyhľadávania zavolaj nástroj `submit_trade_decision` s finálnym
+  rozhodnutím - to je jediný spôsob, ako rozhodnutie odovzdať.
 """
 
 
@@ -306,10 +359,13 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
             },
             json={
                 "model": config.CLAUDE_MODEL,
-                "max_tokens": 4096,
+                "max_tokens": 8192,
                 "system": [{"type": "text", "text": system_prompt,
                             "cache_control": {"type": "ephemeral"}}],
-                "tools": [{"type": "web_search_20260209", "name": "web_search", "max_uses": 5}],
+                "tools": [
+                    {"type": "web_search_20260209", "name": "web_search", "max_uses": 5},
+                    DECISION_TOOL,
+                ],
                 "messages": messages,
             },
             timeout=300,
@@ -321,7 +377,8 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
         usage = data.get("usage", {})
         print(f"[claude_analyst] [{asset['name']}] usage: input={usage.get('input_tokens')} "
               f"cache_write={usage.get('cache_creation_input_tokens')} "
-              f"cache_read={usage.get('cache_read_input_tokens')} output={usage.get('output_tokens')}")
+              f"cache_read={usage.get('cache_read_input_tokens')} output={usage.get('output_tokens')} "
+              f"stop_reason={data.get('stop_reason')}")
 
         if data.get("stop_reason") == "pause_turn":
             # NEZNACIME cache_control na tento blok: cyklus ma tvrdy strop 2 volania
@@ -332,8 +389,17 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
             messages = messages + [{"role": "assistant", "content": content_blocks}]
             continue
 
-        text = "".join(block.get("text", "") for block in content_blocks)
-        decision = _parse_json(text)
+        decision_block = next(
+            (b for b in content_blocks
+             if b.get("type") == "tool_use" and b.get("name") == "submit_trade_decision"),
+            None,
+        )
+        if decision_block is None:
+            raise RuntimeError(
+                f"Claude nezavolal submit_trade_decision (stop_reason={data.get('stop_reason')}, "
+                f"content_types={[b.get('type') for b in content_blocks]})"
+            )
+        decision = decision_block["input"]
         _validate_decision(decision)
         return decision, web_search_log
 
@@ -360,49 +426,6 @@ def _extract_web_search_log(content_blocks: list) -> list[dict]:
             log.append({"query": pending_query, "sources": sources})
             pending_query = None
     return log
-
-
-# Znaky, ktore JSON povoluje za spatnym lomitkom (RFC 8259) - vsetko ine je
-# neplatny escape a json.loads/raw_decode na tom padne s "Invalid \escape".
-_VALID_JSON_ESCAPES = set('"\\/bfnrtu')
-
-
-def _fix_invalid_escapes(text: str) -> str:
-    """Claude obcas escapuje znaky, ktore JSON nepozna - najcastejsie apostrof
-    (\\'), ako v Pythone/JS retazcoch, ale JSON pozna len \\" \\\\ \\/ \\b \\f
-    \\n \\r \\t \\uXXXX. Taky neplatny escape zhodi cely inak perfektne validny
-    JSON. Odstranime spatne lomitko pred kazdym znakom, ktory nie je z
-    povoleneho zoznamu (znak samotny ostava zachovany)."""
-    return re.sub(r"\\(.)", lambda m: m.group(0) if m.group(1) in _VALID_JSON_ESCAPES else m.group(1), text)
-
-
-def _parse_json(text: str) -> dict:
-    text = text.strip()
-    start = text.find("{")
-    if start == -1:
-        raise ValueError(f"Claude nevrátil validný JSON: {text!r}")
-    candidate = text[start:]
-
-    # raw_decode parsuje len PRVY validny JSON objekt od zaciatku retazca a
-    # ignoruje cokolvek za nim - na rozdiel od json.loads (ktory vyzaduje, aby
-    # CELY retazec bol validny JSON) tak prezije, aj ked Claude napriek zakazu v
-    # system prompte obali odpoved do ```json ... ``` markdown fence (zvysne
-    # "\n```" za zatvorenou zlozenou zatvorkou by json.loads odmietol ako
-    # "Extra data" a cele inak validne rozhodnutie by sa zahodilo ako chyba).
-    #
-    # Skusame 4 varianty (surovy/so sanitizovanymi escapmi x s/bez dopisanej
-    # zatvaracej zatvorky pre pripad orezaneho vystupu) - prvy, ktory sa
-    # podari naparsovat, sa pouzije.
-    decoder = json.JSONDecoder()
-    for attempt in (candidate, _fix_invalid_escapes(candidate)):
-        for variant in (attempt, attempt + "}"):
-            try:
-                obj, _ = decoder.raw_decode(variant)
-                return obj
-            except json.JSONDecodeError:
-                pass
-
-    raise ValueError(f"Claude nevrátil validný JSON: {text!r}")
 
 
 def _validate_decision(decision: dict) -> None:
