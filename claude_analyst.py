@@ -56,13 +56,30 @@ DECISION_TOOL = {
             "watch_price": {
                 "type": "number",
                 "description": (
-                    "Volitelne - len ked direction=none a vidis konkretnu uroven na "
-                    "sledovanie. Vynechaj cely field, ak nie je relevantny."
+                    "Volitelne - len ked direction=none A skutocny blokujuci dovod je "
+                    "konkretna CENOVA uroven (retest/breakout), ktoru by cenovy pohyb sam "
+                    "vedel potvrdit. NEVYPLNAJ, ak je blokujuci dovod CASOVA UDALOST "
+                    "(FOMC/CPI/NFP/PMI/earnings) - ziadny cenovy pohyb pred udalostou "
+                    "neistotu nevyriesi, takze by to sposobilo zbytocne opakovane "
+                    "mimoriadne cykly pri beznom trhovom sume. Vynechaj cely field, ak "
+                    "nie je relevantny."
                 ),
             },
             "watch_direction": {
                 "type": "string", "enum": ["above", "below"],
-                "description": "Volitelne, vzdy spolu s watch_price.",
+                "description": "Volitelne, vzdy spolu s watch_price (rovnake pravidlo - len pre cenovo podmienene 'none').",
+            },
+            "daily_reflection": {
+                "type": "string",
+                "description": (
+                    "VYPLN LEN ak user sprava obsahuje sekciu 'Nove statistiky za vcerajsok' "
+                    "(deje sa raz denne, pri prvom cykle po polnoci). Strucne (2-4 vety) zhodnot, "
+                    "ci bola tvoja confidence kalibracia vcera primerana - najma ci signaly "
+                    "zamietnute LEN kvoli confidence boli vacsinou spravne zamietnute (boli by "
+                    "stratove) alebo naopak prilis prisne zamietnute (boli by ziskove, teda prah "
+                    "mozno moze byt o nieco nizsi). Ak nemas take udaje k dispozicii v tomto "
+                    "cykle, toto pole VYNECHAJ."
+                ),
             },
         },
         "required": ["direction", "confidence", "stop_loss_price", "take_profit_price",
@@ -220,14 +237,27 @@ Pravidlá:
   (napr. konkrétny očakávaný event a jeho dátum, prevládajúci naratív, aktívny katalyzátor).
   Toto dostane budúci cyklus na overenie, či ešte platí - ber to ako odkaz "čo si myslím, že
   je teraz pravda" pre svoje budúce ja.
-- watch_price/watch_direction (VOLITEĽNÉ, len ak direction="none"): ak vidíš konkrétnu cenovú
-  úroveň, ktorej potvrdenie/prekonanie by čoskoro (rádovo minúty až pár hodín, nie celý ďalší
-  {interval_hours}h cyklus) zmenilo rozhodnutie - najmä keď je confidence blízko prahu na
-  obchodovanie - vráť watch_price (číslo, presná cena {instrument}) a watch_direction ("above" ak
-  čakáš na potvrdenie NAD touto cenou, "below" ak POD ňou). Toto spustí lacný poller sledujúci
-  live cenu, ktorý ťa mimoriadne zavolá znova AK sa podmienka splní, namiesto čakania na ďalší
-  pravidelný cyklus. Ak takú úroveň nevidíš, alebo je direction="long"/"short" (pozícia sa už
-  otvára), vynechaj oba tieto polia úplne.
+- watch_price/watch_direction (VOLITEĽNÉ, len ak direction="none"): nastav LEN ak je skutočný
+  blokujúci dôvod tvojho "none" rozhodnutia konkrétna CENOVÁ úroveň (napr. čakáš na retest
+  supportu/resistance, potvrdenie breakoutu) - teda niečo, čo by CENOVÝ POHYB samotný vedel
+  vyriešiť. Toto spustí lacný poller sledujúci live cenu, ktorý ťa mimoriadne zavolá znova AK sa
+  podmienka splní, namiesto čakania na ďalší pravidelný cyklus.
+  NENASTAVUJ tieto polia, ak je skutočný blokujúci dôvod ČASOVÁ UDALOSŤ (napr. čakáš na FOMC/CPI/
+  PPI/NFP/PMI report, earnings, alebo iný naplánovaný event) - v tom prípade žiadny cenový pohyb
+  pred touto udalosťou tvoju neistotu nevyrieši, takže watch na cenu by bol zavádzajúci (spustil by
+  sa pri bežnom trhovom šume/drifte, nie pri skutočnom potvrdení, a viedol by k zbytočným opakovaným
+  mimoriadnym cyklom bez toho, aby sa čokoľvek reálne zmenilo). V takom prípade oba polia vynechaj
+  úplne - počkaj na ďalší pravidelný cyklus alebo priamo na výsledok danej udalosti.
+  Rovnako vynechaj oba polia, ak je direction="long"/"short" (pozícia sa už otvára).
+- daily_reflection (VOLITEĽNÉ): raz denne (pri prvom cykle po polnoci) dostaneš v user správe
+  sekciu "Nové štatistiky za včerajšok" - skutočné výsledky včerajších obchodov a HYPOTETICKÉ
+  výsledky signálov zamietnutých len kvôli confidence (na základe reálneho neskoršieho cenového
+  vývoja). Zhodnoť v 2-4 vetách, či bola tvoja confidence kalibrácia primeraná - najmä či prah nie
+  je zbytočne prísny (veľa zamietnutých signálov by bolo ziskových) alebo naopak. POZOR: jeden deň
+  je veľmi malá vzorka - nerob z toho drastické závery, len opatrný postreh. Táto reflexia sa potom
+  prenáša do VŠETKÝCH tvojich cyklov nasledujúci deň (pod "Aktívna denná sebareflexia" nižšie), takže
+  ju piš ako odkaz svojmu budúcemu ja, nie len ako jednorazový komentár. Ak túto sekciu v user správe
+  nedostaneš, pole vynechaj.
 - Po dokončení (prípadného) vyhľadávania zavolaj nástroj `submit_trade_decision` s finálnym
   rozhodnutím - to je jediný spôsob, ako rozhodnutie odovzdať.
 """
@@ -267,7 +297,9 @@ def _system_prompt(asset: dict) -> str:
 def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                         social: list[dict], btc_proxy: dict | None,
                         prev_assumptions: str | None,
-                        prev_cycle_time: datetime | None = None) -> str:
+                        prev_cycle_time: datetime | None = None,
+                        retrospective_reflection: str | None = None,
+                        new_stats_text: str | None = None) -> str:
     instrument = asset["name"]
     social_block = "\n".join(
         f"- ({p.get('likes')}♥/{p.get('retweets')}rt) {p.get('text')}"
@@ -301,6 +333,18 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
             f"{json.dumps(btc_proxy, indent=2, ensure_ascii=False)}\n"
         )
 
+    retro_block = ""
+    if retrospective_reflection:
+        retro_block += (
+            f"\n## Aktívna denná sebareflexia (z predchádzajúcej retrospektívy)\n"
+            f"{retrospective_reflection}\n"
+        )
+    if new_stats_text:
+        retro_block += (
+            f"\n## Nové štatistiky za včerajšok (vygeneruj daily_reflection)\n"
+            f"{new_stats_text}\n"
+        )
+
     return f"""## Aktuálny dátum a čas
 {now.strftime('%A, %d. %B %Y, %H:%M')} UTC ({now.isoformat()})
 Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/správy za posledných
@@ -320,7 +364,7 @@ Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/sp
 
 ## Kľúčové predpoklady z predchádzajúceho cyklu (~{interval_h}h dozadu)
 {prev_block}
-
+{retro_block}
 ## Cielove SL/TP vzdialenosti
 Stop-loss cca {asset['sl_pct']}% od aktuálnej ceny, take-profit cca {asset['tp_pct']}%
 (pri LONG: stop_loss_price = last_price * (1 - {asset['sl_pct']}/100), take_profit_price =
@@ -337,7 +381,9 @@ formátu zo system promptu.
 def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: list[dict],
             btc_proxy: dict | None = None,
             prev_assumptions: str | None = None,
-            prev_cycle_time: datetime | None = None) -> tuple[dict, list[dict]]:
+            prev_cycle_time: datetime | None = None,
+            retrospective_reflection: str | None = None,
+            new_stats_text: str | None = None) -> tuple[dict, list[dict]]:
     """Vrati (decision, web_search_log). web_search_log je zoznam
     {"query": str, "sources": [{"title", "url", "page_age"}]} pre kazde
     vyhladavanie, ktore Claude spravil - sluzi na audit (co realne citas,
@@ -348,7 +394,13 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
     prev_assumptions: kluc_assumptions z minuleho cyklu TOHTO assetu (ak existuje) -
     Claude ho dostane na explicitne overenie, ci este plati.
     prev_cycle_time: kedy prev_assumptions vznikli - umoznuje formulovat hladanie
-    ako presny inkrement ("co pribudlo OD X"), nie vagne "za poslednych ~4h"."""
+    ako presny inkrement ("co pribudlo OD X"), nie vagne "za poslednych ~4h".
+    retrospective_reflection: ulozena sebareflexia z DailyRetrospective (aktualna
+    pre dnesok) - prenasa sa do vsetkych cyklov dna.
+    new_stats_text: ak toto je prvy cyklus po polnoci a retrospektiva za vcerajsok
+    este nebola vypocitana, sem sa vlozi cerstvo spocitany text (viz retrospective.py)
+    - Claude ma za ulohu na jeho zaklade vygenerovat daily_reflection, ktoru
+    trade_cycle.py nasledne ulozi ako novy DailyRetrospective zaznam."""
     if not config.ANTHROPIC_API_KEY:
         raise RuntimeError("ANTHROPIC_API_KEY nie je nastavený")
 
@@ -361,7 +413,8 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
     messages = [{"role": "user",
                  "content": [{"type": "text",
                                "text": _build_user_prompt(asset, ta, cross_market, session, social,
-                                                           btc_proxy, prev_assumptions, prev_cycle_time),
+                                                           btc_proxy, prev_assumptions, prev_cycle_time,
+                                                           retrospective_reflection, new_stats_text),
                                "cache_control": {"type": "ephemeral"}}]}]
     web_search_log: list[dict] = []
 

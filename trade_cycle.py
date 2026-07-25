@@ -11,10 +11,11 @@ import assets
 import claude_analyst
 import config
 import market_data
+import retrospective
 import risk_manager
 import social_sentiment
 import strike_client
-from db import CycleLog, Trade, get_session
+from db import CycleLog, DailyRetrospective, Trade, get_session
 
 
 # Tolerancia na scheduler jitter/spracovanie predchadzajucich assetov v tom
@@ -83,6 +84,45 @@ def _config_snapshot(asset: dict) -> dict:
     }
 
 
+def _get_retrospective_context(asset: dict, session) -> tuple[str | None, str | None, dict | None]:
+    """Vrati (retrospective_reflection, new_stats_text, pending_stats) pre tento asset.
+
+    retrospective_reflection: najnovsia ulozena sebareflexia (DailyRetrospective.reflection)
+    pre tento symbol - prenasa sa do KAZDEHO cyklu, kym ju nenahradi zajtrajsia.
+
+    new_stats_text/pending_stats: ak za VCERAJSOK (UTC) este NEEXISTUJE DailyRetrospective
+    zaznam, cerstvo vypocitane (zdarma) statistiky - Claude ich v TOMTO cykle zreflektuje
+    (daily_reflection na submit_trade_decision) a run_cycle_for_asset ulozi vysledok ako
+    novy DailyRetrospective zaznam (pending_stats = surove cisla na ulozenie spolu s
+    reflection). Ak vcera neboli ziadne long/short signaly, ulozi sa rovno bez Claude
+    volania (niet co reflektovat) a pending_stats/new_stats_text ostanu None."""
+    symbol = asset["strike_symbol"]
+    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).date()
+    yesterday_str = yesterday.isoformat()
+
+    latest = (
+        session.query(DailyRetrospective)
+        .filter(DailyRetrospective.symbol == symbol)
+        .order_by(DailyRetrospective.for_date.desc())
+        .first()
+    )
+    retrospective_reflection = latest.reflection if latest else None
+
+    if latest is not None and latest.for_date == yesterday_str:
+        return retrospective_reflection, None, None
+
+    stats = retrospective.compute_daily_stats(asset, yesterday, session)
+    if stats["total_signals"] == 0:
+        session.add(DailyRetrospective(
+            symbol=symbol, for_date=yesterday_str, stats=stats,
+            reflection="(ziadne long/short signaly, niet co hodnotit)",
+        ))
+        session.commit()
+        return retrospective_reflection, None, None
+
+    return retrospective_reflection, retrospective.format_stats_for_prompt(stats), stats
+
+
 def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                          btc_proxy: dict | None) -> None:
     """Kompletny cyklus pre JEDEN asset - vlastna DB session/commit, aby chyba
@@ -144,10 +184,13 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
         prev_assumptions = prev_log.key_assumptions if prev_log else None
         prev_cycle_time = prev_log.created_at if prev_log else None
 
+        retrospective_reflection, new_stats_text, pending_stats = _get_retrospective_context(asset, session)
+
         try:
             decision, web_search_log = claude_analyst.analyze(
                 asset, ta, cross_market, market_session, social, btc_proxy,
                 prev_assumptions, prev_cycle_time,
+                retrospective_reflection, new_stats_text,
             )
         except Exception as e:
             print(f"[{name}] Claude analyza zlyhala, preskakujem cyklus: {e}")
@@ -161,6 +204,13 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             return
         print(f"[{name}] Claude rozhodnutie: {decision}")
         print(f"[{name}] Web search log: {web_search_log}")
+
+        if pending_stats and decision.get("daily_reflection"):
+            session.add(DailyRetrospective(
+                symbol=symbol, for_date=pending_stats["for_date"],
+                stats=pending_stats, reflection=decision["daily_reflection"],
+            ))
+            print(f"[{name}] Ulozena denna retrospektiva za {pending_stats['for_date']}.")
 
         cycle_log = CycleLog(
             symbol=symbol, live_price=live_price, ta=ta, cross_market=cross_market,

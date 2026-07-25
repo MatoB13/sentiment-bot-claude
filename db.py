@@ -80,6 +80,26 @@ class CycleLog(Base):
     trade_id = Column(Integer, nullable=True)  # ak outcome=opened, id v `trades`
 
 
+class DailyRetrospective(Base):
+    """Denna sebareflexia bota - vygenerovana RAZ za den (pri prvom cykle po
+    polnoci UTC pre dany asset), pokryva PREDCHADZAJUCI (uz uplynuly) den.
+    Ziadne extra Claude volanie navyse: stats sa vypocitaju cisto v kode
+    (zdarma, cez yfinance - viz retrospective.py) a Claude ich zreflektuje v
+    ramci uz aj tak planovaneho prveho cyklu dna (volitelny 'daily_reflection'
+    vystup na submit_trade_decision nastroji). Vysledna reflection sa potom
+    prenasa do VSETKYCH cyklov toho dna (a dalej, kym ju nenahradi zajtrajsia)
+    ako sucast beznych user promptov - viz trade_cycle._get_retrospective_context."""
+    __tablename__ = "daily_retrospectives"
+
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False)
+    for_date = Column(String, nullable=False)  # 'YYYY-MM-DD' (UTC) - den, ktory stats pokryvaju
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    stats = Column(JSON, nullable=True)         # surove vypocitane cisla (viz retrospective.py)
+    reflection = Column(String, nullable=True)  # Claude-ova strucna sebareflexia/poucenie
+
+
 def _ensure_columns(engine) -> None:
     """create_all() vytvori len chybajuce TABULKY, nikdy nepridá stlpec do uz
     existujucej tabulky. Toto je poor-man's migration: pri kazdom starte
