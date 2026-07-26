@@ -15,7 +15,7 @@ import retrospective
 import risk_manager
 import social_sentiment
 import strike_client
-from db import CycleLog, DailyRetrospective, Trade, get_session
+from db import CycleLog, DailyRetrospective, RollingRetrospective, Trade, get_session
 
 
 # Tolerancia na scheduler jitter/spracovanie predchadzajucich assetov v tom
@@ -84,39 +84,59 @@ def _config_snapshot(asset: dict) -> dict:
     }
 
 
+def _upsert_rolling(session, symbol: str, summary: str | None, based_through_date: str) -> None:
+    """Vytvori/aktualizuje JEDINY RollingRetrospective riadok pre tento symbol.
+    Ak summary je None (nic nove na zapracovanie - napr. vcera nebehal ziaden
+    cyklus), len posunie based_through_date bez zmeny existujuceho textu."""
+    rolling = session.query(RollingRetrospective).filter(RollingRetrospective.symbol == symbol).first()
+    if rolling is None:
+        session.add(RollingRetrospective(symbol=symbol, summary=summary, based_through_date=based_through_date))
+    else:
+        if summary is not None:
+            rolling.summary = summary
+        rolling.based_through_date = based_through_date
+        rolling.updated_at = datetime.now(timezone.utc)
+
+
 def _get_retrospective_context(asset: dict, session) -> tuple[str | None, str | None, dict | None]:
     """Vrati (retrospective_reflection, new_stats_text, pending_stats) pre tento asset.
 
-    retrospective_reflection: najnovsia ulozena sebareflexia (DailyRetrospective.reflection)
-    pre tento symbol - prenasa sa do KAZDEHO cyklu, kym ju nenahradi zajtrajsia.
+    retrospective_reflection: aktualne RollingRetrospective.summary - priebezne
+    aktualizovane zhrnutie CEZ VIAC DNI (nie len posledny den) - prenasa sa do
+    KAZDEHO cyklu, kym ho Claude neaktualizuje pri dalsom prvom cykle dna.
 
-    new_stats_text/pending_stats: ak za VCERAJSOK (UTC) este NEEXISTUJE DailyRetrospective
-    zaznam, cerstvo vypocitane (zdarma) statistiky - Claude ich v TOMTO cykle zreflektuje
-    (daily_reflection na submit_trade_decision) a run_cycle_for_asset ulozi vysledok ako
-    novy DailyRetrospective zaznam (pending_stats = surove cisla na ulozenie spolu s
-    reflection). Ak vcera neboli ziadne long/short signaly, ulozi sa rovno bez Claude
-    volania (niet co reflektovat) a pending_stats/new_stats_text ostanu None."""
+    new_stats_text/pending_stats: ak vcerajsok (UTC) este NEBOL zapracovany do
+    RollingRetrospective (based_through_date != vcera), cerstvo vypocitane
+    (zdarma) statistiky - Claude ich v TOMTO cykle zreflektuje (daily_reflection
+    + summary_reflection na submit_trade_decision) a run_cycle_for_asset ulozi
+    vysledok - prve do DailyRetrospective (audit zaznam), druhe do
+    RollingRetrospective (pending_stats = surove cisla na ulozenie do oboch).
+    Ak vcera nebehal ziaden cyklus vobec, rovno oznaci vcerajsok ako spracovany
+    bez Claude volania (niet co reflektovat)."""
     symbol = asset["strike_symbol"]
     yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).date()
     yesterday_str = yesterday.isoformat()
 
-    latest = (
-        session.query(DailyRetrospective)
-        .filter(DailyRetrospective.symbol == symbol)
-        .order_by(DailyRetrospective.for_date.desc())
-        .first()
-    )
-    retrospective_reflection = latest.reflection if latest else None
+    rolling = session.query(RollingRetrospective).filter(RollingRetrospective.symbol == symbol).first()
+    retrospective_reflection = rolling.summary if rolling else None
 
-    if latest is not None and latest.for_date == yesterday_str:
+    if rolling is not None and rolling.based_through_date == yesterday_str:
         return retrospective_reflection, None, None
 
     stats = retrospective.compute_daily_stats(asset, yesterday, session)
-    if stats["total_signals"] == 0:
-        session.add(DailyRetrospective(
-            symbol=symbol, for_date=yesterday_str, stats=stats,
-            reflection="(ziadne long/short signaly, niet co hodnotit)",
-        ))
+    if stats["total_signals"] == 0 and stats.get("none_count", 0) == 0:
+        # Ani jeden cyklus vcera (asset bol cely den mimo intervalu) - nie je co
+        # reflektovat, len oznacime vcerajsok ako spracovany, aby sa to
+        # nepokusalo prepocitavat kazdy dalsi cyklus dna.
+        already = session.query(DailyRetrospective.id).filter(
+            DailyRetrospective.symbol == symbol, DailyRetrospective.for_date == yesterday_str,
+        ).first()
+        if not already:
+            session.add(DailyRetrospective(
+                symbol=symbol, for_date=yesterday_str, stats=stats,
+                reflection="(ziadne cykly, niet co hodnotit)",
+            ))
+        _upsert_rolling(session, symbol, None, yesterday_str)
         session.commit()
         return retrospective_reflection, None, None
 
@@ -213,19 +233,39 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
         print(f"[{name}] Claude rozhodnutie: {decision}")
         print(f"[{name}] Web search log: {web_search_log}")
 
-        if pending_stats and decision.get("daily_reflection"):
-            try:
-                session.add(DailyRetrospective(
-                    symbol=symbol, for_date=pending_stats["for_date"],
-                    stats=pending_stats, reflection=decision["daily_reflection"],
-                ))
-                session.commit()
-                print(f"[{name}] Ulozena denna retrospektiva za {pending_stats['for_date']}.")
-            except Exception as e:
-                # Vlastna (izolovana) transakcia - zlyhanie tu nesmie zobrat so
-                # sebou aj nizsie cycle_log/trade zapisy do rovnakeho commitu.
-                print(f"[{name}] Ulozenie retrospektivy zlyhalo, pokracujem: {e}")
-                session.rollback()
+        if pending_stats:
+            for_date = pending_stats["for_date"]
+            # Dve NEZAVISLE izolovane transakcie - zlyhanie jednej nesmie
+            # zobrat so sebou druhu ani nizsie cycle_log/trade zapisy. Duplicity
+            # osetrene explicitne (existence check), lebo based_through_date
+            # (gate v _get_retrospective_context) sa posunie az pri uspesnom
+            # summary_reflection - ak ten chyba/zlyha, tento cyklus sa moze na
+            # dalsom tiku zopakovat a bez tejto kontroly by vznikol duplicitny
+            # DailyRetrospective riadok za rovnaky den.
+            if decision.get("daily_reflection"):
+                try:
+                    already = session.query(DailyRetrospective.id).filter(
+                        DailyRetrospective.symbol == symbol, DailyRetrospective.for_date == for_date,
+                    ).first()
+                    if not already:
+                        session.add(DailyRetrospective(
+                            symbol=symbol, for_date=for_date,
+                            stats=pending_stats, reflection=decision["daily_reflection"],
+                        ))
+                        session.commit()
+                        print(f"[{name}] Ulozena denna retrospektiva za {for_date}.")
+                except Exception as e:
+                    print(f"[{name}] Ulozenie dennej retrospektivy zlyhalo, pokracujem: {e}")
+                    session.rollback()
+
+            if decision.get("summary_reflection"):
+                try:
+                    _upsert_rolling(session, symbol, decision["summary_reflection"], for_date)
+                    session.commit()
+                    print(f"[{name}] Aktualizovane priebezne zhrnutie (based_through={for_date}).")
+                except Exception as e:
+                    print(f"[{name}] Ulozenie priebezneho zhrnutia zlyhalo, pokracujem: {e}")
+                    session.rollback()
 
         cycle_log = CycleLog(
             symbol=symbol, live_price=live_price, ta=ta, cross_market=cross_market,

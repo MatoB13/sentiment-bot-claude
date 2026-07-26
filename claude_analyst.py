@@ -73,13 +73,34 @@ DECISION_TOOL = {
                 "type": "string",
                 "description": (
                     "VYPLN LEN ak user sprava obsahuje sekciu 'Nove statistiky za vcerajsok' "
-                    "(deje sa raz denne, pri prvom cykle po polnoci). Strucne (2-4 vety) zhodnot "
-                    "dve veci: (1) ci bola tvoja confidence kalibracia vcera primerana - najma ci "
-                    "signaly zamietnute LEN kvoli confidence boli vacsinou spravne zamietnute (boli "
-                    "by stratove) alebo naopak prilis prisne zamietnute (boli by ziskove); (2) ci "
+                    "(deje sa raz denne, pri prvom cykle po polnoci). IZOLOVANA poznamka LEN k "
+                    "VCERAJSKU (nie priebezne zhrnutie - to je samostatne pole "
+                    "summary_reflection nizsie). Strucne (2-4 vety) zhodnot dve veci: (1) ci "
+                    "bola tvoja confidence kalibracia vcera primerana - najma ci signaly "
+                    "zamietnute LEN kvoli confidence boli vacsinou spravne zamietnute (boli by "
+                    "stratove) alebo naopak prilis prisne zamietnute (boli by ziskove); (2) ci "
                     "tvoje 'none' rozhodnutia boli opodstatnene, alebo ci si bol niekedy zbytocne "
                     "opatrny a v spatnom pohlade malo byt LONG/SHORT. Ak nemas take udaje k "
                     "dispozicii v tomto cykle, toto pole VYNECHAJ."
+                ),
+            },
+            "summary_reflection": {
+                "type": "string",
+                "description": (
+                    "VYPLN LEN ak user sprava obsahuje sekciu 'Nove statistiky za vcerajsok' "
+                    "(rovnaky trigger ako daily_reflection, raz denne). Na rozdiel od "
+                    "daily_reflection (izolovana poznamka LEN k vcerajsku) je toto "
+                    "AKTUALIZOVANE PRIEBEZNE ZHRNUTIE, ktore sa realne prenasa do VSETKYCH "
+                    "tvojich buducich cyklov (nahradza predchadzajucu verziu, nie je to denny "
+                    "dennik). Dostanes v sekcii 'Priebezne zhrnutie doterajsich skusenosti' "
+                    "existujucu verziu (ak uz existuje) - tvoja uloha je NAPISAT JEJ AKTUALIZOVANU "
+                    "VERZIU zapracovanim vcerajsich novych udajov: potvrd vzory, ktore sa opakuju "
+                    "cez viac dni (tie su dolezitejsie nez jednorazovy vysledok jedneho dna), "
+                    "over/uprav zavery, ktore nove data vyvracaju, a zahod uz nepodstatne detaily. "
+                    "DOLEZITE: drz to STRUCNE (cielovo 5-8 viet, max ~150 slov) - je to trvala "
+                    "prevadzkova poznamka sebe samemu, nie narastajuci log. Ak zhrnutie este "
+                    "neexistuje, napis prve len z vcerajsich udajov. Ak nemas udaje k dispozicii "
+                    "v tomto cykle, toto pole VYNECHAJ."
                 ),
             },
         },
@@ -250,18 +271,26 @@ Pravidlá:
   mimoriadnym cyklom bez toho, aby sa čokoľvek reálne zmenilo). V takom prípade oba polia vynechaj
   úplne - počkaj na ďalší pravidelný cyklus alebo priamo na výsledok danej udalosti.
   Rovnako vynechaj oba polia, ak je direction="long"/"short" (pozícia sa už otvára).
-- daily_reflection (VOLITEĽNÉ): raz denne (pri prvom cykle po polnoci) dostaneš v user správe
-  sekciu "Nové štatistiky za včerajšok" - skutočné výsledky včerajších obchodov, HYPOTETICKÉ
-  výsledky signálov zamietnutých len kvôli confidence, AJ hypotetické výsledky pri 'none' cykloch
-  (čo by sa bolo stalo, keby si predsa len otvoril LONG/SHORT namiesto 'none', na základe reálneho
-  neskoršieho cenového vývoja). Zhodnoť v 2-4 vetách dve veci: (1) či bola tvoja confidence
-  kalibrácia primeraná - najmä či prah nie je zbytočne prísny (veľa zamietnutých signálov by bolo
-  ziskových) alebo naopak; (2) či boli tvoje 'none' rozhodnutia opodstatnené, alebo si bol niekedy
-  zbytočne opatrný a v spätnom pohľade malo byť LONG/SHORT. POZOR: jeden deň je veľmi malá vzorka -
-  nerob z toho drastické závery, len opatrný postreh. Táto reflexia sa potom prenáša do VŠETKÝCH
-  tvojich cyklov nasledujúci deň (pod "Aktívna denná sebareflexia" nižšie), takže ju piš ako odkaz
-  svojmu budúcemu ja, nie len ako jednorazový komentár. Ak túto sekciu v user správe nedostaneš,
-  pole vynechaj.
+- daily_reflection (VOLITEĽNÉ) a summary_reflection (VOLITEĽNÉ): raz denne (pri prvom cykle po
+  polnoci) dostaneš v user správe sekciu "Nové štatistiky za včerajšok" - skutočné výsledky
+  včerajších obchodov, HYPOTETICKÉ výsledky signálov zamietnutých len kvôli confidence, AJ
+  hypotetické výsledky pri 'none' cykloch (čo by sa bolo stalo, keby si predsa len otvoril
+  LONG/SHORT namiesto 'none', na základe reálneho neskoršieho cenového vývoja). Tieto dve polia
+  majú ROZDIELNU úlohu:
+  - daily_reflection: IZOLOVANÁ poznámka LEN k včerajšku (2-4 vety) - slúži ako historický záznam,
+    do budúcich promptov sa už priamo neprenáša.
+  - summary_reflection: AKTUALIZOVANÁ VERZIA priebežného zhrnutia, ktoré sa NAOZAJ prenáša do
+    VŠETKÝCH tvojich budúcich cyklov (nahrádza predchádzajúcu verziu pod "Priebežné zhrnutie
+    doterajších skúseností" nižšie). Dostaneš existujúcu verziu (ak už existuje) - zapracuj do nej
+    včerajšie nové dáta: potvrď vzory, ktoré sa opakujú cez viac dní (dôležitejšie než jednorazový
+    výsledok jedného dňa), uprav závery, ktoré nové dáta vyvracajú, zahoď nepodstatné detaily. Drž
+    to STRUČNÉ (cieľovo 5-8 viet) - je to trvalá prevádzková poznámka, nie narastajúci denník.
+  V oboch prípadoch zhodnoť dve veci: (1) či bola tvoja confidence kalibrácia primeraná - najmä či
+  prah nie je zbytočne prísny (veľa zamietnutých signálov by bolo ziskových) alebo naopak; (2) či
+  boli tvoje 'none' rozhodnutia opodstatnené, alebo si bol niekedy zbytočne opatrný a v spätnom
+  pohľade malo byť LONG/SHORT. POZOR: jeden deň je veľmi malá vzorka - nerob z toho drastické
+  závery, len opatrný postreh (ale ak sa vzor opakuje cez viac dní v summary_reflection, ber to
+  vážnejšie). Ak túto sekciu v user správe nedostaneš, obe polia vynechaj.
 - Po dokončení (prípadného) vyhľadávania zavolaj nástroj `submit_trade_decision` s finálnym
   rozhodnutím - to je jediný spôsob, ako rozhodnutie odovzdať.
 """
@@ -340,12 +369,12 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
     retro_block = ""
     if retrospective_reflection:
         retro_block += (
-            f"\n## Aktívna denná sebareflexia (z predchádzajúcej retrospektívy)\n"
+            f"\n## Priebežné zhrnutie doterajších skúseností (aktualizuj cez summary_reflection)\n"
             f"{retrospective_reflection}\n"
         )
     if new_stats_text:
         retro_block += (
-            f"\n## Nové štatistiky za včerajšok (vygeneruj daily_reflection)\n"
+            f"\n## Nové štatistiky za včerajšok (vygeneruj daily_reflection a summary_reflection)\n"
             f"{new_stats_text}\n"
         )
 
@@ -399,12 +428,14 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
     Claude ho dostane na explicitne overenie, ci este plati.
     prev_cycle_time: kedy prev_assumptions vznikli - umoznuje formulovat hladanie
     ako presny inkrement ("co pribudlo OD X"), nie vagne "za poslednych ~4h".
-    retrospective_reflection: ulozena sebareflexia z DailyRetrospective (aktualna
-    pre dnesok) - prenasa sa do vsetkych cyklov dna.
-    new_stats_text: ak toto je prvy cyklus po polnoci a retrospektiva za vcerajsok
-    este nebola vypocitana, sem sa vlozi cerstvo spocitany text (viz retrospective.py)
-    - Claude ma za ulohu na jeho zaklade vygenerovat daily_reflection, ktoru
-    trade_cycle.py nasledne ulozi ako novy DailyRetrospective zaznam."""
+    retrospective_reflection: aktualne RollingRetrospective.summary pre tento asset
+    (priebezne aktualizovane zhrnutie, NIE len posledny den) - prenasa sa do vsetkych
+    cyklov, kym ho Claude neaktualizuje pri dalsom prvom cykle dna.
+    new_stats_text: ak toto je prvy cyklus po polnoci a vcerajsok este nebol
+    zapracovany do summary, sem sa vlozi cerstvo spocitany text (viz retrospective.py)
+    - Claude ma za ulohu na jeho zaklade vygenerovat daily_reflection (izolovany
+    zaznam) AJ summary_reflection (aktualizovane zhrnutie), ktore trade_cycle.py
+    nasledne ulozi (prve do DailyRetrospective, druhe do RollingRetrospective)."""
     if not config.ANTHROPIC_API_KEY:
         raise RuntimeError("ANTHROPIC_API_KEY nie je nastavený")
 

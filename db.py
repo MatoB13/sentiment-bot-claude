@@ -81,14 +81,16 @@ class CycleLog(Base):
 
 
 class DailyRetrospective(Base):
-    """Denna sebareflexia bota - vygenerovana RAZ za den (pri prvom cykle po
-    polnoci UTC pre dany asset), pokryva PREDCHADZAJUCI (uz uplynuly) den.
-    Ziadne extra Claude volanie navyse: stats sa vypocitaju cisto v kode
-    (zdarma, cez yfinance - viz retrospective.py) a Claude ich zreflektuje v
-    ramci uz aj tak planovaneho prveho cyklu dna (volitelny 'daily_reflection'
-    vystup na submit_trade_decision nastroji). Vysledna reflection sa potom
-    prenasa do VSETKYCH cyklov toho dna (a dalej, kym ju nenahradi zajtrajsia)
-    ako sucast beznych user promptov - viz trade_cycle._get_retrospective_context."""
+    """Denny AUDIT zaznam - vygenerovany RAZ za den (pri prvom cykle po polnoci
+    UTC pre dany asset), pokryva PREDCHADZAJUCI (uz uplynuly) den. Ziadne extra
+    Claude volanie navyse: stats sa vypocitaju cisto v kode (zdarma, cez
+    yfinance - viz retrospective.py) a Claude k nim napise izolovanu poznamku
+    LEN k tomuto konkretnemu dnu (volitelny 'daily_reflection' vystup na
+    submit_trade_decision nastroji), v ramci uz aj tak planovaneho prveho
+    cyklu dna. Tato poznamka sama o sebe NEVSTUPUJE do promptov (na rozdiel od
+    predchadzajuceho navrhu) - slúži len ako historicky zaznam v UI. Do
+    promptov vstupuje priebezne aktualizovane RollingRetrospective.summary
+    nizsie - viz trade_cycle._get_retrospective_context."""
     __tablename__ = "daily_retrospectives"
 
     id = Column(Integer, primary_key=True)
@@ -97,7 +99,28 @@ class DailyRetrospective(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     stats = Column(JSON, nullable=True)         # surove vypocitane cisla (viz retrospective.py)
-    reflection = Column(String, nullable=True)  # Claude-ova strucna sebareflexia/poucenie
+    reflection = Column(String, nullable=True)  # Claude-ova izolovana poznamka LEN k tomuto dnu
+
+
+class RollingRetrospective(Base):
+    """Priebezne (vzdy AKTUALNE) zhrnutie skusenosti bota - JEDEN riadok na
+    asset, ktory sa kazdy den PREPISUJE (nie pripaja) v ramci toho isteho
+    bezplatneho prveho cyklu dna ako DailyRetrospective vyssie. Claude dostane
+    aktualne 'summary' + vcerajsie cerstve stats a vrati AKTUALIZOVANE zhrnutie
+    (potvrdi pretrvavajuce vzory, uprav tie vyvratene novymi datami, zahod uz
+    nepodstatne detaily) - viz submit_trade_decision 'summary_reflection'.
+    Tento (nie DailyRetrospective.reflection) je to, co sa realne prenasa do
+    VSETKYCH cyklov ako 'Priebezne zhrnutie' - viz
+    trade_cycle._get_retrospective_context a claude_analyst._build_user_prompt.
+    Zamerne ohranicene (system prompt instruuje Claude drzat to strucne), aby
+    to casom nenarastalo donekonecna a nezvysovalo token cost kazdeho cyklu."""
+    __tablename__ = "rolling_retrospectives"
+
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False, unique=True)
+    summary = Column(String, nullable=True)
+    based_through_date = Column(String, nullable=True)  # 'YYYY-MM-DD' - posledny den zapracovany do summary
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class PriceBar(Base):
