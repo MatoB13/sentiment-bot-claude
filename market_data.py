@@ -1,23 +1,38 @@
 """
-Ziskanie cenovych dat pre obchodovane assety (NAS100/NVDA/ADA) a vypocet TA
-indikatorov.
+Ziskanie cenovych dat pre obchodovane assety (NAS100/NVDA/ADA/GOLD) a vypocet
+TA indikatorov.
 
-NAS100 na Strike je syntetický perpetuál sledujúci index Nasdaq-100 - pre
-historické OHLCV a TA pouzivame verejny proxy feed (^NDX index alebo NQ=F
-futures) cez yfinance. NVDA a ADA-USD su na yfinance dostupne priamo (ziadny
-proxy netreba). Realna vstupna/vystupna cena obchodu sa vzdy berie z live ceny
-na Strike (strike_client.get_markets()), TA slúži len ako kontext pre
-rozhodovanie.
+Primarny zdroj hodinovych OHLC sviecok je VLASTNY poller Strike mark_price
+(price_bars tabulka - viz price_poller.py): na rozdiel od yfinance (futures/
+akcia zatvorene mimo obchodnych hodin/cez vikend -> zamrznuty graf) Strike
+perpy obchoduju nonstop, takze Claude vidi skutocny pohyb aj vtedy, ked su
+TradFi trhy zatvorene. yfinance ostava FALLBACK - ak vlastne data chybaju
+alebo su zastarale (napr. poller bol mimo prevadzky) - viz get_price_history().
+Realna vstupna/vystupna cena obchodu sa vzdy berie z live ceny na Strike
+(strike_client.get_markets()) nezavisle od tohto, TA slúži len ako kontext.
 """
+from datetime import datetime, timedelta, timezone
+
 import pandas as pd
 import pandas_ta as ta
 import yfinance as yf
+
+from db import PriceBar
 
 # Kolko poslednych hodinovych sviecok posielame Claude ako surovy podklad na
 # posudenie strukturu (support/resistance, breakout, swing high/low) - viz
 # _recent_candles(). 48 = ~2 dni, kompromis medzi uzitocnym kontextom a
 # tokenmi/cenou (kazda sviecka pridava ~4 cisla do promptu).
 RECENT_CANDLES_BARS = 48
+
+# Kolko vlastnych sviecok minimalne potrebujeme, nez zacneme dovervat vlastnym
+# price_bars namiesto yfinance - 210 = rezerva nad ema200 (200-periodovy EMA
+# potrebuje 200 barov, inak vychadza NaN).
+MIN_OWN_BARS = 210
+# Ak je najnovsia vlastna sviecka starsia nez tolko hodin, poller
+# pravdepodobne dlhsie nebezal (vypadok/redeploy) - radsej yfinance fallback
+# nez tichy diera v najcerstvejsich datach.
+OWN_DATA_STALE_HOURS = 3
 
 
 def fetch_ohlcv(symbol: str = "NQ=F", fallback: str | None = "^NDX",
@@ -120,10 +135,71 @@ def _trend_label(last_row) -> str:
     return "mild_downtrend"
 
 
-def get_market_snapshot(symbol: str = "NQ=F", fallback: str | None = "^NDX",
-                         include_volume: bool = False) -> dict:
-    df = fetch_ohlcv(symbol, fallback)
-    return compute_indicators(df, include_volume=include_volume)
+def _load_own_bars(symbol: str, session, lookback_days: int = 30) -> pd.DataFrame:
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=lookback_days)
+    bars = (
+        session.query(PriceBar)
+        .filter(PriceBar.symbol == symbol, PriceBar.hour_start >= cutoff)
+        .order_by(PriceBar.hour_start)
+        .all()
+    )
+    if not bars:
+        return pd.DataFrame()
+    return pd.DataFrame(
+        [{"open": b.open, "high": b.high, "low": b.low, "close": b.close} for b in bars],
+        index=[b.hour_start for b in bars],
+    )
+
+
+def _own_data_is_fresh(df: pd.DataFrame) -> bool:
+    if df.empty or len(df) < MIN_OWN_BARS:
+        return False
+    last_bar_age = datetime.now(timezone.utc).replace(tzinfo=None) - df.index[-1]
+    return last_bar_age <= timedelta(hours=OWN_DATA_STALE_HOURS)
+
+
+def _merge_volume(df: pd.DataFrame, yf_symbol: str, yf_fallback: str | None) -> pd.DataFrame:
+    """Vlastne price_bars nemaju volume (Strike mark_price je len cena, ziadny
+    order-book/trade objem) - pre assety, ktore volume-price divergenciu
+    vyuzivaju (NAS100/NVDA/GOLD), ho sem doplnime z yfinance ako obohatenie
+    (nie ako primarny zdroj ceny). Zlyhanie tu nesmie zhodit cely TA fetch -
+    v najhoršom pripade len chyba volume stlpec (vyplneny 0.0)."""
+    try:
+        yf_df = fetch_ohlcv(yf_symbol, yf_fallback)
+    except Exception as e:
+        print(f"[market_data] Volume enrichment z yfinance zlyhal, pokracujem bez volume: {e}")
+        df["volume"] = 0.0
+        return df
+    if yf_df.empty or "volume" not in yf_df.columns:
+        df["volume"] = 0.0
+        return df
+
+    idx = yf_df.index.tz_convert("UTC").tz_localize(None) if yf_df.index.tz is not None else yf_df.index
+    vol = pd.Series(yf_df["volume"].values, index=idx)
+    df["volume"] = vol.reindex(df.index, method="nearest", tolerance=pd.Timedelta("90min")).fillna(0.0)
+    return df
+
+
+def get_price_history(asset: dict, session) -> pd.DataFrame:
+    """Primarny zdroj OHLC pre TA vyhodnotenie assetu: vlastne hodinove
+    sviecky z price_bars (viz price_poller.py), ktore na rozdiel od yfinance
+    zostavaju zive aj mimo obchodnych hodin/cez vikend (Strike perpy
+    obchoduju nonstop). Padne spat na yfinance (fetch_ohlcv), ak vlastne data
+    chybaju alebo su zastarale (poller nebezal)."""
+    symbol = asset["strike_symbol"]
+    df = _load_own_bars(symbol, session)
+    if _own_data_is_fresh(df):
+        if asset.get("include_volume"):
+            df = _merge_volume(df, asset["yf_symbol"], asset.get("yf_fallback"))
+        return df
+
+    print(f"[market_data] {symbol}: vlastne price_bars chybaju/su zastarale, padam spat na yfinance.")
+    return fetch_ohlcv(asset["yf_symbol"], asset.get("yf_fallback"))
+
+
+def get_market_snapshot(asset: dict, session) -> dict:
+    df = get_price_history(asset, session)
+    return compute_indicators(df, include_volume=asset.get("include_volume", False))
 
 
 # Cross-market konfirmacia + VIX regime + bond market (viz Market State & Sentiment
@@ -249,7 +325,13 @@ def get_btc_proxy_snapshot() -> dict | None:
 
 if __name__ == "__main__":
     import json
-    print(json.dumps(get_market_snapshot(), indent=2))
+
+    import assets
+    from db import get_session
+
+    _session = get_session()
+    print(json.dumps(get_market_snapshot(assets.NAS100, _session), indent=2))
     print(json.dumps(get_cross_market_snapshot(), indent=2))
     print(json.dumps(get_session_snapshot(), indent=2))
     print(json.dumps(get_btc_proxy_snapshot(), indent=2))
+    _session.close()

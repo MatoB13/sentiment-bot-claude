@@ -16,9 +16,14 @@ session (a pre ADA aj BTC-proxy) makro fetch, takže sa tie isté dáta nesťahu
    ešte `get_btc_proxy_snapshot()` (BTC ako krypto-makro proxy, tiež cez yfinance,
    žiadny nový platený zdroj).
 1. Pre každý aktívny asset z `assets.py` (NAS100/NVDA/ADA/GOLD):
-   - `market_data.py` stiahne cenové dáta (NAS100 cez `^NDX`/`NQ=F` proxy, NVDA,
-     ADA-USD a GOLD cez `GC=F`/`GLD` fallback priamo) a spočíta TA indikátory
-     (RSI, MACD, EMA20/50/200, Bollinger Bands, ATR, trend).
+   - `market_data.py` zostaví hodinové OHLC sviečky a spočíta TA indikátory (RSI,
+     MACD, EMA20/50/200, Bollinger Bands, ATR, trend). Primárny zdroj je **vlastná**
+     `price_bars` tabuľka, ktorú `price_poller.py` plní každú minútu zo Strike
+     `mark_price` (viz nižšie) — na rozdiel od yfinance zostáva živá aj mimo
+     obchodných hodín/cez víkend, keďže Strike perpetuály obchodujú nonstop.
+     yfinance (`^NDX`/`NQ=F`, NVDA, ADA-USD, `GC=F`/`GLD`) slúži ako **fallback**
+     (ak vlastné dáta chýbajú/sú zastarané) a ako doplnkový zdroj volume dát pre
+     NAS100/NVDA/GOLD (Strike mark_price žiadny objem neposkytuje).
    - (voliteľne) `social_sentiment.py` stiahne najnovšie tweety/posty s
      relevantnými hashtagmi/cashtagmi pre daný asset cez X API.
    - `claude_analyst.py` pošle TA dáta + zdieľaný makro kontext do Claude
@@ -51,6 +56,11 @@ session (a pre ADA aj BTC-proxy) makro fetch, takže sa tie isté dáta nesťahu
    - zistí, či pozícia už bola zavretá burzou (SL/TP/likvidácia hit) → zapíše čas a PnL,
    - ak od otvorenia uplynulo `POSITION_MAX_HOURS` a pozícia je stále otvorená →
      force-close cez API a zapíše PnL.
+3. `price_poller.py` beží nezávisle **každú minútu** — jedným bulk `get_markets()`
+   volaním zapíše/aktualizuje aktuálnu hodinovú `price_bars` sviečku pre každý
+   aktívny asset (viz vyššie). Pri štarte procesu naviac raz (idempotentne)
+   zabehne `backfill_if_empty()` — natiahne ~30 dní histórie z yfinance pre
+   akýkoľvek asset, ktorý ešte nemá žiadny vlastný záznam.
 
 `main.py` toto všetko spúšťa na pozadí cez scheduler (APScheduler) — beží ako
 jeden dlhodobo bežiaci proces na Railway (worker service). `TRADE_INTERVAL_HOURS`
@@ -154,7 +164,8 @@ Pozri `.env.example` — najdôležitejšie:
 | `config.py` | centrálne env premenné (zdieľané + per-asset) |
 | `assets.py` | registry assetov (NAS100/NVDA/ADA/GOLD) - symbol, TA ticker, SL/TP%, leverage, margin, min_confidence |
 | `db.py` | SQLAlchemy modely `Trade`/`CycleLog` (obe majú `symbol`) + session |
-| `market_data.py` | OHLCV + TA indikátory (per asset), zdieľaný cross-market/session/BTC-proxy fetch |
+| `market_data.py` | OHLCV + TA indikátory (per asset, primárne z vlastných `price_bars`, fallback yfinance), zdieľaný cross-market/session/BTC-proxy fetch |
+| `price_poller.py` | každominútový poller Strike `mark_price` do `price_bars` + jednorazový yfinance backfill |
 | `social_sentiment.py` | (voliteľné) X/Twitter sentiment, per asset query |
 | `claude_analyst.py` | zostaví per-asset prompt, zavolá Claude (s `web_search` nástrojom), parsuje JSON rozhodnutie |
 | `strike_client.py` | Ed25519 podpisovanie, open/close position, get positions/markets |

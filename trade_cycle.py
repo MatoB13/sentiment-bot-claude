@@ -158,8 +158,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             market_meta = strike_client.get_market(symbol)
             live_price = float(market_meta["mark_price"])
 
-            ta = market_data.get_market_snapshot(asset["yf_symbol"], asset.get("yf_fallback"),
-                                                  include_volume=asset.get("include_volume", False))
+            ta = market_data.get_market_snapshot(asset, session)
             social = social_sentiment.fetch_recent_posts(name)
             print(f"[{name}] Strike live_price={live_price} | TA: {ta}")
             print(f"[{name}] Nacitanych {len(social)} social prispevkov (spravy hlada Claude sam cez web_search).")
@@ -184,7 +183,16 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
         prev_assumptions = prev_log.key_assumptions if prev_log else None
         prev_cycle_time = prev_log.created_at if prev_log else None
 
-        retrospective_reflection, new_stats_text, pending_stats = _get_retrospective_context(asset, session)
+        try:
+            retrospective_reflection, new_stats_text, pending_stats = _get_retrospective_context(asset, session)
+        except Exception as e:
+            # Retrospektiva je cisto doplnkova (uciaci feature) - jej zlyhanie
+            # (napr. yfinance vypadok pri prepocitavani vcerajsich stats) NESMIE
+            # zhodit skutocny obchodny cyklus. Radsej pokracujeme bez nej (skusi
+            # sa znova na dalsom cykle, kedze DailyRetrospective sa neulozila).
+            print(f"[{name}] Vypocet retrospektivy zlyhal, pokracujem bez nej: {e}")
+            session.rollback()
+            retrospective_reflection, new_stats_text, pending_stats = None, None, None
 
         try:
             decision, web_search_log = claude_analyst.analyze(
@@ -206,11 +214,18 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
         print(f"[{name}] Web search log: {web_search_log}")
 
         if pending_stats and decision.get("daily_reflection"):
-            session.add(DailyRetrospective(
-                symbol=symbol, for_date=pending_stats["for_date"],
-                stats=pending_stats, reflection=decision["daily_reflection"],
-            ))
-            print(f"[{name}] Ulozena denna retrospektiva za {pending_stats['for_date']}.")
+            try:
+                session.add(DailyRetrospective(
+                    symbol=symbol, for_date=pending_stats["for_date"],
+                    stats=pending_stats, reflection=decision["daily_reflection"],
+                ))
+                session.commit()
+                print(f"[{name}] Ulozena denna retrospektiva za {pending_stats['for_date']}.")
+            except Exception as e:
+                # Vlastna (izolovana) transakcia - zlyhanie tu nesmie zobrat so
+                # sebou aj nizsie cycle_log/trade zapisy do rovnakeho commitu.
+                print(f"[{name}] Ulozenie retrospektivy zlyhalo, pokracujem: {e}")
+                session.rollback()
 
         cycle_log = CycleLog(
             symbol=symbol, live_price=live_price, ta=ta, cross_market=cross_market,

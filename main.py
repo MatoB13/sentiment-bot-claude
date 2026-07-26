@@ -7,6 +7,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import assets
 import config
 import position_monitor
+import price_poller
 import trade_cycle
 import watch_monitor
 
@@ -17,6 +18,15 @@ def main():
     print(f"Aktivne assety: {active}")
     print(f"DRY_RUN={config.DRY_RUN} | TRADE_INTERVAL_HOURS={config.TRADE_INTERVAL_HOURS} "
           f"| MONITOR_INTERVAL_MINUTES={config.MONITOR_INTERVAL_MINUTES}")
+
+    # Jednorazovy backfill (idempotentne - preskoci assety, ktore uz vlastne
+    # data maju) MUSI dobehnut PRED prvym trade_cycle behom nizsie, inak by
+    # prvy cyklus dna nemal ziadnu vlastnu historiu k dispozicii a zbytocne by
+    # padol na yfinance fallback.
+    try:
+        price_poller.backfill_if_empty()
+    except Exception as e:
+        print(f"[main] price_poller.backfill_if_empty zlyhal neocakavane: {e}")
 
     # Prve spustenie kazdeho jobu je explicitne volanie nizsie ("hned na starte"),
     # takze scheduler ma zacat tikat az o jeden cely interval neskor - inak by sa
@@ -44,6 +54,12 @@ def main():
                        minutes=config.MONITOR_INTERVAL_MINUTES,
                        next_run_time=now + timedelta(minutes=config.MONITOR_INTERVAL_MINUTES),
                        id="watch_monitor")
+    # Kazdu minutu - primarny zdroj TA dat (viz market_data.get_price_history),
+    # ziadne Claude/web_search volanie, len 1 lahky GET /v2/markets.
+    scheduler.add_job(price_poller.poll_prices, "interval",
+                       minutes=1,
+                       next_run_time=now + timedelta(minutes=1),
+                       id="price_poller")
     scheduler.start()
 
     # spusti oba joby hned na starte, potom uz podla intervalu. Na rozdiel od
@@ -51,6 +67,10 @@ def main():
     # zhodila cely worker proces (Railway by ho restartoval, co sposobovalo
     # viachodinove diery v historii). Kazdy job si chyby loguje/zaznamenava sam,
     # tu len zabranime celkovemu padu procesu pri necakanej vynimke.
+    try:
+        price_poller.poll_prices()
+    except Exception as e:
+        print(f"[main] poll_prices zlyhal neocakavane: {e}")
     try:
         trade_cycle.run_all_cycles()
     except Exception as e:

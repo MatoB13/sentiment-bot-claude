@@ -192,11 +192,13 @@ with tabs[1]:
                 st.error(f"Strike API chyba: {e}")
 
             try:
-                ta = market_data.get_market_snapshot(
-                    selected_asset["yf_symbol"], selected_asset.get("yf_fallback"),
-                    include_volume=selected_asset.get("include_volume", False),
-                )
-                st.subheader(f"Technicka analyza {asset_choice} (yfinance proxy)")
+                import db
+                _dash_session = db.get_session()
+                try:
+                    ta = market_data.get_market_snapshot(selected_asset, _dash_session)
+                finally:
+                    _dash_session.close()
+                st.subheader(f"Technicka analyza {asset_choice} (vlastne price_bars, fallback yfinance)")
                 st.json(ta)
             except Exception as e:
                 st.error(f"market_data chyba: {e}")

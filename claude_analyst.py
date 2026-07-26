@@ -73,12 +73,13 @@ DECISION_TOOL = {
                 "type": "string",
                 "description": (
                     "VYPLN LEN ak user sprava obsahuje sekciu 'Nove statistiky za vcerajsok' "
-                    "(deje sa raz denne, pri prvom cykle po polnoci). Strucne (2-4 vety) zhodnot, "
-                    "ci bola tvoja confidence kalibracia vcera primerana - najma ci signaly "
-                    "zamietnute LEN kvoli confidence boli vacsinou spravne zamietnute (boli by "
-                    "stratove) alebo naopak prilis prisne zamietnute (boli by ziskove, teda prah "
-                    "mozno moze byt o nieco nizsi). Ak nemas take udaje k dispozicii v tomto "
-                    "cykle, toto pole VYNECHAJ."
+                    "(deje sa raz denne, pri prvom cykle po polnoci). Strucne (2-4 vety) zhodnot "
+                    "dve veci: (1) ci bola tvoja confidence kalibracia vcera primerana - najma ci "
+                    "signaly zamietnute LEN kvoli confidence boli vacsinou spravne zamietnute (boli "
+                    "by stratove) alebo naopak prilis prisne zamietnute (boli by ziskove); (2) ci "
+                    "tvoje 'none' rozhodnutia boli opodstatnene, alebo ci si bol niekedy zbytocne "
+                    "opatrny a v spatnom pohlade malo byt LONG/SHORT. Ak nemas take udaje k "
+                    "dispozicii v tomto cykle, toto pole VYNECHAJ."
                 ),
             },
         },
@@ -250,14 +251,17 @@ Pravidlá:
   úplne - počkaj na ďalší pravidelný cyklus alebo priamo na výsledok danej udalosti.
   Rovnako vynechaj oba polia, ak je direction="long"/"short" (pozícia sa už otvára).
 - daily_reflection (VOLITEĽNÉ): raz denne (pri prvom cykle po polnoci) dostaneš v user správe
-  sekciu "Nové štatistiky za včerajšok" - skutočné výsledky včerajších obchodov a HYPOTETICKÉ
-  výsledky signálov zamietnutých len kvôli confidence (na základe reálneho neskoršieho cenového
-  vývoja). Zhodnoť v 2-4 vetách, či bola tvoja confidence kalibrácia primeraná - najmä či prah nie
-  je zbytočne prísny (veľa zamietnutých signálov by bolo ziskových) alebo naopak. POZOR: jeden deň
-  je veľmi malá vzorka - nerob z toho drastické závery, len opatrný postreh. Táto reflexia sa potom
-  prenáša do VŠETKÝCH tvojich cyklov nasledujúci deň (pod "Aktívna denná sebareflexia" nižšie), takže
-  ju piš ako odkaz svojmu budúcemu ja, nie len ako jednorazový komentár. Ak túto sekciu v user správe
-  nedostaneš, pole vynechaj.
+  sekciu "Nové štatistiky za včerajšok" - skutočné výsledky včerajších obchodov, HYPOTETICKÉ
+  výsledky signálov zamietnutých len kvôli confidence, AJ hypotetické výsledky pri 'none' cykloch
+  (čo by sa bolo stalo, keby si predsa len otvoril LONG/SHORT namiesto 'none', na základe reálneho
+  neskoršieho cenového vývoja). Zhodnoť v 2-4 vetách dve veci: (1) či bola tvoja confidence
+  kalibrácia primeraná - najmä či prah nie je zbytočne prísny (veľa zamietnutých signálov by bolo
+  ziskových) alebo naopak; (2) či boli tvoje 'none' rozhodnutia opodstatnené, alebo si bol niekedy
+  zbytočne opatrný a v spätnom pohľade malo byť LONG/SHORT. POZOR: jeden deň je veľmi malá vzorka -
+  nerob z toho drastické závery, len opatrný postreh. Táto reflexia sa potom prenáša do VŠETKÝCH
+  tvojich cyklov nasledujúci deň (pod "Aktívna denná sebareflexia" nižšie), takže ju piš ako odkaz
+  svojmu budúcemu ja, nie len ako jednorazový komentár. Ak túto sekciu v user správe nedostaneš,
+  pole vynechaj.
 - Po dokončení (prípadného) vyhľadávania zavolaj nástroj `submit_trade_decision` s finálnym
   rozhodnutím - to je jediný spôsob, ako rozhodnutie odovzdať.
 """

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import (Column, DateTime, Float, Integer, String, Boolean,
-                         JSON, create_engine, inspect, text)
+                         JSON, UniqueConstraint, create_engine, inspect, text)
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 import config
@@ -98,6 +98,27 @@ class DailyRetrospective(Base):
 
     stats = Column(JSON, nullable=True)         # surove vypocitane cisla (viz retrospective.py)
     reflection = Column(String, nullable=True)  # Claude-ova strucna sebareflexia/poucenie
+
+
+class PriceBar(Base):
+    """Vlastne hodinove OHLC sviecky zostavene zo Strike mark_price (poller
+    kazdu minutu - viz price_poller.py). Primarny zdroj TA dat namiesto
+    yfinance: yfinance pre NAS100/NVDA/GOLD futures/akciu mimo obchodnych
+    hodin a cez vikend proste zamrzne (trh je zatvoreny), zatial co Strike
+    perpy obchoduju nonstop - takze Claude by inak videl 'plochy' graf presne
+    vtedy, ked sa realna obchodovatelna cena hybe. yfinance ostava fallback
+    (viz market_data.get_price_history), ak vlastne data chybaju/su zastarale
+    (napr. poller bol dlhsie mimo prevadzky)."""
+    __tablename__ = "price_bars"
+    __table_args__ = (UniqueConstraint("symbol", "hour_start", name="uq_price_bars_symbol_hour"),)
+
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False, index=True)
+    hour_start = Column(DateTime, nullable=False, index=True)  # UTC, zaokruhlene na celu hodinu
+    open = Column(Float, nullable=False)
+    high = Column(Float, nullable=False)
+    low = Column(Float, nullable=False)
+    close = Column(Float, nullable=False)
 
 
 def _ensure_columns(engine) -> None:
