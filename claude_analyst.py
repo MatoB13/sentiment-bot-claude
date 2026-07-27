@@ -469,7 +469,7 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
                 "system": [{"type": "text", "text": system_prompt,
                             "cache_control": {"type": "ephemeral"}}],
                 "tools": [
-                    {"type": "web_search_20260209", "name": "web_search", "max_uses": 5},
+                    {"type": "web_search_20260209", "name": "web_search", "max_uses": 7},
                     DECISION_TOOL,
                 ],
                 "messages": messages,
