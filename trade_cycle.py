@@ -75,6 +75,7 @@ def _config_snapshot(asset: dict) -> dict:
         "off_hours_interval_hours": config.OFF_HOURS_INTERVAL_HOURS,
         "weekend_interval_hours": config.WEEKEND_INTERVAL_HOURS,
         "monitor_interval_minutes": config.MONITOR_INTERVAL_MINUTES,
+        "watch_interval_minutes": config.WATCH_INTERVAL_MINUTES,
         "position_max_hours": config.POSITION_MAX_HOURS,
         "min_confidence": asset["min_confidence"],
         "margin_usd": asset["margin_usd"],

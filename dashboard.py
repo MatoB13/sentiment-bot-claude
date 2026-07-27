@@ -27,6 +27,7 @@ SHARED_NUMERIC = [
     ("TRADING_HOURS_START_UTC", int, "Zaciatok trading hours (UTC hodina)"),
     ("TRADING_HOURS_END_UTC", int, "Koniec trading hours (UTC hodina)"),
     ("MONITOR_INTERVAL_MINUTES", float, "Ako casto sa kontroluju otvorene pozicie (minuty)"),
+    ("WATCH_INTERVAL_MINUTES", float, "Ako casto sa kontroluje watch cenova podmienka (minuty)"),
     ("POSITION_MAX_HOURS", float, "Max. drzanie pozicie pred force-close (hodiny)"),
 ]
 

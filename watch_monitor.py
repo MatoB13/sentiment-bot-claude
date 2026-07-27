@@ -3,7 +3,8 @@ Lahky, NEPLATENY poller pre "watch" podmienky.
 
 Ked je Claudeho rozhodnutie "none", ale vidi konkretnu cenovu uroven cakajucu
 na potvrdenie (napr. retest), ulozi si ju do CycleLog.watch_price/watch_direction
-(viz claude_analyst.py). Tento modul kazdych MONITOR_INTERVAL_MINUTES skontroluje
+(viz claude_analyst.py). Tento modul kazdych WATCH_INTERVAL_MINUTES (samostatny,
+tesnejsi interval nez MONITOR_INTERVAL_MINUTES - viz main.py) skontroluje
 LEN live cenu zo Strike (ziadne Claude/web_search volanie, teda nulovy naklad) voci
 najnovsiemu CycleLog zaznamu pre kazdy asset - ak sa podmienka splni, spusti
 mimoriadny (uz platny) Claude cyklus LEN pre tento jeden asset cez

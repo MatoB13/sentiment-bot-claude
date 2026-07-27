@@ -132,7 +132,12 @@ Pozri `.env.example` — najdôležitejšie:
   je 24/7 a vždy beží na `TRADE_INTERVAL_HOURS`, žiadne skutočné "off hours" pre ňu neexistujú
 - `TRADING_HOURS_START_UTC` / `TRADING_HOURS_END_UTC` — hranice trading hours v UTC (default `13`/`21`,
   pokrýva NYSE cash session 9:30-16:00 ET v oboch DST stavoch)
-- `MONITOR_INTERVAL_MINUTES` — ako často sa kontrolujú otvorené pozície (napr. `10`) — zdieľané
+- `MONITOR_INTERVAL_MINUTES` — ako často sa kontrolujú otvorené pozície (napr. `10`) — zdieľané.
+  Nemusí byť tesný, SL/TP na otvorenej pozícii chráni Strike sám (bracket order v reálnom čase) -
+  toto len dodatočne synchronizuje náš DB záznam
+- `WATCH_INTERVAL_MINUTES` — ako často sa kontroluje watch cenová podmienka (default `1`) —
+  samostatný, tesnejší interval nez `MONITOR_INTERVAL_MINUTES` (viz `watch_monitor.py`) - tu
+  častejšia kontrola reálne znižuje šancu prehliadnuť krátky dotyk/odraz od sledovanej hladiny
 - `POSITION_MAX_HOURS` — max. držanie pozície pred force-close — zdieľané
 - `ENABLE_NVDA` / `ENABLE_ADA` / `ENABLE_GOLD` — `true`/`false`, vypnutie/zapnutie daného bota (NAS100 beží vždy)
 - `MIN_CONFIDENCE`, `NVDA_MIN_CONFIDENCE`, `ADA_MIN_CONFIDENCE`, `GOLD_MIN_CONFIDENCE` - min. confidence

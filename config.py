@@ -43,6 +43,11 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///trades.db")
 DRY_RUN = _bool("DRY_RUN", "true")
 TRADE_INTERVAL_HOURS = _float("TRADE_INTERVAL_HOURS", 4)
 MONITOR_INTERVAL_MINUTES = _float("MONITOR_INTERVAL_MINUTES", 10)
+# Samostatny (tesnejsi) interval len pre watch_monitor.py - cenova podmienka sa
+# oplati kontrolovat castejsie ako otvorene pozicie (tie uz chrani Strike-ov
+# vlastny SL/TP bracket order v realnom case, nas position_monitor len
+# dodatocne synchronizuje DB zaznam).
+WATCH_INTERVAL_MINUTES = _float("WATCH_INTERVAL_MINUTES", 1)
 POSITION_MAX_HOURS = _float("POSITION_MAX_HOURS", 24)
 MIN_CONFIDENCE = _int("MIN_CONFIDENCE", 65)
 
