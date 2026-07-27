@@ -21,7 +21,13 @@ from db import CycleLog, DailyRetrospective, RollingRetrospective, Trade, get_se
 # Tolerancia na scheduler jitter/spracovanie predchadzajucich assetov v tom
 # istom cykle - bez nej by drobne oneskorenie (o par sekund) niekedy tesne
 # netrafilo pozadovany interval a preskocilo by sa o cely dalsi tick navyse.
-_TIME_GATE_TOLERANCE_HOURS = 0.05
+# POZOR: "last_log.created_at" sa zapise AZ PO dokonceni Claude odpovede (vratane
+# web_search kol/pause_turn pokracovani), takze sa moze bezne posunut o 3-5 minut
+# oproti nominalnemu casu ticku - 0.05h (3 min) na to nestacilo a sposobovalo to
+# obcasne zbytocne preskocenie ticku tesne pod hranicou (viz produkcny incident
+# 2026-07-27: NAS100 preskocilo cyklus po 56min41s, kedze pozadovanych 57min
+# (1h - 3min tolerancia) tesne nedosiahlo).
+_TIME_GATE_TOLERANCE_HOURS = 0.1
 
 
 def _required_interval_hours(now: datetime) -> float:
