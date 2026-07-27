@@ -47,7 +47,12 @@ DECISION_TOOL = {
             },
             "reasoning": {
                 "type": "string",
-                "description": "Max 3-4 vety, fakticky, bez floskul.",
+                "description": (
+                    "Max 3-4 vety, fakticky, bez floskul. Ak nastavis watch_price/watch_direction, "
+                    "VZDY tu explicitne uved, co presne sledovana podmienka znamena a co by jej "
+                    "potvrdenie spustilo (napr. konkretny smer obchodu) - nie len ze uroven/rozsah "
+                    "'zostava v platnosti'."
+                ),
             },
             "key_assumptions": {
                 "type": "string",
@@ -271,6 +276,12 @@ Pravidlá:
   mimoriadnym cyklom bez toho, aby sa čokoľvek reálne zmenilo). V takom prípade oba polia vynechaj
   úplne - počkaj na ďalší pravidelný cyklus alebo priamo na výsledok danej udalosti.
   Rovnako vynechaj oba polia, ak je direction="long"/"short" (pozícia sa už otvára).
+  VŽDY, keď tieto polia nastavíš, MUSÍ `reasoning` explicitne a konkrétne uviesť, čo presne
+  sledovaná podmienka znamená a čo by jej potvrdenie spustilo - napr. "sledujem breakdown pod
+  0.1614, čo by potvrdilo pokračovanie downtrendu a otvorilo priestor pre short" alebo "čakám na
+  retest 0.166 zospodu ako potvrdenie support-held pred long vstupom". Nestačí len skonštatovať,
+  že rozsah/hladina "zostáva v platnosti" - vysvetli VZŤAH medzi watch_price/watch_direction a tým,
+  čo by si pri jeho splnení urobil, zakaždým, nie len príležitostne.
 - daily_reflection (VOLITEĽNÉ) a summary_reflection (VOLITEĽNÉ): raz denne (pri prvom cykle po
   polnoci) dostaneš v user správe sekciu "Nové štatistiky za včerajšok" - skutočné výsledky
   včerajších obchodov, HYPOTETICKÉ výsledky signálov zamietnutých len kvôli confidence, AJ
