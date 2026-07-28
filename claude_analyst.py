@@ -12,12 +12,20 @@ validny podla schemy, cim odpada cela trieda bugov s pokazenym volnym JSON
 textom (markdown fence, zle escapovane znaky, bludiace znaky a pod. - vsetko
 sa to v praxi stalo, kym sme parsovali text rucne)."""
 import json
+import time
 from datetime import datetime, timezone
 
 import requests
 
 import config
 import market_data
+
+# Prechodne infra chyby (Cloudflare/Anthropic docasne nedostupne) - bezpecne
+# opakovat, kedze Messages API call nema ziadne vedlajsie ucinky (nehybe
+# peniazmi, neotvara poziciu). 529 je Anthropic-ove vlastne "overloaded_error".
+_RETRYABLE_STATUS = {502, 503, 504, 520, 521, 522, 523, 524, 529}
+_MAX_API_RETRIES = 2
+_API_RETRY_DELAY_SECONDS = 3
 
 DECISION_TOOL = {
     "name": "submit_trade_decision",
@@ -467,26 +475,36 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
     # server-side web_search moze pri velmi dlhom hladani vratit stop_reason=pause_turn -
     # v takom pripade treba poslat konverzaciu znova a nechat ju dokoncit (max 1 pokracovanie).
     for _ in range(2):
-        resp = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": config.ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": config.CLAUDE_MODEL,
-                "max_tokens": 8192,
-                "system": [{"type": "text", "text": system_prompt,
-                            "cache_control": {"type": "ephemeral"}}],
-                "tools": [
-                    {"type": "web_search_20260209", "name": "web_search", "max_uses": 7},
-                    DECISION_TOOL,
-                ],
-                "messages": messages,
-            },
-            timeout=300,
-        )
+        payload = {
+            "model": config.CLAUDE_MODEL,
+            "max_tokens": 8192,
+            "system": [{"type": "text", "text": system_prompt,
+                        "cache_control": {"type": "ephemeral"}}],
+            "tools": [
+                {"type": "web_search_20260209", "name": "web_search", "max_uses": 7},
+                DECISION_TOOL,
+            ],
+            "messages": messages,
+        }
+
+        for attempt in range(_MAX_API_RETRIES + 1):
+            resp = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": config.ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json=payload,
+                timeout=300,
+            )
+            if resp.status_code in _RETRYABLE_STATUS and attempt < _MAX_API_RETRIES:
+                print(f"[claude_analyst] [{asset['name']}] POST /v1/messages -> {resp.status_code} "
+                      f"(prechodna chyba), skusam znova o {_API_RETRY_DELAY_SECONDS}s "
+                      f"({attempt + 1}/{_MAX_API_RETRIES})...")
+                time.sleep(_API_RETRY_DELAY_SECONDS)
+                continue
+            break
         resp.raise_for_status()
         data = resp.json()
         content_blocks = data.get("content", [])
