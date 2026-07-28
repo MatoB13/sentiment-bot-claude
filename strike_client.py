@@ -127,6 +127,16 @@ def open_bracket_position(direction: str, size: float, leverage: int,
     direction: 'Long' alebo 'Short'. size: pozicna velkost v base-asset jednotkach.
     Otvori market poziciu + zaroven pripravi TP/SL ako bracket ("strategy") objednavku:
     ak jedna strana (TP/SL) trigerne, druha sa automaticky zrusi.
+
+    TP noha je "take_profit_limit" (nie "take_profit" market-style) - price aj
+    stop_price su rovnake ako povodna TP cena. Ked sa hladina dosiahne postupne
+    (bezny pripad pri viachodinovom swingu), objednavka si po spusteni len lahne
+    do knihy ako pasivna a neskor sa vykona ako MAKER (Strike ma na maker fee
+    rebate, nie poplatok). Ak by cena cez uroven preskocila naraz (gap/nahly
+    naraz likvidity), vykona sa okamzite ako taker - rovnako ako doteraz, ziadne
+    zhorsenie. Zamerne BEZ post_only: to by pri gap-scenari cely TP prikaz
+    odmietlo (pozicia by ostala docasne bez TP nohy, chranena len SL-kom).
+    SL zostava market-style ("stop") - potrebuje garantovane vykonanie.
     """
     symbol = symbol or config.STRIKE_NAS100_SYMBOL
     side = "buy" if direction == "Long" else "sell"
@@ -140,7 +150,10 @@ def open_bracket_position(direction: str, size: float, leverage: int,
         "side": side,
         "type": "market",
         "size": size_str,
-        "tp_order": {"type": "take_profit", "size": size_str, "stop_price": str(take_profit_price)},
+        "tp_order": {
+            "type": "take_profit_limit", "size": size_str,
+            "stop_price": str(take_profit_price), "price": str(take_profit_price),
+        },
         "sl_order": {"type": "stop", "size": size_str, "stop_price": str(stop_loss_price)},
     }
     return _request("POST", "/v2/order/strategy", body)
