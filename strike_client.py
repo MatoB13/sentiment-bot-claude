@@ -149,6 +149,13 @@ def set_leverage(symbol: str, leverage: int) -> dict:
     return _request("POST", "/v2/leverage", {"symbol": symbol, "leverage": leverage})
 
 
+def set_margin_mode(symbol: str, mode: str) -> dict:
+    """POST /v2/marginMode - "cross" alebo "isolated". Burza to odmietne (400),
+    ak je pre dany symbol prave otvorena pozicia - preto sa vola LEN tesne pred
+    otvorenim novej pozicie (rovnako ako set_leverage), nikdy inokedy."""
+    return _request("POST", "/v2/marginMode", {"symbol": symbol, "marginMode": mode})
+
+
 def open_bracket_position(direction: str, size: float, leverage: int,
                            stop_loss_price: float, take_profit_price: float,
                            symbol: str = None) -> dict:
@@ -166,10 +173,26 @@ def open_bracket_position(direction: str, size: float, leverage: int,
     zhorsenie. Zamerne BEZ post_only: to by pri gap-scenari cely TP prikaz
     odmietlo (pozicia by ostala docasne bez TP nohy, chranena len SL-kom).
     SL zostava market-style ("stop") - potrebuje garantovane vykonanie.
+
+    Poziciu otvarame v ISOLATED margin mode (nie cross) - kedze bot moze mat
+    sucasne otvorene pozicie na viacerych assetoch (NAS100/NVDA/ADA/GOLD), pri
+    cross marginy by extremny pohyb (napr. sklz cez SL pri gape) na jednom
+    assete cerpal zo ZDIELANEJ marze a mohol tak zvysit riziko likvidacie aj na
+    ostatnych, inak nesuvisiacich, otvorenych poziciach. Isolated obmedzi
+    najhorsi pripad kazdej pozicie len na jej vlastnu alokovanu marzu, bez
+    zmeny bezneho sizingu (ten je aj tak fixny cez margin_usd). Nastavenie
+    margin mode NIKDY neblokuje otvorenie pozicie (viz set_margin_mode) - ak
+    zlyha, poziciu otvorime v akomkolvek mode je prave aktivny (status quo).
     """
     symbol = symbol or config.STRIKE_NAS100_SYMBOL
     side = "buy" if direction == "Long" else "sell"
     size_str = str(size)
+
+    try:
+        set_margin_mode(symbol, "isolated")
+    except Exception as e:
+        print(f"[strike_client] Nepodarilo sa nastavit isolated margin pre {symbol} "
+              f"(pokracujem v aktualnom mode): {e}")
 
     set_leverage(symbol, leverage)
 
