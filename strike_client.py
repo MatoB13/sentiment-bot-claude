@@ -100,6 +100,35 @@ def get_closed_positions(symbol: str | None = None, limit: int = 20) -> list[dic
     return result if isinstance(result, list) else result.get("positions", [])
 
 
+def get_order_history(symbol: str, start_ms: int | None = None, end_ms: int | None = None,
+                       limit: int = 100) -> list[dict]:
+    """/v2/history/order - VSETKY objednavky (aj expirovane/zrusene) za obdobie,
+    vratane strategy_id linku spat na nasu Trade.strategy_id. Na rozdiel od
+    /v2/closedPositions ma toto skutocne pouzitelne polia (Status, Type,
+    CloseReason, AutoCloseType) - viz docs.strikefinance.org/api/trade/history."""
+    params = [f"symbol={symbol}", f"limit={limit}"]
+    if start_ms is not None:
+        params.append(f"startTime={start_ms}")
+    if end_ms is not None:
+        params.append(f"endTime={end_ms}")
+    result = _request("GET", f"/v2/history/order?{'&'.join(params)}")
+    return result if isinstance(result, list) else result.get("orders", [])
+
+
+def get_fill_history(symbol: str, start_ms: int | None = None, end_ms: int | None = None,
+                      limit: int = 500) -> list[dict]:
+    """/v2/history/fill - skutocne jednotlive fills (moze byt viac na jednu
+    objednavku, ak sa vykonala postupne) so skutocnou cenou, poplatkom a
+    realized_pnl priamo z burzy - jediny zdroj presneho (nie odhadovaneho) PnL."""
+    params = [f"symbol={symbol}", f"limit={limit}"]
+    if start_ms is not None:
+        params.append(f"startTime={start_ms}")
+    if end_ms is not None:
+        params.append(f"endTime={end_ms}")
+    result = _request("GET", f"/v2/history/fill?{'&'.join(params)}")
+    return result if isinstance(result, list) else result.get("fills", [])
+
+
 def get_markets() -> list[dict]:
     """Vrati zoznam vsetkych marketov (obsahuje presny symbol, tick/step size, mark_price...)."""
     result = _request("GET", "/v2/markets")

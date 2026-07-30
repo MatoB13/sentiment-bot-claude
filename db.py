@@ -36,6 +36,14 @@ class Trade(Base):
     close_reason = Column(String, nullable=True)
     pnl_usd = Column(Float, nullable=True)
 
+    # Presne (nie odhadovane) hodnoty z burzy - viz position_monitor._lookup_exact_close.
+    # entry_fill_price/close_fill_price su velkostou-vazeny priemer VSETKYCH
+    # fills danej strany (order sa moze vykonat po castiach). fees_usd = sucet
+    # poplatkov (commission) za VSETKY fills (entry aj exit) daneho obchodu.
+    entry_fill_price = Column(Float, nullable=True)
+    close_fill_price = Column(Float, nullable=True)
+    fees_usd = Column(Float, nullable=True)
+
     dry_run = Column(Boolean, default=False)
 
 
