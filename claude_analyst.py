@@ -255,7 +255,7 @@ skús najprv originál.
 
 Pri PLÁNOVANÝCH makro reportoch (CPI/PPI/NFP/GDP/PCE/FOMC/PMI a pod.), ktoré majú byť zverejnené
 dnes alebo v priebehu ~posledných 2h pred týmto cyklom: NAVYŠE skús aspoň jedno vyhľadávanie priamo
-cielené na "site:investing.com economic calendar {presný názov reportu} {dnešný dátum} actual" -
+cielené na "site:investing.com economic calendar {{presný názov reportu}} {{dnešný dátum}} actual" -
 investing.com/economic-calendar zvykne mať actual/forecast/previous hodnoty do pár sekúnd po
 zverejnení, na rozdiel od bežných spravodajských výsledkov, ktoré s potvrdením čísla často meškajú
 hodiny. Toto NIE JE garantované - web_search je všeobecný vyhľadávač bez priameho prístupu na danú
