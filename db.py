@@ -82,7 +82,7 @@ class CycleLog(Base):
     watch_price = Column(Float, nullable=True)
     watch_direction = Column(String, nullable=True)  # "above" | "below"
 
-    outcome = Column(String)            # opened | rejected | error | skipped
+    outcome = Column(String)            # opened | rejected | error | skipped | disabled
     reject_reason = Column(String, nullable=True)
 
     trade_id = Column(Integer, nullable=True)  # ak outcome=opened, id v `trades`

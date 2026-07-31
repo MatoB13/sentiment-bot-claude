@@ -1,4 +1,4 @@
-"""Analyticky/obchodny cyklus pre vsetky aktivne assety (NAS100/NVDA/ADA).
+"""Analyticky/obchodny cyklus pre vsetky aktivne assety (NAS100/NVDA/ADA/GOLD/WTI/NIGHT).
 
 Jeden scheduler tick (viz main.py) = jeden vstup do run_all_cycles(): zdielany
 makro fetch (cross-market/session, pripadne BTC proxy) sa spravi PRESNE RAZ a
@@ -30,27 +30,32 @@ from db import CycleLog, DailyRetrospective, RollingRetrospective, Trade, get_se
 _TIME_GATE_TOLERANCE_HOURS = 0.1
 
 
-def _required_interval_hours(now: datetime) -> float:
+def _required_interval_hours(asset: dict, now: datetime) -> float:
     """Kolko hodin ma uplynut od posledneho cyklu TOHTO assetu, nez je zase 'na
-    rade' - len pre assety s variable_interval=True (NAS100/NVDA/GOLD). Mimo
-    trading hours a cez vikend podkladovy trh (akcia/futures) realne stoji
-    alebo je velmi ticho (NVDA sa cez vikend vobec neobchoduje), takze hodinova
-    analyza tych istych zastaralych dat je zbytocny naklad."""
+    rade'. Assety BEZ variable_interval (ADA/NIGHT - obchoduju 24/7, ziadne
+    realne "off hours" pre ne neexistuju) beria vzdy na vlastnom
+    trade_interval_hours. Assety S variable_interval (NAS100/NVDA/GOLD/WTI)
+    beria rjadsie mimo trading hours a cez vikend, kedze podkladovy trh
+    (akcia/futures) v tom case realne stoji alebo je velmi ticho (NVDA sa cez
+    vikend vobec neobchoduje) - hodinova analyza tych istych zastaralych dat
+    je zbytocny naklad. Vsetky tri prahy su teraz PER-ASSET (viz assets.py) -
+    predtym zdielane globalne medzi vsetkymi variable_interval assetmi."""
+    if not asset.get("variable_interval"):
+        return asset["trade_interval_hours"]
     if now.weekday() >= 5:  # sobota=5, nedela=6
-        return config.WEEKEND_INTERVAL_HOURS
+        return asset["weekend_interval_hours"]
     if config.TRADING_HOURS_START_UTC <= now.hour < config.TRADING_HOURS_END_UTC:
-        return config.TRADE_INTERVAL_HOURS
-    return config.OFF_HOURS_INTERVAL_HOURS
+        return asset["trade_interval_hours"]
+    return asset["off_hours_interval_hours"]
 
 
 def _is_due(asset: dict, session) -> bool:
-    """True ak asset nema variable_interval (vzdy na rade), alebo ak od jeho
-    posledneho zaznamu uplynul pozadovany interval pre aktualny casovy usek."""
-    if not asset.get("variable_interval"):
-        return True
-
+    """True ak od posledneho zaznamu tohto assetu uplynul jeho pozadovany
+    interval pre aktualny casovy usek (viz _required_interval_hours) - teraz
+    plati pre VSETKY assety rovnako (predtym mali non-variable_interval assety
+    ako ADA vynimku a beeli na kazdom scheduler ticku bez vlastneho gate)."""
     now = datetime.now(timezone.utc)
-    required_hours = _required_interval_hours(now)
+    required_hours = _required_interval_hours(asset, now)
 
     last_log = (
         session.query(CycleLog)
@@ -75,11 +80,12 @@ def _config_snapshot(asset: dict) -> dict:
     return {
         "symbol": asset["strike_symbol"],
         "asset_name": asset["name"],
+        "enabled": asset["enabled"],
         "dry_run": config.DRY_RUN,
-        "trade_interval_hours": config.TRADE_INTERVAL_HOURS,
+        "trade_interval_hours": asset["trade_interval_hours"],
         "variable_interval": asset.get("variable_interval", False),
-        "off_hours_interval_hours": config.OFF_HOURS_INTERVAL_HOURS,
-        "weekend_interval_hours": config.WEEKEND_INTERVAL_HOURS,
+        "off_hours_interval_hours": asset["off_hours_interval_hours"],
+        "weekend_interval_hours": asset["weekend_interval_hours"],
         "monitor_interval_minutes": config.MONITOR_INTERVAL_MINUTES,
         "watch_interval_minutes": config.WATCH_INTERVAL_MINUTES,
         "position_max_hours": config.POSITION_MAX_HOURS,
@@ -409,11 +415,48 @@ def run_triggered_check(asset: dict) -> None:
     run_cycle_for_asset(asset, cross_market, market_session, btc_proxy)
 
 
+def _mark_disabled_assets() -> None:
+    """Nulovy-naklad (ziadne Claude/web_search volanie) zapis CycleLog s
+    outcome='disabled' pre kazdy asset, ktory je momentalne VYPNUTY
+    (assets.py enabled=False, napr. NVDA od 2026-07-31 - pozastavene kvoli
+    cost-optimalizacii). Zapise sa LEN RAZ pri prechode (kontrola voci
+    poslednemu zaznamu), nie na kazdy tick - inak by to zbytocne zaplavovalo
+    'Historia signalov'. Sluzi len na to, aby monitor-web vedel zobrazit
+    'Pozastavene' namiesto zastaraneho (uz neplatneho) posledneho stavu."""
+    session = get_session()
+    try:
+        for asset in assets.ALL_ASSETS:
+            if asset["enabled"]:
+                continue
+            symbol = asset["strike_symbol"]
+            last_log = (
+                session.query(CycleLog)
+                .filter(CycleLog.symbol == symbol)
+                .order_by(CycleLog.created_at.desc())
+                .first()
+            )
+            if last_log is not None and last_log.outcome == "disabled":
+                continue
+            session.add(CycleLog(
+                symbol=symbol,
+                config_snapshot=_config_snapshot(asset),
+                outcome="disabled",
+            ))
+        session.commit()
+    finally:
+        session.close()
+
+
 def run_all_cycles() -> None:
     """Vstupny bod scheduleru (viz main.py). Fetchne zdielane makro data RAZ
     (cross-market/session + BTC proxy ak treba) a potom prejde kazdy aktivny
     asset z assets.enabled_assets() nezavisle."""
     print(f"\n=== [trade_cycle] {datetime.now(timezone.utc).isoformat()} ===")
+    try:
+        _mark_disabled_assets()
+    except Exception as e:
+        print(f"[trade_cycle] _mark_disabled_assets zlyhal (neblokujuce): {e}")
+
     active = assets.enabled_assets()
     if not active:
         print("[trade_cycle] Ziadny aktivny asset (skontroluj ENABLE_NVDA/ENABLE_ADA).")
@@ -435,7 +478,7 @@ def run_all_cycles() -> None:
     if any(a.get("needs_btc_proxy") for a in active):
         try:
             btc_proxy = market_data.get_btc_proxy_snapshot()
-            print(f"[trade_cycle] BTC proxy (krypto-makro pre ADA): {btc_proxy}")
+            print(f"[trade_cycle] BTC proxy (krypto-makro pre ADA/NIGHT): {btc_proxy}")
         except Exception as e:
             print(f"[trade_cycle] BTC proxy fetch zlyhal (pokracujem bez neho): {e}")
 
