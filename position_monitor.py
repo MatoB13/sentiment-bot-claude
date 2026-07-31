@@ -177,7 +177,7 @@ def check_open_trades():
                 print(f"[position_monitor] Trade {trade.id} presiahol {config.POSITION_MAX_HOURS}h, zatvaram.")
                 try:
                     strike_client.cancel_all_orders(trade.symbol)  # zrusi visiace TP/SL objednavky
-                    strike_client.close_position_market(trade.direction, float(live["Size"]), trade.symbol)
+                    strike_client.close_position_market(trade.direction, float(live["size"]), trade.symbol)
                 except Exception as e:
                     print(f"[position_monitor] Chyba pri force-close: {e}")
                     continue
