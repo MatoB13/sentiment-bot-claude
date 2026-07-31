@@ -30,17 +30,19 @@ SHARED_NUMERIC = [
     ("POSITION_MAX_HOURS", float, "Max. drzanie pozicie pred force-close (hodiny)"),
 ]
 
-# Per-asset risk + interval parametre (NAS100 pouziva povodne bezpredponove
-# nazvy env premennych pre risk, ale MA vlastny prefix pre interval).
-# off_hours/weekend interval su funkcne len pre variable_interval=True assety
-# (NAS100/NVDA/GOLD/WTI) - pre ADA/NIGHT su nastavene, ale nepouzivaju sa.
+# Per-asset risk + interval parametre - kazdy ticker ma teraz (2026-07-31)
+# rovnaku sadu 8 premennych ({TICKER}_MIN_CONFIDENCE/MARGIN_USD/LEVERAGE/
+# SL_PCT/TP_PCT/TRADE_INTERVAL_HOURS/OFF_HOURS_INTERVAL_HOURS/
+# WEEKEND_INTERVAL_HOURS), vratane NAS100 (predtym mal bezpredponove nazvy).
+# Pre 24/7 krypto (ADA/NIGHT) su off_hours/weekend defaultne rovnake ako
+# trade_interval, ale su nezavisle nastavitelne rovnako ako pre ostatne.
 ASSET_NUMERIC = {
     "NAS100": [
-        ("MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
-        ("MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
-        ("LEVERAGE", int, "Fixna paka (notional = MARGIN_USD x LEVERAGE)"),
-        ("DEFAULT_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
-        ("DEFAULT_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
+        ("NAS100_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
+        ("NAS100_MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
+        ("NAS100_LEVERAGE", int, "Fixna paka (notional = margin x leverage)"),
+        ("NAS100_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
+        ("NAS100_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
         ("NAS100_TRADE_INTERVAL_HOURS", float, "Interval POCAS trading hours (hodiny)"),
         ("NAS100_OFF_HOURS_INTERVAL_HOURS", float, "Interval mimo trading hours (hodiny)"),
         ("NAS100_WEEKEND_INTERVAL_HOURS", float, "Interval cez vikend (hodiny)"),
@@ -61,7 +63,9 @@ ASSET_NUMERIC = {
         ("ADA_LEVERAGE", int, "Fixna paka (notional = margin x leverage)"),
         ("ADA_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
         ("ADA_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
-        ("ADA_TRADE_INTERVAL_HOURS", float, "Interval - ADA je 24/7, ziadne off_hours/weekend rozlisenie (hodiny)"),
+        ("ADA_TRADE_INTERVAL_HOURS", float, "Interval POCAS trading hours (hodiny) - ADA je 24/7, defaultne rovnaky ako off_hours/weekend"),
+        ("ADA_OFF_HOURS_INTERVAL_HOURS", float, "Interval mimo trading hours (hodiny)"),
+        ("ADA_WEEKEND_INTERVAL_HOURS", float, "Interval cez vikend (hodiny)"),
     ],
     "GOLD": [
         ("GOLD_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
@@ -89,7 +93,9 @@ ASSET_NUMERIC = {
         ("NIGHT_LEVERAGE", int, "Fixna paka (notional = margin x leverage)"),
         ("NIGHT_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
         ("NIGHT_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
-        ("NIGHT_TRADE_INTERVAL_HOURS", float, "Interval - NIGHT je 24/7, ziadne off_hours/weekend rozlisenie (hodiny)"),
+        ("NIGHT_TRADE_INTERVAL_HOURS", float, "Interval POCAS trading hours (hodiny) - NIGHT je 24/7, defaultne rovnaky ako off_hours/weekend"),
+        ("NIGHT_OFF_HOURS_INTERVAL_HOURS", float, "Interval mimo trading hours (hodiny)"),
+        ("NIGHT_WEEKEND_INTERVAL_HOURS", float, "Interval cez vikend (hodiny)"),
     ],
 }
 

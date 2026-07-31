@@ -24,11 +24,14 @@ zamerne VYPNUTE - volume kompletnost pre WTI (CL=F) nebola empiricky overena
 ako pri ostatnych, a NIGHT je pravdepodobne mimo yfinance pokrytia celkom
 (velmi mlady/nizko-kapitalizovany token).
 
-variable_interval: zapnute len pre NAS100/NVDA/GOLD/WTI - mimo trading hours a
-cez vikend bezia rjadsie (viz trade_cycle._required_interval_hours), kedze
-podkladovy trh v tom case realne stoji/je tichy. ADA/NIGHT (24/7 krypto) maju
-toto VYPNUTE - beria vzdy na zakladnom trade_interval_hours, ziadne realne "off
-hours" pre ne neexistuju.
+trade_interval_hours/off_hours_interval_hours/weekend_interval_hours: KAZDY
+asset ma vsetky tri (2026-07-31 zjednotene - predtym mali ADA/NIGHT len jednu
+plochu hodnotu bez trading-hours rozlisenia). Pre 24/7 krypto (ADA/NIGHT) su
+defaultne vsetky tri rovnake (ziadne skutocne "off hours"/vikend rozlisenie
+preň neexistuje), ale su NEZAVISLE nastavitelne cez config.py/Railway -
+umoznuje to napr. neskor predlzit vikendovy interval aj pre ne bez zmeny kodu
+(viz trade_cycle._required_interval_hours, jednotny mechanizmus pre vsetkych
+6 tickerov).
 """
 import config
 
@@ -38,15 +41,14 @@ NAS100 = {
     "strike_symbol": config.STRIKE_NAS100_SYMBOL,
     "yf_symbol": "NQ=F",
     "yf_fallback": "^NDX",
-    "sl_pct": config.DEFAULT_SL_PCT,
-    "tp_pct": config.DEFAULT_TP_PCT,
-    "leverage": config.LEVERAGE,
-    "margin_usd": config.MARGIN_USD,
-    "min_confidence": config.MIN_CONFIDENCE,
+    "sl_pct": config.NAS100_SL_PCT,
+    "tp_pct": config.NAS100_TP_PCT,
+    "leverage": config.NAS100_LEVERAGE,
+    "margin_usd": config.NAS100_MARGIN_USD,
+    "min_confidence": config.NAS100_MIN_CONFIDENCE,
     "enabled": True,
     "needs_btc_proxy": False,
     "include_volume": True,
-    "variable_interval": True,
     "trade_interval_hours": config.NAS100_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.NAS100_OFF_HOURS_INTERVAL_HOURS,
     "weekend_interval_hours": config.NAS100_WEEKEND_INTERVAL_HOURS,
@@ -66,7 +68,6 @@ NVDA = {
     "enabled": config.ENABLE_NVDA,
     "needs_btc_proxy": False,
     "include_volume": True,
-    "variable_interval": True,
     "trade_interval_hours": config.NVDA_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.NVDA_OFF_HOURS_INTERVAL_HOURS,
     "weekend_interval_hours": config.NVDA_WEEKEND_INTERVAL_HOURS,
@@ -86,7 +87,6 @@ ADA = {
     "enabled": config.ENABLE_ADA,
     "needs_btc_proxy": True,
     "include_volume": False,
-    "variable_interval": False,
     "trade_interval_hours": config.ADA_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.ADA_OFF_HOURS_INTERVAL_HOURS,
     "weekend_interval_hours": config.ADA_WEEKEND_INTERVAL_HOURS,
@@ -106,7 +106,6 @@ GOLD = {
     "enabled": config.ENABLE_GOLD,
     "needs_btc_proxy": False,
     "include_volume": True,
-    "variable_interval": True,
     "trade_interval_hours": config.GOLD_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.GOLD_OFF_HOURS_INTERVAL_HOURS,
     "weekend_interval_hours": config.GOLD_WEEKEND_INTERVAL_HOURS,
@@ -126,7 +125,6 @@ WTI = {
     "enabled": config.ENABLE_WTI,
     "needs_btc_proxy": False,
     "include_volume": False,
-    "variable_interval": True,
     "trade_interval_hours": config.WTI_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.WTI_OFF_HOURS_INTERVAL_HOURS,
     "weekend_interval_hours": config.WTI_WEEKEND_INTERVAL_HOURS,
@@ -146,7 +144,6 @@ NIGHT = {
     "enabled": config.ENABLE_NIGHT,
     "needs_btc_proxy": True,
     "include_volume": False,
-    "variable_interval": False,
     "trade_interval_hours": config.NIGHT_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.NIGHT_OFF_HOURS_INTERVAL_HOURS,
     "weekend_interval_hours": config.NIGHT_WEEKEND_INTERVAL_HOURS,

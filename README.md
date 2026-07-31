@@ -142,19 +142,6 @@ Pozri `.env.example` — najdôležitejšie:
 - `DATABASE_URL` — pre trvalé uloženie histórie obchodov použi Railway Postgres plugin
   (SQLite súbor na Railway sa stratí pri každom redeployi!)
 - `DRY_RUN` — `true`/`false` — **zdieľané pre všetky assety**
-- **Frekvencia dotazovania je od 2026-07-31 PER TICKER** (`{TICKER}_TRADE_INTERVAL_HOURS`/
-  `{TICKER}_OFF_HOURS_INTERVAL_HOURS`/`{TICKER}_WEEKEND_INTERVAL_HOURS` v `.env.example`,
-  napr. `GOLD_TRADE_INTERVAL_HOURS`) — ak niektorý vynecháš, spadne na hodnotu podľa `assets.py`
-  (NAS100/NVDA/GOLD/WTI defaultne na zdieľané `TRADE_INTERVAL_HOURS`/`OFF_HOURS_INTERVAL_HOURS`/
-  `WEEKEND_INTERVAL_HOURS` nižšie; WTI navyše defaultne kopíruje GOLD, NIGHT kopíruje ADA).
-  `off_hours`/`weekend` platia LEN pre assety s `variable_interval=True` v `assets.py`
-  (NAS100/NVDA/GOLD/WTI) - podkladový trh (akcia/futures) mimo trading hours/cez víkend reálne
-  stojí alebo je veľmi tichý. ADA/NIGHT sú 24/7 krypto a vždy bežia na svojom `TRADE_INTERVAL_HOURS`,
-  žiadne skutočné "off hours" pre ne neexistujú.
-- `TRADE_INTERVAL_HOURS` / `OFF_HOURS_INTERVAL_HOURS` / `WEEKEND_INTERVAL_HOURS` — zdieľané DEFAULT
-  hodnoty použité, ak konkrétny ticker nemá vlastnú premennú vyššie nastavenú
-- `TRADING_HOURS_START_UTC` / `TRADING_HOURS_END_UTC` — hranice trading hours v UTC (default `13`/`21`,
-  pokrýva NYSE cash session 9:30-16:00 ET v oboch DST stavoch) — zdieľané pre všetky variable_interval assety
 - `MONITOR_INTERVAL_MINUTES` — ako často sa kontrolujú otvorené pozície (napr. `10`) — zdieľané.
   Nemusí byť tesný, SL/TP na otvorenej pozícii chráni Strike sám (bracket order v reálnom čase) -
   toto len dodatočne synchronizuje náš DB záznam
@@ -162,17 +149,32 @@ Pozri `.env.example` — najdôležitejšie:
   samostatný, tesnejší interval nez `MONITOR_INTERVAL_MINUTES` (viz `watch_monitor.py`) - tu
   častejšia kontrola reálne znižuje šancu prehliadnuť krátky dotyk/odraz od sledovanej hladiny
 - `POSITION_MAX_HOURS` — max. držanie pozície pred force-close — zdieľané
-- `ENABLE_NVDA` / `ENABLE_ADA` / `ENABLE_GOLD` / `ENABLE_WTI` / `ENABLE_NIGHT` — `true`/`false`,
-  vypnutie/zapnutie daného bota (NAS100 beží vždy)
-- `MIN_CONFIDENCE`, `NVDA_MIN_CONFIDENCE`, `ADA_MIN_CONFIDENCE`, `GOLD_MIN_CONFIDENCE`,
-  `WTI_MIN_CONFIDENCE`, `NIGHT_MIN_CONFIDENCE` - min. confidence pre otvorenie obchodu (per asset)
-- `MARGIN_USD`/`NVDA_MARGIN_USD`/`ADA_MARGIN_USD`/`GOLD_MARGIN_USD`/`WTI_MARGIN_USD`/`NIGHT_MARGIN_USD`,
-  `LEVERAGE`/`NVDA_LEVERAGE`/`ADA_LEVERAGE`/`GOLD_LEVERAGE`/`WTI_LEVERAGE`/`NIGHT_LEVERAGE` -
-  fixny margin+leverage na kazdy obchod (notional = margin x leverage), per asset
-- `DEFAULT_SL_PCT`/`NVDA_SL_PCT`/`ADA_SL_PCT`/`GOLD_SL_PCT`/`WTI_SL_PCT`/`NIGHT_SL_PCT`,
-  `DEFAULT_TP_PCT`/`NVDA_TP_PCT`/`ADA_TP_PCT`/`GOLD_TP_PCT`/`WTI_TP_PCT`/`NIGHT_TP_PCT` - cielove
-  SL/TP ako % od live ceny (per asset); Claude navrhuje presnu vzdialenost, ktora sa oreze do
-  0.1x-5x tychto hodnot (nikdy nezablokuje vstup - viz `risk_manager.py`)
+- `TRADING_HOURS_START_UTC` / `TRADING_HOURS_END_UTC` — hranice trading hours v UTC (default `13`/`21`,
+  pokrýva NYSE cash session 9:30-16:00 ET v oboch DST stavoch) — jediná skutočne zdieľaná (nie
+  per-ticker) hodnota, je to fakt o trhovej štruktúre, nie preferencia jednotlivého assetu
+
+**Per-ticker premenné (2026-07-31 zjednotené)** — každý zo 6 tickerov (NAS100/NVDA/ADA/GOLD/WTI/NIGHT)
+má VLASTNÚ sadu presne rovnakých 8 premenných, zoskupenú v `.env.example` ticker-po-tickeri:
+`{TICKER}_MIN_CONFIDENCE`, `{TICKER}_MARGIN_USD`, `{TICKER}_LEVERAGE`, `{TICKER}_SL_PCT`,
+`{TICKER}_TP_PCT`, `{TICKER}_TRADE_INTERVAL_HOURS`, `{TICKER}_OFF_HOURS_INTERVAL_HOURS`,
+`{TICKER}_WEEKEND_INTERVAL_HOURS`. Napr. `GOLD_LEVERAGE`, `NIGHT_SL_PCT`, `WTI_WEEKEND_INTERVAL_HOURS`.
+
+- Predtým mal NAS100 bezpredponové názvy (`MIN_CONFIDENCE`/`MARGIN_USD`/...) a ADA/NIGHT nemali
+  `off_hours`/`weekend` vôbec - teraz je štruktúra jednotná pre všetkých šesť.
+- `MIN_CONFIDENCE`, `MARGIN_USD`, `LEVERAGE`, `SL_PCT`/`TP_PCT` — risk parametre (per asset).
+  `MARGIN_USD`/`LEVERAGE` určujú fixný notional (`margin x leverage`); `SL_PCT`/`TP_PCT` sú cieľové
+  SL/TP ako % od live ceny — Claude navrhuje presnú vzdialenosť, ktorá sa orežie do 0.1x-5x týchto
+  hodnôt (nikdy nezablokuje vstup - viz `risk_manager.py`)
+- `TRADE_INTERVAL_HOURS`/`OFF_HOURS_INTERVAL_HOURS`/`WEEKEND_INTERVAL_HOURS` — frekvencia cyklu
+  počas trading hours / mimo nich / cez víkend. Pre 24/7 krypto (ADA/NIGHT) sú `off_hours`/`weekend`
+  defaultne rovnaké ako `trade_interval` (žiadne skutočné "off hours" preň neexistujú), ale sú
+  nezávisle nastaviteľné rovnako ako pre ostatné - napr. neskôr predĺžiť víkendový interval aj pre
+  ne, bez zmeny kódu.
+- `ENABLE_NVDA`/`ENABLE_ADA`/`ENABLE_GOLD`/`ENABLE_WTI`/`ENABLE_NIGHT` — `true`/`false`,
+  vypnutie/zapnutie daného bota (NAS100 beží vždy). NVDA je od 2026-07-31 pozastavené
+  (nahradené WTI/NIGHT, cost-optimalizácia) — historické `cycle_logs`/`trades` ostávajú v DB a
+  v monitor-web dashboarde, len sa nezapočítavajú do nového `web_search`/Claude nákladu
+  (viz `trade_cycle._mark_disabled_assets` pre "Pozastavené" označenie).
 
 ## Deploy na Railway
 

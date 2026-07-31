@@ -32,16 +32,14 @@ _TIME_GATE_TOLERANCE_HOURS = 0.1
 
 def _required_interval_hours(asset: dict, now: datetime) -> float:
     """Kolko hodin ma uplynut od posledneho cyklu TOHTO assetu, nez je zase 'na
-    rade'. Assety BEZ variable_interval (ADA/NIGHT - obchoduju 24/7, ziadne
-    realne "off hours" pre ne neexistuju) beria vzdy na vlastnom
-    trade_interval_hours. Assety S variable_interval (NAS100/NVDA/GOLD/WTI)
-    beria rjadsie mimo trading hours a cez vikend, kedze podkladovy trh
-    (akcia/futures) v tom case realne stoji alebo je velmi ticho (NVDA sa cez
-    vikend vobec neobchoduje) - hodinova analyza tych istych zastaralych dat
-    je zbytocny naklad. Vsetky tri prahy su teraz PER-ASSET (viz assets.py) -
-    predtym zdielane globalne medzi vsetkymi variable_interval assetmi."""
-    if not asset.get("variable_interval"):
-        return asset["trade_interval_hours"]
+    rade'. KAZDY asset (2026-07-31 zjednotene) ma vsetky tri prahy definovane
+    v assets.py (trade/off_hours/weekend interval hours) - pre 24/7 krypto
+    (ADA/NIGHT) su defaultne vsetky tri rovnake (ziadne skutocne "off hours"
+    preň neexistuju), ale su nezavisle nastavitelne rovnako ako pre ostatne.
+    Pre akcie/futures (NAS100/NVDA/GOLD/WTI) mimo trading hours a cez vikend
+    podkladovy trh realne stoji alebo je velmi ticho (NVDA sa cez vikend
+    vobec neobchoduje), takze hodinova analyza tych istych zastaralych dat je
+    zbytocny naklad."""
     if now.weekday() >= 5:  # sobota=5, nedela=6
         return asset["weekend_interval_hours"]
     if config.TRADING_HOURS_START_UTC <= now.hour < config.TRADING_HOURS_END_UTC:
@@ -83,7 +81,6 @@ def _config_snapshot(asset: dict) -> dict:
         "enabled": asset["enabled"],
         "dry_run": config.DRY_RUN,
         "trade_interval_hours": asset["trade_interval_hours"],
-        "variable_interval": asset.get("variable_interval", False),
         "off_hours_interval_hours": asset["off_hours_interval_hours"],
         "weekend_interval_hours": asset["weekend_interval_hours"],
         "monitor_interval_minutes": config.MONITOR_INTERVAL_MINUTES,
