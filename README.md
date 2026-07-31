@@ -18,7 +18,9 @@ sa tie isté dáta nesťahujú 6x (viz `assets.py`, `trade_cycle.run_all_cycles`
 0. Zdieľaný krok: `market_data.get_cross_market_snapshot()` a `get_session_snapshot()`
    sa zavolajú **RAZ** pre celý cyklus (nie per asset). Ak je aktívna ADA alebo NIGHT,
    pridá sa ešte `get_btc_proxy_snapshot()` (BTC ako krypto-makro proxy, tiež cez
-   yfinance, žiadny nový platený zdroj).
+   yfinance, žiadny nový platený zdroj). Rovnako sa **RAZ** natiahne aj
+   `fred_client.get_macro_snapshot()` (CPI/Core CPI/Fed funds rate priamo z Fedu,
+   voliteľné - viz nižšie).
 1. Pre každý aktívny asset z `assets.py` (NAS100/NVDA/ADA/GOLD/WTI/NIGHT), KTORÝ
    je práve "na rade" (viz `trade_cycle._is_due` — každý asset má vlastnú
    frekvenciu, viz nižšie):
@@ -33,6 +35,15 @@ sa tie isté dáta nesťahujú 6x (viz `assets.py`, `trade_cycle.run_all_cycles`
      neposkytuje; pre WTI/NIGHT volume zámerne vypnuté, viz `assets.py`).
    - (voliteľne) `social_sentiment.py` stiahne najnovšie tweety/posty s
      relevantnými hashtagmi/cashtagmi pre daný asset cez X API.
+   - (voliteľne) `marketaux_client.py` stiahne najnovšie finančné správy so
+     sentiment skóre pre presný dopyt daného assetu (viz `assets.py`
+     `marketaux_query` - napr. `QQQ` pre NAS100, `ADAUSD` pre ADA; pre NIGHT
+     zámerne NIE holé "NIGHT" - bežné anglické slovo, ale `search="Midnight"
+     entity_types=cryptocurrency`, viz komentár v `assets.py`).
+   - (len WTI, voliteľne) `eia_client.py` stiahne posledné týždenné komerčné
+     zásoby ropy priamo z EIA (US Energy Information Administration) - presné
+     číslo namiesto spoliehania sa na to, či `web_search` nájde a správne
+     časovo zaradí tento report.
    - `claude_analyst.py` pošle TA dáta + zdieľaný makro kontext do Claude
      (Anthropic API) s povoleným vstavaným **`web_search`** nástrojom — Claude si
      podľa potreby sám vyhľadá čerstvé správy (asset-špecifický news-focus, viz
@@ -139,6 +150,12 @@ Pozri `.env.example` — najdôležitejšie:
   `STRIKE_WTI_SYMBOL` / `STRIKE_NIGHT_SYMBOL` — presný symbol/market identifikátor pre daný asset
   na Strike (zisti cez `get_markets()` v `strike_client.py`)
 - `TWITTER_BEARER_TOKEN` — voliteľné, X API v2 (platený tier na zmysluplný recent search)
+- `EIA_API_KEY` — voliteľné, zdarma po registrácii (https://www.eia.gov/opendata/register.php),
+  len pre WTI (týždenné komerčné zásoby ropy)
+- `FRED_API_KEY` — voliteľné, zdarma po registrácii (https://fredaccount.stlouisfed.org),
+  zdieľané pre všetky assety (CPI/Core CPI/Fed funds rate)
+- `MARKETAUX_API_KEY` — voliteľné, free tier ~100 req/deň po registrácii
+  (https://www.marketaux.com), per-asset news+sentiment (viz `assets.py` `marketaux_query`)
 - `DATABASE_URL` — pre trvalé uloženie histórie obchodov použi Railway Postgres plugin
   (SQLite súbor na Railway sa stratí pri každom redeployi!)
 - `DRY_RUN` — `true`/`false` — **zdieľané pre všetky assety**
@@ -198,6 +215,9 @@ má VLASTNÚ sadu presne rovnakých 8 premenných, zoskupenú v `.env.example` t
 | `market_data.py` | OHLCV + TA indikátory (per asset, primárne z vlastných `price_bars`, fallback yfinance), zdieľaný cross-market/session/BTC-proxy fetch |
 | `price_poller.py` | každominútový poller Strike `mark_price` do `price_bars` + jednorazový yfinance backfill |
 | `social_sentiment.py` | (voliteľné) X/Twitter sentiment, per asset query |
+| `marketaux_client.py` | (voliteľné) news + sentiment skóre per asset (free tier ~100 req/deň) |
+| `eia_client.py` | (voliteľné, len WTI) týždenné komerčné zásoby ropy priamo z EIA |
+| `fred_client.py` | (voliteľné, zdieľané) CPI/Core CPI/Fed funds rate priamo z FRED |
 | `claude_analyst.py` | zostaví per-asset prompt, zavolá Claude (s `web_search` nástrojom), parsuje JSON rozhodnutie |
 | `strike_client.py` | Ed25519 podpisovanie, open/close position, get positions/markets |
 | `risk_manager.py` | position sizing; jediny gate na vstup je confidence, SL/TP sa vzdy pouzije (nikdy nezablokuje) |

@@ -36,6 +36,20 @@ STRIKE_NAS100_SYMBOL = os.getenv("STRIKE_NAS100_SYMBOL", "NAS100-USD")
 ENABLE_TWITTER = _bool("ENABLE_TWITTER", "false")
 TWITTER_BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN", "")
 
+# --- Doplnkove datove zdroje (2026-07-31) - vsetky volitelne (chybajuci kluc =
+# proste sa ta sekcia promptu vynecha, nikdy neblokuje cyklus, viz *_client.py). ---
+# EIA (US Energy Information Administration) - volne API, len pre WTI (tyzdenne
+# zasoby ropy - presne cislo namiesto spolahnutia sa na web_search).
+# Registracia: https://www.eia.gov/opendata/register.php
+EIA_API_KEY = os.getenv("EIA_API_KEY", "")
+# FRED (St. Louis Fed) - volne API, zdielane pre vsetky assety (CPI/Core CPI/
+# Fed funds rate - presne cislo namiesto web_search odhadu). Registracia:
+# https://fredaccount.stlouisfed.org
+FRED_API_KEY = os.getenv("FRED_API_KEY", "")
+# Marketaux - free tier (100 req/den) news+sentiment API, per-asset (viz
+# assets.py marketaux_query). Registracia: https://www.marketaux.com
+MARKETAUX_API_KEY = os.getenv("MARKETAUX_API_KEY", "")
+
 # DB
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///trades.db")
 

@@ -197,7 +197,8 @@ with tabs[0]:
         st.rerun()
 
     with st.expander("API kluce (skryte, needituju sa tu)"):
-        for secret_key in ["ANTHROPIC_API_KEY", "STRIKE_API_PRIVATE_KEY", "STRIKE_API_PUBLIC_KEY"]:
+        for secret_key in ["ANTHROPIC_API_KEY", "STRIKE_API_PRIVATE_KEY", "STRIKE_API_PUBLIC_KEY",
+                           "EIA_API_KEY", "FRED_API_KEY", "MARKETAUX_API_KEY"]:
             val = env_values.get(secret_key, "")
             masked = f"{'*' * max(len(val) - 4, 0)}{val[-4:]}" if val else "(prazdne)"
             st.text(f"{secret_key}: {masked}")

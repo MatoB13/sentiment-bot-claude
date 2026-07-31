@@ -10,7 +10,10 @@ from datetime import datetime, timedelta, timezone
 import assets
 import claude_analyst
 import config
+import eia_client
+import fred_client
 import market_data
+import marketaux_client
 import retrospective
 import risk_manager
 import social_sentiment
@@ -154,7 +157,7 @@ def _get_retrospective_context(asset: dict, session) -> tuple[str | None, str | 
 
 
 def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
-                         btc_proxy: dict | None) -> None:
+                         btc_proxy: dict | None, fred_macro: dict | None = None) -> None:
     """Kompletny cyklus pre JEDEN asset - vlastna DB session/commit, aby chyba
     v jednom assete neponechala nedokoncenu transakciu pre dalsi."""
     name = asset["name"]
@@ -224,11 +227,29 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             session.rollback()
             retrospective_reflection, new_stats_text, pending_stats = None, None, None
 
+        # Doplnkove datove zdroje (2026-07-31) - volitelne, nikdy neblokuju cyklus.
+        eia_data = None
+        if asset.get("needs_eia_data"):
+            try:
+                eia_data = eia_client.get_weekly_crude_stocks()
+                print(f"[{name}] EIA tyzdenne zasoby ropy: {eia_data}")
+            except Exception as e:
+                print(f"[{name}] EIA fetch zlyhal (pokracujem bez neho): {e}")
+
+        marketaux_news = None
+        if asset.get("marketaux_query"):
+            try:
+                marketaux_news = marketaux_client.get_news_sentiment(asset["marketaux_query"])
+                print(f"[{name}] Marketaux news: {marketaux_news}")
+            except Exception as e:
+                print(f"[{name}] Marketaux fetch zlyhal (pokracujem bez neho): {e}")
+
         try:
             decision, web_search_log = claude_analyst.analyze(
                 asset, ta, cross_market, market_session, social, btc_proxy,
                 prev_assumptions, prev_cycle_time,
                 retrospective_reflection, new_stats_text,
+                fred_macro, eia_data, marketaux_news,
             )
         except Exception as e:
             print(f"[{name}] Claude analyza zlyhala, preskakujem cyklus: {e}")
@@ -409,7 +430,13 @@ def run_triggered_check(asset: dict) -> None:
         except Exception as e:
             print(f"[trade_cycle] [{name}] BTC proxy fetch zlyhal (pokracujem bez neho): {e}")
 
-    run_cycle_for_asset(asset, cross_market, market_session, btc_proxy)
+    fred_macro = None
+    try:
+        fred_macro = fred_client.get_macro_snapshot()
+    except Exception as e:
+        print(f"[trade_cycle] [{name}] FRED fetch zlyhal (pokracujem bez neho): {e}")
+
+    run_cycle_for_asset(asset, cross_market, market_session, btc_proxy, fred_macro)
 
 
 def _mark_disabled_assets() -> None:
@@ -479,11 +506,21 @@ def run_all_cycles() -> None:
         except Exception as e:
             print(f"[trade_cycle] BTC proxy fetch zlyhal (pokracujem bez neho): {e}")
 
+    # FRED makro snapshot (CPI/Core CPI/Fed funds rate) - zdielane pre vsetky
+    # assety rovnako ako cross_market/session, volitelne (viz fred_client.py).
+    fred_macro = None
+    try:
+        fred_macro = fred_client.get_macro_snapshot()
+        print(f"[trade_cycle] FRED makro: {fred_macro}")
+    except Exception as e:
+        print(f"[trade_cycle] FRED fetch zlyhal (pokracujem bez neho): {e}")
+
     for asset in active:
         try:
             run_cycle_for_asset(
                 asset, cross_market, market_session,
                 btc_proxy if asset.get("needs_btc_proxy") else None,
+                fred_macro,
             )
         except Exception as e:
             # jeden asset nesmie zhodit ostatne v tom istom cykle

@@ -32,6 +32,13 @@ preň neexistuje), ale su NEZAVISLE nastavitelne cez config.py/Railway -
 umoznuje to napr. neskor predlzit vikendovy interval aj pre ne bez zmeny kodu
 (viz trade_cycle._required_interval_hours, jednotny mechanizmus pre vsetkych
 6 tickerov).
+
+marketaux_query (2026-07-31): presny dopyt pre marketaux_client.get_news_sentiment
+pre kazdy asset - NIKDY nepouzivat holy ticker/nazov bez overenia (napr. "NIGHT"
+samotne je bezne anglicke slovo a "ADA"/"BTC" davaju falosne zhody s
+nesuvisiacimi ETF/tickermi - vsetko tu bolo naozivo overene 2026-07-31). WTI
+navyse needs_eia_data=True (tyzdenne zasoby ropy priamo z eia_client, viz
+trade_cycle.py).
 """
 import config
 
@@ -52,6 +59,7 @@ NAS100 = {
     "trade_interval_hours": config.NAS100_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.NAS100_OFF_HOURS_INTERVAL_HOURS,
     "weekend_interval_hours": config.NAS100_WEEKEND_INTERVAL_HOURS,
+    "marketaux_query": {"symbols": "QQQ"},
 }
 
 NVDA = {
@@ -71,6 +79,7 @@ NVDA = {
     "trade_interval_hours": config.NVDA_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.NVDA_OFF_HOURS_INTERVAL_HOURS,
     "weekend_interval_hours": config.NVDA_WEEKEND_INTERVAL_HOURS,
+    "marketaux_query": {"symbols": "NVDA"},
 }
 
 ADA = {
@@ -90,6 +99,7 @@ ADA = {
     "trade_interval_hours": config.ADA_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.ADA_OFF_HOURS_INTERVAL_HOURS,
     "weekend_interval_hours": config.ADA_WEEKEND_INTERVAL_HOURS,
+    "marketaux_query": {"symbols": "ADAUSD"},
 }
 
 GOLD = {
@@ -109,6 +119,7 @@ GOLD = {
     "trade_interval_hours": config.GOLD_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.GOLD_OFF_HOURS_INTERVAL_HOURS,
     "weekend_interval_hours": config.GOLD_WEEKEND_INTERVAL_HOURS,
+    "marketaux_query": {"symbols": "GLD"},
 }
 
 WTI = {
@@ -128,6 +139,8 @@ WTI = {
     "trade_interval_hours": config.WTI_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.WTI_OFF_HOURS_INTERVAL_HOURS,
     "weekend_interval_hours": config.WTI_WEEKEND_INTERVAL_HOURS,
+    "marketaux_query": {"symbols": "USO"},
+    "needs_eia_data": True,
 }
 
 NIGHT = {
@@ -147,6 +160,10 @@ NIGHT = {
     "trade_interval_hours": config.NIGHT_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.NIGHT_OFF_HOURS_INTERVAL_HOURS,
     "weekend_interval_hours": config.NIGHT_WEEKEND_INTERVAL_HOURS,
+    # NIKDY holé "NIGHT" (bezne anglicke slovo, 87k+ falosnych zhod - overene
+    # naozivo 2026-07-31). "Midnight" + entity_types=cryptocurrency davaju ciste
+    # relevantne vysledky (Cardano Midnight sidechain, Wanchain bridge hack a pod).
+    "marketaux_query": {"search": "Midnight", "entity_types": "cryptocurrency"},
 }
 
 ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT]

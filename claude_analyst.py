@@ -401,7 +401,6 @@ def _system_prompt(asset: dict) -> str:
         candle_bars=market_data.RECENT_CANDLES_BARS,
         candle_format=candle_format,
         volume_note=volume_note,
-        interval_hours=config.TRADE_INTERVAL_HOURS,
     )
 
 
@@ -410,7 +409,10 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                         prev_assumptions: str | None,
                         prev_cycle_time: datetime | None = None,
                         retrospective_reflection: str | None = None,
-                        new_stats_text: str | None = None) -> str:
+                        new_stats_text: str | None = None,
+                        fred_macro: dict | None = None,
+                        eia_data: dict | None = None,
+                        marketaux_news: list[dict] | None = None) -> str:
     instrument = asset["name"]
     social_block = "\n".join(
         f"- ({p.get('likes')}♥/{p.get('retweets')}rt) {p.get('text')}"
@@ -418,7 +420,7 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
     ) or "(social sentiment nie je zapnutý/dostupný)"
 
     now = datetime.now(timezone.utc)
-    interval_h = config.TRADE_INTERVAL_HOURS
+    interval_h = asset["trade_interval_hours"]
 
     if prev_assumptions and prev_cycle_time:
         since_str = prev_cycle_time.strftime('%A, %d. %B %Y, %H:%M UTC')
@@ -456,6 +458,41 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
             f"{new_stats_text}\n"
         )
 
+    # Doplnkove datove zdroje (2026-07-31) - presne cisla/spravy priamo z
+    # primarneho zdroja namiesto spolahnutia sa na to, ci web_search najde a
+    # spravne casovo zaradi rovnaku informaciu (viz eia_client.py/fred_client.py/
+    # marketaux_client.py). Kazdy blok sa vynecha, ak dany zdroj nie je
+    # dostupny (chybajuci kluc alebo zlyhany fetch) - nikdy nie je povinny.
+    fred_block = ""
+    if fred_macro:
+        fred_block = (
+            f"\n## Makro data priamo z FRED (Fed) - PRESNE, nie odhad z web_search\n"
+            f"{json.dumps(fred_macro, indent=2, ensure_ascii=False)}\n"
+        )
+
+    eia_block = ""
+    if eia_data:
+        eia_block = (
+            f"\n## Tyzdenne komercne zasoby ropy priamo z EIA (WTI) - PRESNE, nie odhad z web_search\n"
+            f"{json.dumps(eia_data, indent=2, ensure_ascii=False)}\n"
+            f"(neocakavany pokles zasob je zvycajne bycí pre {instrument}, narast medvedi - "
+            f"viz macro pravidla v system prompte)\n"
+        )
+
+    marketaux_block = ""
+    if marketaux_news:
+        articles = "\n".join(
+            f"- [{a.get('published_at', '?')}] {a.get('title')} "
+            f"(zdroj: {a.get('source')}, sentiment: {a.get('sentiment_score')})"
+            for a in marketaux_news
+        )
+        marketaux_block = (
+            f"\n## Najnovšie financne spravy so sentiment skore (Marketaux, NIE web_search)\n"
+            f"{articles}\n"
+            f"(sentiment skore je -1 az +1 na urovni konkretneho clanku, priamo od Marketaux, "
+            f"nie tvoj vlastny odhad)\n"
+        )
+
     return f"""## Aktuálny dátum a čas
 {now.strftime('%A, %d. %B %Y, %H:%M')} UTC ({now.isoformat()})
 Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/správy za posledných
@@ -466,12 +503,13 @@ Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/sp
 
 ## Cross-market kontext (S&P500, Russell 2000, SOX, VIX, DXY, US10Y/US13W výnosy, ropa, zlato)
 {json.dumps(cross_market, indent=2, ensure_ascii=False)}
-
+{fred_block}{eia_block}
 ## Session alignment (Ázia -> Európa -> US futures)
 {json.dumps(session, indent=2, ensure_ascii=False)}
 {btc_block}
 ## Social media sentiment
 {social_block}
+{marketaux_block}
 
 ## Kľúčové predpoklady z predchádzajúceho cyklu (~{interval_h}h dozadu)
 {prev_block}
@@ -494,7 +532,10 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
             prev_assumptions: str | None = None,
             prev_cycle_time: datetime | None = None,
             retrospective_reflection: str | None = None,
-            new_stats_text: str | None = None) -> tuple[dict, list[dict]]:
+            new_stats_text: str | None = None,
+            fred_macro: dict | None = None,
+            eia_data: dict | None = None,
+            marketaux_news: list[dict] | None = None) -> tuple[dict, list[dict]]:
     """Vrati (decision, web_search_log). web_search_log je zoznam
     {"query": str, "sources": [{"title", "url", "page_age"}]} pre kazde
     vyhladavanie, ktore Claude spravil - sluzi na audit (co realne citas,
@@ -527,7 +568,8 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
                  "content": [{"type": "text",
                                "text": _build_user_prompt(asset, ta, cross_market, session, social,
                                                            btc_proxy, prev_assumptions, prev_cycle_time,
-                                                           retrospective_reflection, new_stats_text),
+                                                           retrospective_reflection, new_stats_text,
+                                                           fred_macro, eia_data, marketaux_news),
                                "cache_control": {"type": "ephemeral"}}]}]
     web_search_log: list[dict] = []
 
