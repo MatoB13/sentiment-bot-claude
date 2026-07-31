@@ -1,29 +1,36 @@
-# Sentiment Bot (Strike Finance) — NAS100 + NVDA + ADA + GOLD
+# Sentiment Bot (Strike Finance) — NAS100 + NVDA + ADA + GOLD + WTI + NIGHT
 
 Automatizovaný multi-asset obchodný bot na Strike Finance: **NAS100** (index),
-**NVDA** (akcia), **ADA** (krypto perpetuál) a **GOLD** (komodita, zámerne
-pridaná ako protivietor k prevažne risk-on smerovaniu ostatných troch — safe-haven
-asset, opačná polarita VIX). Každý asset je nezávislý "bot" — vlastná pozícia,
-vlastný risk (SL/TP %, leverage, margin, min. confidence), vlastné rozhodnutie od
-Claude — ale všetky bežia v **jednom scheduler cykle** a zdieľajú cross-market/
-session (a pre ADA aj BTC-proxy) makro fetch, takže sa tie isté dáta nesťahujú
-4x (viz `assets.py`, `trade_cycle.run_all_cycles`).
+**NVDA** (akcia), **ADA** (krypto perpetuál), **GOLD** (komodita, zámerne
+pridaná ako protivietor k prevažne risk-on smerovaniu ostatných — safe-haven
+asset, opačná polarita VIX), **WTI** (ropa, pridaná 2026-07-31 ako vyraznejsie
+odlisny ticker - iny driver OPEC+/geopolitika/dopyt, NIE safe-haven ako zlato)
+a **NIGHT** (krypto Midnight/Cardano, pridaná v tom istom kroku — vyrazne
+rizikovejsi/volatilnejsi mlady token po nedavnom bridge hacku, najnizsia paka
+zo vsetkych). Každý asset je nezávislý "bot" — vlastná pozícia, vlastný risk
+(SL/TP %, leverage, margin, min. confidence, frekvencia cyklu), vlastné
+rozhodnutie od Claude — ale všetky bežia v **jednom scheduler cykle** a
+zdieľajú cross-market/session (a pre ADA/NIGHT aj BTC-proxy) makro fetch, takže
+sa tie isté dáta nesťahujú 6x (viz `assets.py`, `trade_cycle.run_all_cycles`).
 
 **Ako to funguje (jeden cyklus, `trade_cycle.run_all_cycles`):**
 
 0. Zdieľaný krok: `market_data.get_cross_market_snapshot()` a `get_session_snapshot()`
-   sa zavolajú **RAZ** pre celý cyklus (nie per asset). Ak je aktívna ADA, pridá sa
-   ešte `get_btc_proxy_snapshot()` (BTC ako krypto-makro proxy, tiež cez yfinance,
-   žiadny nový platený zdroj).
-1. Pre každý aktívny asset z `assets.py` (NAS100/NVDA/ADA/GOLD):
+   sa zavolajú **RAZ** pre celý cyklus (nie per asset). Ak je aktívna ADA alebo NIGHT,
+   pridá sa ešte `get_btc_proxy_snapshot()` (BTC ako krypto-makro proxy, tiež cez
+   yfinance, žiadny nový platený zdroj).
+1. Pre každý aktívny asset z `assets.py` (NAS100/NVDA/ADA/GOLD/WTI/NIGHT), KTORÝ
+   je práve "na rade" (viz `trade_cycle._is_due` — každý asset má vlastnú
+   frekvenciu, viz nižšie):
    - `market_data.py` zostaví hodinové OHLC sviečky a spočíta TA indikátory (RSI,
      MACD, EMA20/50/200, Bollinger Bands, ATR, trend). Primárny zdroj je **vlastná**
      `price_bars` tabuľka, ktorú `price_poller.py` plní každú minútu zo Strike
      `mark_price` (viz nižšie) — na rozdiel od yfinance zostáva živá aj mimo
      obchodných hodín/cez víkend, keďže Strike perpetuály obchodujú nonstop.
-     yfinance (`^NDX`/`NQ=F`, NVDA, ADA-USD, `GC=F`/`GLD`) slúži ako **fallback**
-     (ak vlastné dáta chýbajú/sú zastarané) a ako doplnkový zdroj volume dát pre
-     NAS100/NVDA/GOLD (Strike mark_price žiadny objem neposkytuje).
+     yfinance (`^NDX`/`NQ=F`, NVDA, ADA-USD, `GC=F`/`GLD`, `CL=F`/`USO`, NIGHT-USD)
+     slúži ako **fallback** (ak vlastné dáta chýbajú/sú zastarané) a ako doplnkový
+     zdroj volume dát pre NAS100/NVDA/GOLD (Strike mark_price žiadny objem
+     neposkytuje; pre WTI/NIGHT volume zámerne vypnuté, viz `assets.py`).
    - (voliteľne) `social_sentiment.py` stiahne najnovšie tweety/posty s
      relevantnými hashtagmi/cashtagmi pre daný asset cez X API.
    - `claude_analyst.py` pošle TA dáta + zdieľaný makro kontext do Claude
@@ -63,24 +70,32 @@ session (a pre ADA aj BTC-proxy) makro fetch, takže sa tie isté dáta nesťahu
    akýkoľvek asset, ktorý ešte nemá žiadny vlastný záznam.
 
 `main.py` toto všetko spúšťa na pozadí cez scheduler (APScheduler) — beží ako
-jeden dlhodobo bežiaci proces na Railway (worker service). `TRADE_INTERVAL_HOURS`
-a `MONITOR_INTERVAL_MINUTES` sú **zdieľané pre všetky assety** (bežia v tom istom
-tiku) — zmena v Railway env sa prejaví pre všetky naraz.
+jeden dlhodobo bežiaci proces na Railway (worker service). `trade_cycle` job
+tiká na `min()` z aktuálnych `*_TRADE_INTERVAL_HOURS` všetkých aktívnych
+assetov (najrýchlejšie požadovaná frekvencia) — každý asset sa reálne
+rozhoduje/obchoduje na SVOJOM vlastnom (pomalšom alebo rovnakom) intervale cez
+`trade_cycle._is_due()`. `MONITOR_INTERVAL_MINUTES` zostáva **zdieľané pre
+všetky assety** (jedno `get_positions()` volanie kontroluje všetky otvorené
+pozície naraz).
 
-Assety možno jednotlivo vypnúť cez `ENABLE_NVDA`/`ENABLE_ADA`/`ENABLE_GOLD` (NAS100 beží vždy).
+Assety možno jednotlivo vypnúť cez `ENABLE_NVDA`/`ENABLE_ADA`/`ENABLE_GOLD`/`ENABLE_WTI`/`ENABLE_NIGHT` (NAS100 beží vždy).
 
 ## ⚠️ Dôležité upozornenia
 
-- **Toto obchoduje s reálnymi peniazmi na pákový produkt — na TROCH nezávislých
-  assetoch naraz.** SL/TP sa nastavujú cez bracket "strategy" objednávku
-  (`POST /v2/order/strategy`, polia `tp_order`/`sl_order`), leverage sa nastavuje
-  samostatne pred otvorením pozície (`POST /v2/leverage`) a `size` je v
-  base-asset jednotkách, nie notional USD. Overené voči
+- **Toto obchoduje s reálnymi peniazmi na pákový produkt — na PIATICH nezávislých
+  assetoch naraz (plus NAS100 = šesť celkovo).** SL/TP sa nastavujú cez bracket
+  "strategy" objednávku (`POST /v2/order/strategy`, polia `tp_order`/`sl_order`),
+  leverage sa nastavuje samostatne pred otvorením pozície (`POST /v2/leverage`),
+  margin mode je **isolated** (nie cross - viz `strike_client.open_bracket_position`)
+  a `size` je v base-asset jednotkách, nie notional USD. Overené voči
   https://docs.strikefinance.org/api/trade/orders a
   https://docs.strikefinance.org/api/trade/trading.
-- NVDA, ADA a GOLD majú nižšiu default paku a širšie SL/TP % než NAS100 (viz
-  `.env.example`) — sú kalibrované na vyššiu typickú volatilitu jednotlivej akcie
-  resp. krypta, ale over si to sám na pár dňoch DRY_RUN dát pred ostrým behom.
+- NVDA, ADA, GOLD, WTI a NIGHT majú nižšiu default paku a širšie SL/TP % než NAS100
+  (viz `.env.example`) — sú kalibrované na vyššiu typickú volatilitu jednotlivej
+  akcie/komodity/krypta, ale over si to sám na pár dňoch DRY_RUN dát pred ostrým
+  behom. **NIGHT je výrazne rizikovejší/volatilnejší** než ostatné (mladý,
+  nízko-kapitalizovaný token, čerstvý Wanchain bridge hack 20.7.2026 - preto
+  najnižšia paka zo všetkých).
 - Spusti bota najprv s `DRY_RUN=true` — všetko sa vygeneruje a zaloguje/zapíše do DB,
   ale žiadny reálny obchod sa nespraví. Skontroluj si logy/DB aspoň pár dní.
 - Confidence skóre od Claude je odhad, nie záruka výsledku. Nikdy nevkladaj viac
@@ -120,18 +135,26 @@ Pozri `.env.example` — najdôležitejšie:
 
 - `ANTHROPIC_API_KEY` — tvoj Anthropic API kľúč (analytik)
 - `STRIKE_API_PRIVATE_KEY` / `STRIKE_API_PUBLIC_KEY` — API wallet ku Strike (Ed25519, vygeneruj na app.strikefinance.org/api-keys)
-- `STRIKE_NAS100_SYMBOL` / `STRIKE_NVDA_SYMBOL` / `STRIKE_ADA_SYMBOL` / `STRIKE_GOLD_SYMBOL` — presný
-  symbol/market identifikátor pre daný asset na Strike (zisti cez `get_markets()` v `strike_client.py`)
+- `STRIKE_NAS100_SYMBOL` / `STRIKE_NVDA_SYMBOL` / `STRIKE_ADA_SYMBOL` / `STRIKE_GOLD_SYMBOL` /
+  `STRIKE_WTI_SYMBOL` / `STRIKE_NIGHT_SYMBOL` — presný symbol/market identifikátor pre daný asset
+  na Strike (zisti cez `get_markets()` v `strike_client.py`)
 - `TWITTER_BEARER_TOKEN` — voliteľné, X API v2 (platený tier na zmysluplný recent search)
 - `DATABASE_URL` — pre trvalé uloženie histórie obchodov použi Railway Postgres plugin
   (SQLite súbor na Railway sa stratí pri každom redeployi!)
 - `DRY_RUN` — `true`/`false` — **zdieľané pre všetky assety**
-- `TRADE_INTERVAL_HOURS` — interval cyklu POČAS trading hours (napr. `1`) — **zdieľané pre NAS100/NVDA/GOLD/ADA**
-- `OFF_HOURS_INTERVAL_HOURS` / `WEEKEND_INTERVAL_HOURS` — interval mimo trading hours / cez víkend
-  (default `2`/`6`) — platí LEN pre NAS100/NVDA/GOLD (majú `variable_interval=True` v `assets.py`); ADA
-  je 24/7 a vždy beží na `TRADE_INTERVAL_HOURS`, žiadne skutočné "off hours" pre ňu neexistujú
+- **Frekvencia dotazovania je od 2026-07-31 PER TICKER** (`{TICKER}_TRADE_INTERVAL_HOURS`/
+  `{TICKER}_OFF_HOURS_INTERVAL_HOURS`/`{TICKER}_WEEKEND_INTERVAL_HOURS` v `.env.example`,
+  napr. `GOLD_TRADE_INTERVAL_HOURS`) — ak niektorý vynecháš, spadne na hodnotu podľa `assets.py`
+  (NAS100/NVDA/GOLD/WTI defaultne na zdieľané `TRADE_INTERVAL_HOURS`/`OFF_HOURS_INTERVAL_HOURS`/
+  `WEEKEND_INTERVAL_HOURS` nižšie; WTI navyše defaultne kopíruje GOLD, NIGHT kopíruje ADA).
+  `off_hours`/`weekend` platia LEN pre assety s `variable_interval=True` v `assets.py`
+  (NAS100/NVDA/GOLD/WTI) - podkladový trh (akcia/futures) mimo trading hours/cez víkend reálne
+  stojí alebo je veľmi tichý. ADA/NIGHT sú 24/7 krypto a vždy bežia na svojom `TRADE_INTERVAL_HOURS`,
+  žiadne skutočné "off hours" pre ne neexistujú.
+- `TRADE_INTERVAL_HOURS` / `OFF_HOURS_INTERVAL_HOURS` / `WEEKEND_INTERVAL_HOURS` — zdieľané DEFAULT
+  hodnoty použité, ak konkrétny ticker nemá vlastnú premennú vyššie nastavenú
 - `TRADING_HOURS_START_UTC` / `TRADING_HOURS_END_UTC` — hranice trading hours v UTC (default `13`/`21`,
-  pokrýva NYSE cash session 9:30-16:00 ET v oboch DST stavoch)
+  pokrýva NYSE cash session 9:30-16:00 ET v oboch DST stavoch) — zdieľané pre všetky variable_interval assety
 - `MONITOR_INTERVAL_MINUTES` — ako často sa kontrolujú otvorené pozície (napr. `10`) — zdieľané.
   Nemusí byť tesný, SL/TP na otvorenej pozícii chráni Strike sám (bracket order v reálnom čase) -
   toto len dodatočne synchronizuje náš DB záznam
@@ -139,14 +162,15 @@ Pozri `.env.example` — najdôležitejšie:
   samostatný, tesnejší interval nez `MONITOR_INTERVAL_MINUTES` (viz `watch_monitor.py`) - tu
   častejšia kontrola reálne znižuje šancu prehliadnuť krátky dotyk/odraz od sledovanej hladiny
 - `POSITION_MAX_HOURS` — max. držanie pozície pred force-close — zdieľané
-- `ENABLE_NVDA` / `ENABLE_ADA` / `ENABLE_GOLD` — `true`/`false`, vypnutie/zapnutie daného bota (NAS100 beží vždy)
-- `MIN_CONFIDENCE`, `NVDA_MIN_CONFIDENCE`, `ADA_MIN_CONFIDENCE`, `GOLD_MIN_CONFIDENCE` - min. confidence
-  pre otvorenie obchodu (per asset)
-- `MARGIN_USD`/`NVDA_MARGIN_USD`/`ADA_MARGIN_USD`/`GOLD_MARGIN_USD`,
-  `LEVERAGE`/`NVDA_LEVERAGE`/`ADA_LEVERAGE`/`GOLD_LEVERAGE` -
+- `ENABLE_NVDA` / `ENABLE_ADA` / `ENABLE_GOLD` / `ENABLE_WTI` / `ENABLE_NIGHT` — `true`/`false`,
+  vypnutie/zapnutie daného bota (NAS100 beží vždy)
+- `MIN_CONFIDENCE`, `NVDA_MIN_CONFIDENCE`, `ADA_MIN_CONFIDENCE`, `GOLD_MIN_CONFIDENCE`,
+  `WTI_MIN_CONFIDENCE`, `NIGHT_MIN_CONFIDENCE` - min. confidence pre otvorenie obchodu (per asset)
+- `MARGIN_USD`/`NVDA_MARGIN_USD`/`ADA_MARGIN_USD`/`GOLD_MARGIN_USD`/`WTI_MARGIN_USD`/`NIGHT_MARGIN_USD`,
+  `LEVERAGE`/`NVDA_LEVERAGE`/`ADA_LEVERAGE`/`GOLD_LEVERAGE`/`WTI_LEVERAGE`/`NIGHT_LEVERAGE` -
   fixny margin+leverage na kazdy obchod (notional = margin x leverage), per asset
-- `DEFAULT_SL_PCT`/`NVDA_SL_PCT`/`ADA_SL_PCT`/`GOLD_SL_PCT`,
-  `DEFAULT_TP_PCT`/`NVDA_TP_PCT`/`ADA_TP_PCT`/`GOLD_TP_PCT` - cielove
+- `DEFAULT_SL_PCT`/`NVDA_SL_PCT`/`ADA_SL_PCT`/`GOLD_SL_PCT`/`WTI_SL_PCT`/`NIGHT_SL_PCT`,
+  `DEFAULT_TP_PCT`/`NVDA_TP_PCT`/`ADA_TP_PCT`/`GOLD_TP_PCT`/`WTI_TP_PCT`/`NIGHT_TP_PCT` - cielove
   SL/TP ako % od live ceny (per asset); Claude navrhuje presnu vzdialenost, ktora sa oreze do
   0.1x-5x tychto hodnot (nikdy nezablokuje vstup - viz `risk_manager.py`)
 
@@ -167,7 +191,7 @@ Pozri `.env.example` — najdôležitejšie:
 |---|---|
 | `main.py` | scheduler, entrypoint |
 | `config.py` | centrálne env premenné (zdieľané + per-asset) |
-| `assets.py` | registry assetov (NAS100/NVDA/ADA/GOLD) - symbol, TA ticker, SL/TP%, leverage, margin, min_confidence |
+| `assets.py` | registry assetov (NAS100/NVDA/ADA/GOLD/WTI/NIGHT) - symbol, TA ticker, SL/TP%, leverage, margin, min_confidence, frekvencia cyklu |
 | `db.py` | SQLAlchemy modely `Trade`/`CycleLog` (obe majú `symbol`) + session |
 | `market_data.py` | OHLCV + TA indikátory (per asset, primárne z vlastných `price_bars`, fallback yfinance), zdieľaný cross-market/session/BTC-proxy fetch |
 | `price_poller.py` | každominútový poller Strike `mark_price` do `price_bars` + jednorazový yfinance backfill |

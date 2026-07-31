@@ -19,11 +19,10 @@ st.set_page_config(page_title="Sentiment Bot (multi-asset)", layout="wide")
 
 ENV_PATH = os.path.join(os.path.dirname(__file__), ".env")
 
-# Zdielane pre vsetky assety (NAS100/NVDA/ADA bezia v tom istom cykle).
+# Skutocne zdielane pre vsetky assety (NAS100/NVDA/ADA/GOLD/WTI/NIGHT bezia v
+# tom istom cykle). Frekvencia dotazovania (trade/off_hours/weekend interval)
+# je od 2026-07-31 PER-ASSET - viz ASSET_NUMERIC nizsie.
 SHARED_NUMERIC = [
-    ("TRADE_INTERVAL_HOURS", float, "Interval POCAS trading hours - ZDIELANE pre vsetky assety (hodiny)"),
-    ("OFF_HOURS_INTERVAL_HOURS", float, "Interval mimo trading hours (len NAS100/NVDA/GOLD, hodiny)"),
-    ("WEEKEND_INTERVAL_HOURS", float, "Interval cez vikend (len NAS100/NVDA/GOLD, hodiny)"),
     ("TRADING_HOURS_START_UTC", int, "Zaciatok trading hours (UTC hodina)"),
     ("TRADING_HOURS_END_UTC", int, "Koniec trading hours (UTC hodina)"),
     ("MONITOR_INTERVAL_MINUTES", float, "Ako casto sa kontroluju otvorene pozicie (minuty)"),
@@ -31,7 +30,10 @@ SHARED_NUMERIC = [
     ("POSITION_MAX_HOURS", float, "Max. drzanie pozicie pred force-close (hodiny)"),
 ]
 
-# Per-asset risk parametre (NAS100 pouziva povodne bezpredponove nazvy env premennych).
+# Per-asset risk + interval parametre (NAS100 pouziva povodne bezpredponove
+# nazvy env premennych pre risk, ale MA vlastny prefix pre interval).
+# off_hours/weekend interval su funkcne len pre variable_interval=True assety
+# (NAS100/NVDA/GOLD/WTI) - pre ADA/NIGHT su nastavene, ale nepouzivaju sa.
 ASSET_NUMERIC = {
     "NAS100": [
         ("MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
@@ -39,6 +41,9 @@ ASSET_NUMERIC = {
         ("LEVERAGE", int, "Fixna paka (notional = MARGIN_USD x LEVERAGE)"),
         ("DEFAULT_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
         ("DEFAULT_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
+        ("NAS100_TRADE_INTERVAL_HOURS", float, "Interval POCAS trading hours (hodiny)"),
+        ("NAS100_OFF_HOURS_INTERVAL_HOURS", float, "Interval mimo trading hours (hodiny)"),
+        ("NAS100_WEEKEND_INTERVAL_HOURS", float, "Interval cez vikend (hodiny)"),
     ],
     "NVDA": [
         ("NVDA_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
@@ -46,6 +51,9 @@ ASSET_NUMERIC = {
         ("NVDA_LEVERAGE", int, "Fixna paka (notional = margin x leverage)"),
         ("NVDA_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
         ("NVDA_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
+        ("NVDA_TRADE_INTERVAL_HOURS", float, "Interval POCAS trading hours (hodiny)"),
+        ("NVDA_OFF_HOURS_INTERVAL_HOURS", float, "Interval mimo trading hours (hodiny)"),
+        ("NVDA_WEEKEND_INTERVAL_HOURS", float, "Interval cez vikend (hodiny)"),
     ],
     "ADA": [
         ("ADA_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
@@ -53,6 +61,7 @@ ASSET_NUMERIC = {
         ("ADA_LEVERAGE", int, "Fixna paka (notional = margin x leverage)"),
         ("ADA_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
         ("ADA_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
+        ("ADA_TRADE_INTERVAL_HOURS", float, "Interval - ADA je 24/7, ziadne off_hours/weekend rozlisenie (hodiny)"),
     ],
     "GOLD": [
         ("GOLD_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
@@ -60,6 +69,27 @@ ASSET_NUMERIC = {
         ("GOLD_LEVERAGE", int, "Fixna paka (notional = margin x leverage)"),
         ("GOLD_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
         ("GOLD_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
+        ("GOLD_TRADE_INTERVAL_HOURS", float, "Interval POCAS trading hours (hodiny)"),
+        ("GOLD_OFF_HOURS_INTERVAL_HOURS", float, "Interval mimo trading hours (hodiny)"),
+        ("GOLD_WEEKEND_INTERVAL_HOURS", float, "Interval cez vikend (hodiny)"),
+    ],
+    "WTI": [
+        ("WTI_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
+        ("WTI_MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
+        ("WTI_LEVERAGE", int, "Fixna paka (notional = margin x leverage)"),
+        ("WTI_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
+        ("WTI_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
+        ("WTI_TRADE_INTERVAL_HOURS", float, "Interval POCAS trading hours (hodiny)"),
+        ("WTI_OFF_HOURS_INTERVAL_HOURS", float, "Interval mimo trading hours (hodiny)"),
+        ("WTI_WEEKEND_INTERVAL_HOURS", float, "Interval cez vikend (hodiny)"),
+    ],
+    "NIGHT": [
+        ("NIGHT_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
+        ("NIGHT_MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
+        ("NIGHT_LEVERAGE", int, "Fixna paka (notional = margin x leverage)"),
+        ("NIGHT_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
+        ("NIGHT_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
+        ("NIGHT_TRADE_INTERVAL_HOURS", float, "Interval - NIGHT je 24/7, ziadne off_hours/weekend rozlisenie (hodiny)"),
     ],
 }
 
@@ -98,7 +128,7 @@ def reload_app_modules():
     importlib.reload(config)
 
 
-st.title("Sentiment Bot (NAS100 + NVDA + ADA + GOLD) — Dashboard")
+st.title("Sentiment Bot (NAS100 + NVDA + ADA + GOLD + WTI + NIGHT) — Dashboard")
 
 env_values = load_env()
 
@@ -135,8 +165,8 @@ with tabs[0]:
 
     _render_numeric(SHARED_NUMERIC)
 
-    ASSET_NAMES = ["NAS100", "NVDA", "ADA", "GOLD"]
-    OPTIONAL_ASSETS = ["NVDA", "ADA", "GOLD"]  # NAS100 beri vzdy, ostatne su ENABLE_* prepinatelne
+    ASSET_NAMES = ["NAS100", "NVDA", "ADA", "GOLD", "WTI", "NIGHT"]
+    OPTIONAL_ASSETS = ["NVDA", "ADA", "GOLD", "WTI", "NIGHT"]  # NAS100 beri vzdy, ostatne su ENABLE_* prepinatelne
 
     asset_tabs = st.tabs(ASSET_NAMES)
     for asset_name, asset_tab in zip(ASSET_NAMES, asset_tabs):

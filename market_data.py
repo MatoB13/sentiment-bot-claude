@@ -1,6 +1,6 @@
 """
-Ziskanie cenovych dat pre obchodovane assety (NAS100/NVDA/ADA/GOLD) a vypocet
-TA indikatorov.
+Ziskanie cenovych dat pre obchodovane assety (NAS100/NVDA/ADA/GOLD/WTI/NIGHT)
+a vypocet TA indikatorov.
 
 Primarny zdroj hodinovych OHLC sviecok je VLASTNY poller Strike mark_price
 (price_bars tabulka - viz price_poller.py): na rozdiel od yfinance (futures/
@@ -315,10 +315,10 @@ def get_session_snapshot() -> dict:
 
 
 def get_btc_proxy_snapshot() -> dict | None:
-    """Volny krypto-makro proxy pre ADA (BTC beta) - rovnaky yfinance feed ako
-    cross-market/session bloky vyssie, ziadny novy platony zdroj netreba.
-    Pouziva sa len v ADA prompte (viz assets.ADA['needs_btc_proxy'] a
-    claude_analyst._build_user_prompt)."""
+    """Volny krypto-makro proxy pre krypto assety (BTC beta) - rovnaky yfinance
+    feed ako cross-market/session bloky vyssie, ziadny novy platony zdroj
+    netreba. Pouziva sa v ADA aj NIGHT prompte (viz assets.py
+    needs_btc_proxy=True a claude_analyst._build_user_prompt)."""
     snap = _fetch_session_snapshot({"btc": "BTC-USD"})
     return snap.get("btc")
 

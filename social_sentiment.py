@@ -1,8 +1,8 @@
 """
 Volitelny zdroj: nedavne prispevky z X (Twitter) k obchodovanym assetom
-(NAS100/NVDA/ADA). X API v2 'recent search' vyzaduje platený tier pre
-zmysluplny rate limit (Basic/Pro). Ak ENABLE_TWITTER=false, tento modul
-jednoducho vrati [].
+(NAS100/NVDA/ADA/GOLD/WTI/NIGHT). X API v2 'recent search' vyzaduje platený
+tier pre zmysluplny rate limit (Basic/Pro). Ak ENABLE_TWITTER=false, tento
+modul jednoducho vrati [].
 """
 import requests
 
@@ -12,6 +12,9 @@ QUERIES = {
     "NAS100": '(NAS100 OR "Nasdaq 100" OR $QQQ OR $NDX OR $AAPL OR $MSFT OR $NVDA) lang:en -is:retweet',
     "NVDA": '($NVDA OR "Nvidia" OR "Jensen Huang") lang:en -is:retweet',
     "ADA": '($ADA OR "Cardano" OR "Strike Finance") lang:en -is:retweet',
+    "GOLD": '($GOLD OR "gold price" OR XAUUSD OR "central bank gold") lang:en -is:retweet',
+    "WTI": '(WTI OR "crude oil" OR OPEC OR "oil price") lang:en -is:retweet',
+    "NIGHT": '($NIGHT OR "Midnight network" OR "Midnight Cardano") lang:en -is:retweet',
 }
 
 

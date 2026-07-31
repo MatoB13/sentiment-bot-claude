@@ -1,5 +1,5 @@
 """
-Zavola Claude (Anthropic API) s TA kontextom pre dany asset (NAS100/NVDA/ADA).
+Zavola Claude (Anthropic API) s TA kontextom pre dany asset (NAS100/NVDA/ADA/GOLD/WTI/NIGHT).
 Claude si sam (podla potreby) vyhlada cerstve spravy cez vstavany server-side
 web_search nastroj (ziadny NewsAPI kluc netreba) a vrati strukturovane
 rozhodnutie. System aj user prompt su parametrizovane podla assets.py profilu -
@@ -23,9 +23,11 @@ import market_data
 # Prechodne infra chyby (Cloudflare/Anthropic docasne nedostupne) - bezpecne
 # opakovat, kedze Messages API call nema ziadne vedlajsie ucinky (nehybe
 # peniazmi, neotvara poziciu). 529 je Anthropic-ove vlastne "overloaded_error".
+# Odstup 60s (nie povodnych 3s) - realny 529 vydrzal cez cele povodne ~6s okno
+# (2026-07-31, XAU cyklus), minuta by mala prekryt bezny kratkodoby vypadok.
 _RETRYABLE_STATUS = {502, 503, 504, 520, 521, 522, 523, 524, 529}
 _MAX_API_RETRIES = 2
-_API_RETRY_DELAY_SECONDS = 3
+_API_RETRY_DELAY_SECONDS = 60
 
 DECISION_TOOL = {
     "name": "submit_trade_decision",
@@ -175,6 +177,29 @@ _COMMODITY_MACRO_RULES = """- **Reálne výnosy (US10Y) a DXY sú hlavný hýbat
 - **Event Risk Gate**: FOMC/CPI/PPI/NFP sú KĽÚČOVÉ eventy pre {instrument} (priamo hýbu výnosmi/DXY
   očakávaniami) - pred takým eventom buď výrazne konzervatívnejší (nízka confidence alebo "none")."""
 
+_ENERGY_MACRO_RULES = """- **Ponuka (OPEC+/produkcia)**: Rozhodnutia OPEC+ o ťažobných kvótach (zvýšenie/zníženie), compliance
+  členov, a US produkcia (Baker Hughes rig count, shale output) sú hlavný strednodobý driver ponuky.
+- **Zásoby (EIA/API)**: Týždenné US zásoby ropy/benzínu (EIA report v stredu, API v utorok predbežne)
+  sú najčastejší krátkodobý katalyzátor - neočakávaný pokles zásob je býčí, nárast je medvedí.
+- **Geopolitické riziko dodávok**: Eskalácia na Blízkom východe (najmä hrozby pre Hormuzský prieliv,
+  cez ktorý prechádza časť svetovej ropy) je priamo býčí pre {instrument} nezávisle od ostatných
+  faktorov - NA ROZDIEL od zlata, kde geopolitické riziko pôsobí cez safe-haven dopyt, tu ide o
+  priamu hrozbu ponuky.
+- **Dopyt (globálny rast/Čína)**: Slabé čínske/globálne PMI/rastové dáta signalizujú nižší dopyt
+  (medvedie), silné dáta býčí signál.
+- **Dolár (DXY)**: Ropa je cenená v USD - silnejší dolár je mierny protivietor, slabší dolár mierny
+  vietor v chrbát, ale vzťah je slabší než pri zlate (ponuka/dopyt sú tu silnejšie faktory).
+- **DÔLEŽITÉ - toto NIE JE safe-haven asset ako zlato**: Široký risk-off (padajúce akcie, rastúci VIX)
+  často ZNIŽUJE dopyt po rope (obavy z recesie/slabšieho rastu) - teda risk-off je často MEDVEDÍ pre
+  {instrument}, presný opak reakcie zlata na to isté prostredie. Vždy over, či risk-off signalizuje
+  demand-destruction naratív (medvedie pre ropu) alebo čisto geopolitickú eskaláciu s hrozbou pre
+  dodávky (býčie pre ropu) - tieto dva mechanizmy dávajú OPAČNÉ predikcie pre rovnaký "risk-off" nadpis.
+- **Market Reaction Score**: rovnako dôležité ako inde - porovnaj obsah správy s reálnou cenovou
+  reakciou {instrument}.
+- **Event Risk Gate**: EIA zásoby (týždenne), OPEC+ stretnutia, a významné geopolitické udalosti na
+  Blízkom východe sú kľúčové eventy pre {instrument} - pred/počas takého eventu buď výrazne
+  konzervatívnejší (nízka confidence alebo "none")."""
+
 ASSET_TEXT = {
     "NAS100": {
         "label": "index NAS100 (Nasdaq-100)",
@@ -214,6 +239,29 @@ ASSET_TEXT = {
             'bankami (najmä PBOC a iné EM centrálne banky)'
         ),
         "macro_rules": _COMMODITY_MACRO_RULES,
+    },
+    "WTI": {
+        "label": "komoditu WTI (ropa) perpetuál",
+        "news_focus": (
+            'správach o OPEC+ rozhodnutiach (ťažobné kvóty, compliance členov), týždenných '
+            'zásobách ropy/benzínu (EIA/API reporty), geopolitickom riziku dodávok na Blízkom '
+            'východe (najmä Hormuzský prieliv, Irán, Rusko/sankcie), globálnom dopyte '
+            '(čínske/US PMI, rastové dáta), a sile dolára (DXY)'
+        ),
+        "macro_rules": _ENERGY_MACRO_RULES,
+    },
+    "NIGHT": {
+        "label": "krypto NIGHT (Midnight) perpetuál",
+        "news_focus": (
+            'správach o Midnight sieti (Cardano privacy/zero-knowledge sidechain) - AKTUÁLNE '
+            'ZVÝŠENOM bezpečnostnom riziku po Wanchain bridge hacku z 20.7.2026 (odčerpaných '
+            '~515M NIGHT, ~97% rezerv mostu, cena spadla na historické minimum), stave Glacier '
+            'Drop distribúcie tokenov, partnerstvách (napr. Token Terminal dashboard), '
+            'vyjadreniach Charlesa Hoskinsona/IOG/Cardano Foundation k bezpečnosti, akýchkoľvek '
+            'ĎALŠÍCH exploitoch/bezpečnostných incidentoch (kľúčové pre tento asset viac než pre '
+            'bežné krypto), a širšom krypto naratíve (BTC dominance, risk-on/off sentiment)'
+        ),
+        "macro_rules": _CRYPTO_MACRO_RULES,
     },
 }
 
