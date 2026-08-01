@@ -35,6 +35,17 @@ def check_watch_triggers() -> None:
     print(f"\n=== [watch_monitor] {datetime.now(timezone.utc).isoformat()} ===")
     session = get_session()
     try:
+        # Jeden zdielany /v2/markets request pre vsetky assety naraz (rovnaky
+        # vzor ako position_monitor.check_open_trades() pre /v2/positions) -
+        # get_market(symbol) by inak interne volal cely get_markets() znova
+        # pre kazdy sledovany ticker samostatne (zbytocne opakovane rovnake
+        # bulk volanie, len s inym lokalnym filtrom).
+        try:
+            markets_by_symbol = {m.get("symbol"): m for m in strike_client.get_markets()}
+        except Exception as e:
+            print(f"[watch_monitor] nepodarilo sa nacitat /v2/markets: {e}")
+            return
+
         for asset in assets.enabled_assets():
             symbol = asset["strike_symbol"]
             name = asset["name"]
@@ -54,11 +65,11 @@ def check_watch_triggers() -> None:
             if not last_log or last_log.watch_price is None or not last_log.watch_direction:
                 continue
 
-            try:
-                live_price = float(strike_client.get_market(symbol)["mark_price"])
-            except Exception as e:
-                print(f"[watch_monitor] [{name}] nepodarilo sa nacitat live cenu: {e}")
+            market = markets_by_symbol.get(symbol)
+            if market is None:
+                print(f"[watch_monitor] [{name}] symbol {symbol} sa nenasiel v /v2/markets.")
                 continue
+            live_price = float(market["mark_price"])
 
             if not _is_triggered(live_price, last_log.watch_price, last_log.watch_direction):
                 continue
