@@ -84,6 +84,17 @@ DECISION_TOOL = {
                 "type": "string", "enum": ["above", "below"],
                 "description": "Volitelne, vzdy spolu s watch_price (rovnake pravidlo - len pre cenovo podmienene 'none').",
             },
+            "data_issue": {
+                "type": "string",
+                "description": (
+                    "VOLITELNE - vypln LEN ak vstupne data pre tento cyklus vyzeraju podozrivo/"
+                    "nekonzistentne (napr. zastarana/nulova cena, chybajuci alebo evidentne "
+                    "chybny TA udaj, protichodny cross-market snapshot). Strucny popis problemu, "
+                    "nezavisle od obchodneho rozhodnutia - zobrazi sa v historii signalov, aby sa "
+                    "problem nestratil v strohom reasoning. Ak s datami nie je nic zvlastne, "
+                    "toto pole VYNECHAJ."
+                ),
+            },
             "daily_reflection": {
                 "type": "string",
                 "description": (
@@ -265,32 +276,35 @@ ASSET_TEXT = {
     },
 }
 
-SYSTEM_PROMPT_TEMPLATE = """Si skúsený intradenný analytik pre {label}.
-Dostaneš technickú analýzu (TA) {instrument} - vrátane `recent_candles`, surových posledných
-{candle_bars} hodinových sviečok {candle_format} - cross-market kontext, session
-alignment{btc_proxy_note} a prípadne social-media sentiment. Máš k dispozícii nástroj web_search -
-použi ho na vyhľadanie čerstvých {news_focus}, ktoré by mohli hýbať cenou v najbližších 24
-hodinách. Vyhľadávaj len ak to dáva zmysel (max. niekoľko vyhľadávaní).
-
-`recent_candles` použi na vlastné posúdenie cenovej štruktúry - kde je nedávny support/resistance,
+# System prompt je rozdeleny na 2 cache_control bloky (viz _system_prompt_blocks nizsie):
+#   1. SYSTEM_PROMPT_SHARED - vseobecna metodika, BYTE-IDENTICKA pre vsetkych 6 tickerov aj
+#      naprieč casom (ziadne per-asset ani casovo-zavisle dosadzovanie) - cachovana s ttl="1h",
+#      cim sa realne zdiela MEDZI TICKERMI (ADA/NIGHT bezia vzdy kazdu hodinu, takze tento blok
+#      sa precita aspon raz za hodinu a nikdy nevyprsi, aj ked NAS100/GOLD/WTI cez noc/vikend
+#      spomalia). Predtym boli instrument-specificke priklady vyhladavacich dotazov priamo v tejto
+#      casti (napr. '{instrument} news...') - teraz su genericke ('[nazov nastroja] news...'),
+#      instrument sa aj tak vzdy dozvie z per-asset dodatku a user spravy.
+#   2. Per-asset dodatok (_PER_ASSET_SYSTEM_APPENDIX_TEMPLATE) - nazov/makro pravidla/candle
+#      format/SL-TP ciel, ROVNAKY len pre TOHTO ticker naprieč casom - tiez cachovany s ttl="1h",
+#      co pomaha aj bez zdielania medzi tickermi (ten isty ticker cyklu na cyklus).
+SYSTEM_PROMPT_SHARED = """`recent_candles` použi na vlastné posúdenie cenovej štruktúry - kde je nedávny support/resistance,
 či je cena v rangi alebo trenduje, kde bol posledný swing high/low, či prebehol breakout. Opíš to
 vlastnými slovami (napr. "cena opakovane odrazila od X", "range medzi X a Y"), NIE pomenovaním
 klasických formácií (cup-and-handle, hlava-ramená, diamanty, trojuholníky a pod.) - tie majú v
 akademickej literatúre slabú a nekonzistentnú empirickú oporu naprieč trhmi/obdobiami, na rozdiel
 od matematicky presne definovaných indikátorov (RSI/MACD/EMA/Bollinger), a ich hranice sú navyše
 subjektívne. Radšej konkrétna cenová úroveň/pozorovanie než pomenovaný tvar.
-{volume_note}
 
 Presný aktuálny dátum a čas dostaneš v user správe - VŽDY ho zahrň do vyhľadávacích dotazov
-(napr. "{instrument} news July 22 2026", nie len "{instrument} news"), inak web_search občas vráti
-staré výsledky (mesiace/roky staré) namiesto aktuálnych. Pri hodnotení výsledkov skontroluj ich
-page_age/dátum - ak je správa staršia než obdobie od posledného cyklu (dostaneš ho v user
-správe), ber ju len ako pozadový kontext, nie ako novú informáciu ktorá mení rozhodnutie.
+(napr. "[názov nástroja] news 22. júla 2026", nie len "[názov nástroja] news"), inak web_search
+občas vráti staré výsledky (mesiace/roky staré) namiesto aktuálnych. Pri hodnotení výsledkov
+skontroluj ich page_age/dátum - ak je správa staršia než obdobie od posledného cyklu (dostaneš ho
+v user správe), ber ju len ako pozadový kontext, nie ako novú informáciu ktorá mení rozhodnutie.
 
 Toto je INKREMENTÁLNE hľadanie, nie hľadanie od nuly: predpoklady z predchádzajúceho cyklu
 (ak existujú) už pokrývajú stav sveta do svojho času. Tvojou úlohou je zistiť LEN ČO PRIBUDLO
 alebo SA ZMENILO odvtedy (typicky posledné ~4h) - nie znova zbierať celý kontext. Formuluj
-dotazy cielene na najnovšie dianie (napr. "[téma] news today", "{instrument} [dátum] [čas]"),
+dotazy cielene na najnovšie dianie (napr. "[téma] news today", "[názov nástroja] [dátum] [čas]"),
 nie všeobecné prehľady, ktoré ťa zavalia starším materiálom.
 
 Kvalita zdrojov: ak sa dá, uprednostni priamy/primárny zdroj pred sekundárnym prevykladom -
@@ -315,13 +329,10 @@ alebo "none") - v žiadnom prípade si konkrétnu hodnotu nevymýšľaj ani neod
 Tvoja úloha je vyhodnotiť, či má zmysel otvoriť LONG, SHORT, alebo neobchodovať (NONE)
 na horizont max. 24 hodín, s konkrétnym stop-lossom a take-profitom.
 
-Ako syntetizovať viacero signálov (nepočítaj váhy mechanicky, posúď to ako skúsený analytik):
-{macro_rules}
-
 Pravidlá:
 - Buď konzervatívny: ak signály nie sú jasné alebo sú protichodné, zvoľ "none" a nízku confidence.
 - confidence je 0-100 a má odrážať reálnu neistotu (60 je "mierne naklonený", 90+ je vzácne).
-- stop_loss_price a take_profit_price uveď ako absolútnu cenu {instrument} (nie percentá).
+- stop_loss_price a take_profit_price uveď ako absolútnu cenu sledovaného nástroja (nie percentá).
   Cieľové % vzdialenosti od aktuálnej ceny dostaneš v user správe - drž sa v ich blízkosti
   (môžeš sa mierne odchýliť podľa ATR/kontextu, ale nie výrazne mimo).
 - reasoning: max 3-4 vety, fakticky, bez floskúl; spomeň najdôležitejší faktor(y), ktoré rozhodli.
@@ -349,6 +360,13 @@ Pravidlá:
   retest 0.166 zospodu ako potvrdenie support-held pred long vstupom". Nestačí len skonštatovať,
   že rozsah/hladina "zostáva v platnosti" - vysvetli VZŤAH medzi watch_price/watch_direction a tým,
   čo by si pri jeho splnení urobil, zakaždým, nie len príležitostne.
+- data_issue (VOLITEĽNÉ): ak ti vstupné dáta pre tento cyklus prídu podozrivé alebo nekonzistentné
+  (napr. zastaraná/nulová cena, chýbajúci alebo evidentne chybný TA údaj v `recent_candles`,
+  protichodný cross-market snapshot, zjavne poškodené/neúplné dáta z FRED/EIA/Marketaux blokov),
+  vyplň toto pole stručným popisom problému - NEZÁVISLE od svojho obchodného rozhodnutia (aj pri
+  direction="none"). Toto sa zobrazí priamo v histórii signálov, aby si takýto problém všimol aj
+  človek kontrolujúci logy, a nezanikol v strohom `reasoning` orientovanom na obchodné rozhodnutie.
+  Ak s dátami nič nesedí, toto pole vynechaj - nepoužívaj ho na bežné neistoty trhu.
 - daily_reflection (VOLITEĽNÉ) a summary_reflection (VOLITEĽNÉ): raz denne (pri prvom cykle po
   polnoci) dostaneš v user správe sekciu "Nové štatistiky za včerajšok" - skutočné výsledky
   včerajších obchodov, HYPOTETICKÉ výsledky signálov zamietnutých len kvôli confidence, AJ
@@ -386,13 +404,30 @@ téza z Wyckoff/Volume Spread Analysis). Toto je len JEDEN vstup do tvojho
 (je objem naozaj neobvyklý, alebo len bežná variabilita)."""
 
 
-def _system_prompt(asset: dict) -> str:
+_PER_ASSET_SYSTEM_APPENDIX_TEMPLATE = """Si skúsený intradenný analytik pre {label}.
+Dostaneš technickú analýzu (TA) {instrument} - vrátane `recent_candles`, surových posledných
+{candle_bars} hodinových sviečok {candle_format} - cross-market kontext, session
+alignment{btc_proxy_note} a prípadne social-media sentiment. Máš k dispozícii nástroj web_search -
+použi ho na vyhľadanie čerstvých {news_focus}, ktoré by mohli hýbať cenou v najbližších 24
+hodinách. Vyhľadávaj len ak to dáva zmysel (max. niekoľko vyhľadávaní).
+{volume_note}
+
+Ako syntetizovať viacero signálov pre {instrument} (nepočítaj váhy mechanicky, posúď to ako
+skúsený analytik):
+{macro_rules}
+"""
+
+
+def _system_prompt_blocks(asset: dict) -> list[dict]:
+    """System prompt ako 2 cache_control bloky (viz komentar nad SYSTEM_PROMPT_SHARED vyssie):
+    zdielana metodika (rovnaka pre vsetkych 6 tickerov, ttl=1h) + per-asset dodatok (nazov/makro
+    pravidla/candle format, tiez ttl=1h - pomaha aj bez zdielania medzi tickermi)."""
     text = ASSET_TEXT[asset["name"]]
     btc_proxy_note = ", krypto-makro proxy (BTC)" if asset.get("needs_btc_proxy") else ""
     include_volume = asset.get("include_volume", False)
     candle_format = "[open,high,low,close,volume]" if include_volume else "[open,high,low,close]"
     volume_note = _VOLUME_NOTE.format(instrument=asset["name"]) if include_volume else ""
-    return SYSTEM_PROMPT_TEMPLATE.format(
+    per_asset_text = _PER_ASSET_SYSTEM_APPENDIX_TEMPLATE.format(
         label=text["label"],
         instrument=asset["name"],
         news_focus=text["news_focus"],
@@ -402,6 +437,12 @@ def _system_prompt(asset: dict) -> str:
         candle_format=candle_format,
         volume_note=volume_note,
     )
+    return [
+        {"type": "text", "text": SYSTEM_PROMPT_SHARED,
+         "cache_control": {"type": "ephemeral", "ttl": "1h"}},
+        {"type": "text", "text": per_asset_text,
+         "cache_control": {"type": "ephemeral", "ttl": "1h"}},
+    ]
 
 
 def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
@@ -558,12 +599,15 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
     if not config.ANTHROPIC_API_KEY:
         raise RuntimeError("ANTHROPIC_API_KEY nie je nastavený")
 
-    system_prompt = _system_prompt(asset)
+    system_blocks = _system_prompt_blocks(asset)
 
     # cache_control na systemovom prompte aj user sprave: ak Claude narazi na
     # pause_turn (casto sa stava pri viacerych web_search volaniach), musime
     # poslat celu doterajsiu konverzaciu znova - bez cachovania by sa system
     # prompt + user sprava platili nanovo na plnu cenu pri kazdom pokracovani.
+    # system_blocks samotne maju VLASTNY ttl=1h cache_control (viz
+    # _system_prompt_blocks) - ten zdielany blok tak zostava teply naprieč
+    # vsetkymi 6 tickermi (ADA/NIGHT bezia vzdy kazdu hodinu).
     messages = [{"role": "user",
                  "content": [{"type": "text",
                                "text": _build_user_prompt(asset, ta, cross_market, session, social,
@@ -579,8 +623,7 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
         payload = {
             "model": config.CLAUDE_MODEL,
             "max_tokens": 8192,
-            "system": [{"type": "text", "text": system_prompt,
-                        "cache_control": {"type": "ephemeral"}}],
+            "system": system_blocks,
             "tools": [
                 {"type": "web_search_20260209", "name": "web_search", "max_uses": 7},
                 DECISION_TOOL,

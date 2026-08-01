@@ -309,6 +309,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             key_assumptions=decision.get("key_assumptions"),
             watch_price=decision.get("watch_price"),
             watch_direction=decision.get("watch_direction"),
+            data_issue=decision.get("data_issue"),
         )
 
         try:

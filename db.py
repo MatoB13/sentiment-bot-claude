@@ -71,6 +71,12 @@ class CycleLog(Base):
     reasoning = Column(String, nullable=True)
     web_search_log = Column(JSON, nullable=True)  # [{"query", "sources": [{"title","url","page_age"}]}]
     key_assumptions = Column(String, nullable=True)  # kluc. predpoklady tohto rozhodnutia - overuju sa dalsi cyklus
+    # Volitelne - Claude sem napise strucny popis, ak vstupne data pre tento
+    # cyklus vyzeraju podozrivo/nekonzistentne (zastarana cena, chybajuci/nulovy
+    # TA udaj, protichodny cross-market snapshot a pod.) - nezavisle od
+    # obchodneho rozhodnutia (dostane sa aj pri direction=none). Zobrazuje sa
+    # v Historii signalov, aby taketo problemy nezanikli v strohom reasoning.
+    data_issue = Column(String, nullable=True)
 
     # Ak direction=none, ale Claude vidi konkretnu uroven cakajucu na potvrdenie
     # (napr. retest), sem si ulozi cenu + smer na sledovanie. watch_monitor.py
