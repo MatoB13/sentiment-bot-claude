@@ -283,6 +283,16 @@ def format_stats_for_prompt(stats: dict) -> str:
                 f"vyhnutych strate"
                 + (f", {ambiguous} nejednoznacnych (oba smery by vyhrali)." if ambiguous else ".")
             )
+            lines.append(
+                "  (POZOR pri interpretacii tohto cisla: toto NIE JE realny obchodovany signal - "
+                "simuluje sa LONG aj SHORT naraz so symetrickym default SL/TP a 'uslo' sa pripise "
+                "kedykolvek ASPON JEDEN z oboch smerov nahodou trafil TP skor nez SL. Pri 24h okne "
+                "je bezne, ze niektory z dvoch symetrickych smerov TP trafi cistou nahodou, takze "
+                "toto cislo je systematicky optimistickejsie nez realita. Riad sa pri uvahach o "
+                "kalibracii prahu PRIMARNE riadkom 'Zamietnute LEN kvoli confidence' vyssie (tam "
+                "ide o TVOJ skutocny navrhnuty smer aj SL, teda realny test tvojej zrucnosti, nie "
+                "hypoteticky coin-flip)."
+            )
         else:
             lines.append(
                 f"- 'None' (ziadny signal): {none_count}, ziadne z nich v spatnom pohlade nemalo byt "
