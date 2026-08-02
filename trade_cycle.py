@@ -157,15 +157,25 @@ def _get_retrospective_context(asset: dict, session) -> tuple[str | None, str | 
 
 
 def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
-                         btc_proxy: dict | None, fred_macro: dict | None = None) -> None:
+                         btc_proxy: dict | None, fred_macro: dict | None = None,
+                         skip_due_check: bool = False) -> None:
     """Kompletny cyklus pre JEDEN asset - vlastna DB session/commit, aby chyba
-    v jednom assete neponechala nedokoncenu transakciu pre dalsi."""
+    v jednom assete neponechala nedokoncenu transakciu pre dalsi.
+
+    skip_due_check: run_triggered_check() (watch-trigger, viz nizsie) vola tuto
+    funkciu MIMO bezneho hodinoveho tiku, prave preto, ze sledovana cenova
+    podmienka sa splnila SKOR nez by bol dalsi pravidelny cyklus na rade -
+    _is_due gate nizsie by takyto beh takmer vzdy zablokoval (interval od
+    posledneho zaznamu este neuplynul), cim by celiplny zmysel watch_monitor.py
+    (reagovat OKAMZITE na cenu, nie cakat na interval) - preto ho mimoriadny
+    beh vynecha. Bezny naplanovany cyklus (run_all_cycles) tento parameter
+    nenastavuje (default False), takze jeho gating ostava nezmeneny."""
     name = asset["name"]
     symbol = asset["strike_symbol"]
     print(f"\n--- [{name}] ---")
     session = get_session()
     try:
-        if not _is_due(asset, session):
+        if not skip_due_check and not _is_due(asset, session):
             # Ziadny CycleLog zaznam - toto sa deje bezne (kazdy druhy/dalsi tick
             # mimo trading hours/cez vikend) a nema analyticku hodnotu, len by to
             # zahltilo historiu signalov nezaujimavymi zaznamami.
@@ -437,7 +447,8 @@ def run_triggered_check(asset: dict) -> None:
     except Exception as e:
         print(f"[trade_cycle] [{name}] FRED fetch zlyhal (pokracujem bez neho): {e}")
 
-    run_cycle_for_asset(asset, cross_market, market_session, btc_proxy, fred_macro)
+    run_cycle_for_asset(asset, cross_market, market_session, btc_proxy, fred_macro,
+                         skip_due_check=True)
 
 
 def _mark_disabled_assets() -> None:
