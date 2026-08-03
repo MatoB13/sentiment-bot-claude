@@ -111,6 +111,48 @@ def _upsert_rolling(session, symbol: str, summary: str | None, based_through_dat
         rolling.updated_at = datetime.now(timezone.utc)
 
 
+def _get_confidence_streak(symbol: str, min_confidence: int, session) -> dict | None:
+    """Zisti, kolko POSLEDNYCH cyklov za sebou Claude navrhol ROVNAKY smer
+    (long/short) s confidence POD prahom (teda kazdy z nich by bol zamietnuty)
+    - bez toho, aby sa smer medzitym zmenil, otocil na 'none', alebo cyklus
+    presiel prahom (co by znamenalo, ze uz sa obchod otvoril). Ucel: dat
+    Claude-ovi KONKRETNY, spocitany fakt namiesto spoliehania sa na to, ze si
+    sam vsimne vlastny opakujuci sa vzor naprieč viacerymi cyklami (dostane
+    inak len key_assumptions z JEDNEHO predchadzajuceho cyklu, nie dlhsiu
+    historiu) - viz diskusia 2026-08 o systematicky nadhodnotenej opatrnosti
+    (napr. opakovane "RSI extrem, riziko odrazu" bez toho, aby sa odraz realne
+    stal). Vracia None ak streak < 3 (prilis kratky na to, aby stal za zmienku)."""
+    logs = (
+        session.query(CycleLog)
+        .filter(CycleLog.symbol == symbol, CycleLog.direction.in_(["long", "short"]))
+        .order_by(CycleLog.created_at.desc())
+        .limit(20)
+        .all()
+    )
+    if not logs or logs[0].confidence is None or logs[0].confidence >= min_confidence:
+        return None  # posledny cyklus uz presiel prahom (alebo je prazdny) - ziadny streak na hlasenie
+
+    direction = logs[0].direction
+    streak = []
+    for log in logs:
+        if log.direction != direction or log.confidence is None or log.confidence >= min_confidence:
+            break
+        streak.append(log)
+    if len(streak) < 3:
+        return None
+
+    start_log, current_log = streak[-1], streak[0]  # najstarsi / najnovsi v streaku
+    if not start_log.live_price or not current_log.live_price:
+        return None
+
+    return {
+        "direction": direction,
+        "streak_len": len(streak),
+        "avg_confidence": sum(l.confidence for l in streak) / len(streak),
+        "price_change_pct": (current_log.live_price - start_log.live_price) / start_log.live_price * 100,
+    }
+
+
 def _get_retrospective_context(asset: dict, session) -> tuple[str | None, str | None, dict | None]:
     """Vrati (retrospective_reflection, new_stats_text, pending_stats) pre tento asset.
 
@@ -227,6 +269,12 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
         prev_cycle_time = prev_log.created_at if prev_log else None
 
         try:
+            confidence_streak = _get_confidence_streak(symbol, asset["min_confidence"], session)
+        except Exception as e:
+            print(f"[{name}] Vypocet confidence streak zlyhal (pokracujem bez neho): {e}")
+            confidence_streak = None
+
+        try:
             retrospective_reflection, new_stats_text, pending_stats = _get_retrospective_context(asset, session)
         except Exception as e:
             # Retrospektiva je cisto doplnkova (uciaci feature) - jej zlyhanie
@@ -260,6 +308,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 prev_assumptions, prev_cycle_time,
                 retrospective_reflection, new_stats_text,
                 fred_macro, eia_data, marketaux_news,
+                confidence_streak,
             )
         except Exception as e:
             print(f"[{name}] Claude analyza zlyhala, preskakujem cyklus: {e}")

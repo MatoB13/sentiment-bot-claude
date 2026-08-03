@@ -338,7 +338,13 @@ Pravidlá:
   interpretácia - správny záver z takého zistenia je, že KONKRÉTNE TAKÉTO SETUPY (jasný trend,
   zhoda signálov a pod.) si zaslúžia VYŠŠIU confidence priamo teraz, nie že prah treba ignorovať.
   Cesta k otvoreniu pozície vedie cez úprimne vyššiu confidence pri skutočne silnom signáli,
-  nikdy cez reinterpretáciu prahu.
+  nikdy cez reinterpretáciu prahu. Ak dostaneš v user správe sekciu "Opakovane rovnaký smer
+  tesne pod prahom", ber ju ako konkrétny spočítaný fakt (nie len tvoj dojem) o tom, koľko
+  cyklov za sebou si už rovnaký smer opatrne obmedzoval - riaď sa presne rozlíšením v tej
+  sekcii. POZOR: samotný POČET cyklov/plynutie času NIKDY nie je dôvod na zvýšenie confidence -
+  rozhoduje len to, či sa cena SKUTOČNE POSUNULA v navrhovanom smere (potvrdenie trendom) alebo
+  zostáva plochá/v rangi (tam naopak platí, že dlhšie držanie extrému zvyšuje pravdepodobnosť
+  odrazu, nie znižuje).
 - stop_loss_price a take_profit_price uveď ako absolútnu cenu sledovaného nástroja (nie percentá).
   Cieľové % vzdialenosti od aktuálnej ceny dostaneš v user správe - drž sa v ich blízkosti
   (môžeš sa mierne odchýliť podľa ATR/kontextu, ale nie výrazne mimo).
@@ -460,7 +466,8 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                         new_stats_text: str | None = None,
                         fred_macro: dict | None = None,
                         eia_data: dict | None = None,
-                        marketaux_news: list[dict] | None = None) -> str:
+                        marketaux_news: list[dict] | None = None,
+                        confidence_streak: dict | None = None) -> str:
     instrument = asset["name"]
     social_block = "\n".join(
         f"- ({p.get('likes')}♥/{p.get('retweets')}rt) {p.get('text')}"
@@ -527,6 +534,47 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
             f"viz macro pravidla v system prompte)\n"
         )
 
+    # Konkretny, spocitany fakt namiesto spoliehania sa na to, ze Claude sam
+    # postrehne vlastny opakujuci sa vzor naprieč viacerymi cyklami (inak
+    # dostane len key_assumptions z JEDNEHO predchadzajuceho cyklu) - viz
+    # _get_confidence_streak v trade_cycle.py.
+    #
+    # POZOR (2026-08, spatna vazba pouzivatela): PLYNUTIE CASU/POCET CYKLOV
+    # SAMO OSEBE nie je dovod na zvysenie confidence - v skutocne range-bound
+    # trhu plati mean-reversion OPACNE (cim dlhsie cena drzi extrem BEZ
+    # pohybu, tym je odraz/reverzia skor PRAVDEPODOBNEJSIA, nie menej). Nizsie
+    # sformulovany navod preto vyslovne viaze prehodnotenie confidence na
+    # SKUTOCNY POHYB CENY v navrhovanom smere (realne potvrdenie trendom),
+    # NIE na pocet cyklov ako taky - a explicitne rozlisuje pripad, ked cena
+    # zostava plocha/v rangi (tam opatrnost NEPLATI za prekonanu).
+    streak_block = ""
+    if confidence_streak:
+        cs = confidence_streak
+        direction_label = "LONG" if cs["direction"] == "long" else "SHORT"
+        moved_favorably = (cs["price_change_pct"] > 0) == (cs["direction"] == "long")
+        movement_desc = (
+            f"cena sa odvtedy pohla o {abs(cs['price_change_pct']):.2f}% "
+            + ("V TVOJOM navrhovanom smere" if moved_favorably else "PROTI tvojmu navrhovanému smeru")
+        )
+        streak_block = (
+            f"\n## Opakovane rovnaký smer tesne pod prahom (posledných {cs['streak_len']} cyklov za sebou)\n"
+            f"Posledných {cs['streak_len']} cyklov za sebou navrhuješ rovnaký smer ({direction_label}) "
+            f"s priemernou confidence {cs['avg_confidence']:.0f} (pod prahom pre otvorenie pozície) - "
+            f"{movement_desc}.\n"
+            f"DÔLEŽITÉ ROZLÍŠENIE (samotný počet cyklov NIČ neznamená):\n"
+            f"- Ak sa cena SKUTOČNE POSÚVA v navrhovanom smere (vyššie percento, potvrdené aj cross-market "
+            f"signálmi) a dôvod capovania confidence (napr. \"RSI extrém, riziko odrazu\") sa opakuje "
+            f"nezmenený napriek tomuto pohybu, ide o reálne potvrdenie TRENDOM - takú opatrnosť zváž ako "
+            f"pravdepodobne nadhodnotenú a zvýš confidence primerane tomu, čo sa naozaj deje.\n"
+            f"- Ak sa cena PROTI tvojmu smeru pohla, pôvodná opatrnosť bola oprávnená - nízka confidence "
+            f"zostáva správna.\n"
+            f"- Ak cena zostáva PLOCHÁ / v rangi (malé % zmeny, žiadny skutočný postup), NEPOVAŽUJ to za dôvod "
+            f"na zvýšenie confidence - v range-bound trhu platí mean-reversion logika OPAČNE (čím dlhšie cena "
+            f"drží extrém bez pohybu, tým je krátkodobý odraz skôr pravdepodobnejší, nie menej), takže tu "
+            f"pretrvávajúca opatrnosť môže byť naďalej správna. Posúď to podľa toho, či je aktuálny obraz "
+            f"trendujúci alebo range-bound (máš to z vlastnej TA), nie podľa počtu cyklov.\n"
+        )
+
     marketaux_block = ""
     if marketaux_news:
         articles = "\n".join(
@@ -561,6 +609,7 @@ Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/sp
 
 ## Kľúčové predpoklady z predchádzajúceho cyklu (~{interval_h}h dozadu)
 {prev_block}
+{streak_block}
 {retro_block}
 ## Cielove SL/TP vzdialenosti
 Stop-loss cca {asset['sl_pct']}% od aktuálnej ceny, take-profit cca {asset['tp_pct']}%
@@ -583,7 +632,8 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
             new_stats_text: str | None = None,
             fred_macro: dict | None = None,
             eia_data: dict | None = None,
-            marketaux_news: list[dict] | None = None) -> tuple[dict, list[dict]]:
+            marketaux_news: list[dict] | None = None,
+            confidence_streak: dict | None = None) -> tuple[dict, list[dict]]:
     """Vrati (decision, web_search_log). web_search_log je zoznam
     {"query": str, "sources": [{"title", "url", "page_age"}]} pre kazde
     vyhladavanie, ktore Claude spravil - sluzi na audit (co realne citas,
@@ -620,7 +670,8 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
                                "text": _build_user_prompt(asset, ta, cross_market, session, social,
                                                            btc_proxy, prev_assumptions, prev_cycle_time,
                                                            retrospective_reflection, new_stats_text,
-                                                           fred_macro, eia_data, marketaux_news),
+                                                           fred_macro, eia_data, marketaux_news,
+                                                           confidence_streak),
                                "cache_control": {"type": "ephemeral"}}]}]
     web_search_log: list[dict] = []
 
