@@ -265,6 +265,13 @@ def format_stats_for_prompt(stats: dict) -> str:
             f"keby sa vsetky otvorili, {would_win}/{len(rc)} by bolo ziskovych, hypoteticke "
             f"celkove PNL ${total_hyp:.2f}."
         )
+        if len(rc) < 10:
+            lines.append(
+                f"  (POZOR: n={len(rc)} je mala vzorka za JEDEN den - nestavaj na tom trvaly "
+                f"zaver o kalibracii prahu v summary_reflection, ani ak vyjde 100% hit rate. "
+                f"Over si to voci viacdnovemu vzoru (co uz mas v priebeznom zhrnuti), nie voci "
+                f"tomuto jednemu dnu."
+            )
     else:
         lines.append("- Zamietnute kvoli confidence: 0.")
 

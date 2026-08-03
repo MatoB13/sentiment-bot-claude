@@ -332,6 +332,13 @@ na horizont max. 24 hodín, s konkrétnym stop-lossom a take-profitom.
 Pravidlá:
 - Buď konzervatívny: ak signály nie sú jasné alebo sú protichodné, zvoľ "none" a nízku confidence.
 - confidence je 0-100 a má odrážať reálnu neistotu (60 je "mierne naklonený", 90+ je vzácne).
+  DÔLEŽITÉ: confidence NIKDY needupuj len preto, aby prešla cez minimálny prah pre otvorenie
+  pozície - ten prah je externá poistka, nie odporúčanie. Ak retrospektíva/priebežné zhrnutie
+  naznačuje, že prah "netreba brať tak vážne" alebo že by nemal byť "prekážkou", je to chybná
+  interpretácia - správny záver z takého zistenia je, že KONKRÉTNE TAKÉTO SETUPY (jasný trend,
+  zhoda signálov a pod.) si zaslúžia VYŠŠIU confidence priamo teraz, nie že prah treba ignorovať.
+  Cesta k otvoreniu pozície vedie cez úprimne vyššiu confidence pri skutočne silnom signáli,
+  nikdy cez reinterpretáciu prahu.
 - stop_loss_price a take_profit_price uveď ako absolútnu cenu sledovaného nástroja (nie percentá).
   Cieľové % vzdialenosti od aktuálnej ceny dostaneš v user správe - drž sa v ich blízkosti
   (môžeš sa mierne odchýliť podľa ATR/kontextu, ale nie výrazne mimo).
