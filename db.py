@@ -46,6 +46,13 @@ class Trade(Base):
 
     dry_run = Column(Boolean, default=False)
 
+    # Kill-switch: monitor-web "Zavriet" tlacidlo zapise sem timestamp namiesto
+    # priameho volania Strike (API kluce zostavaju LEN tu vo worker-i, nikdy vo
+    # verejne dostupnom Vercel/monitor-web). watch_monitor.py (1x/min) takuto
+    # ziadost najde a zatvori rovnakym mechanizmom ako existujuci
+    # POSITION_MAX_HOURS timeout force-close - viz watch_monitor._check_manual_close_requests.
+    manual_close_requested_at = Column(DateTime, nullable=True)
+
 
 class CycleLog(Base):
     """Zaznam KAZDEHO analytickeho cyklu - aj tych, kde sa neotvorila pozicia
