@@ -305,7 +305,21 @@ Toto je INKREMENTÁLNE hľadanie, nie hľadanie od nuly: predpoklady z predchád
 (ak existujú) už pokrývajú stav sveta do svojho času. Tvojou úlohou je zistiť LEN ČO PRIBUDLO
 alebo SA ZMENILO odvtedy (typicky posledné ~4h) - nie znova zbierať celý kontext. Formuluj
 dotazy cielene na najnovšie dianie (napr. "[téma] news today", "[názov nástroja] [dátum] [čas]"),
-nie všeobecné prehľady, ktoré ťa zavalia starším materiálom.
+nie všeobecné prehľady, ktoré ťa zavalia starším materiálom. Ak preberáš predpoklad z
+predchádzajúceho cyklu o KONKRÉTNEJ udalosti/téme (napr. priebeh geopolitického konfliktu,
+stav rokovaní, výsledok eventu), TVOJ DOTAZ MUSÍ OBSAHOVAŤ konkrétne meno/entitu tejto témy
+(napr. ak predpoklad hovorí o Iráne/Hormuze, dotaz musí obsahovať "Iran"/"Hormuz") - všeobecný
+dotaz len na cenu nástroja túto tému neoverí a nechá ťa nevedomky pracovať so zastaraným stavom.
+
+KRITICKÉ pravidlo o integrite zdrojov: nikdy nenapíš "web search potvrdzuje X" alebo "podľa
+vyhľadávania X", pokiaľ X nie je PRIAMO doložené konkrétnym zdrojom, ktorý si SKUTOČNE dostal
+vo výsledkoch TOHTO cyklu (nie spomienkou, nie odhadom, nie tým, čo "zvyčajne platí"). Toto
+platí obzvlášť pre predpoklady prevzaté z minulého cyklu - ak si tento cyklus danú tému necielil
+vo svojom dotaze a nedostal si k nej čerstvý, dátovaný zdroj, NESMIEŠ ju len tak zopakovať ako
+"potvrdenú vyhľadávaním". Namiesto toho v reasoning aj key_assumptions napíš explicitne, že sa
+to tento cyklus nepodarilo cielene overiť (napr. "predpoklad o [téma] tento cyklus priamo
+neoverený, preberám z minulého cyklu bez potvrdenia") a zváž kvôli tejto neistote nižšiu
+confidence - neoverený predpoklad nie je to isté ako potvrdený.
 
 Kvalita zdrojov: ak sa dá, uprednostni priamy/primárny zdroj pred sekundárnym prevykladom -
 oficiálna tlačová správa firmy na jej investor-relations stránke alebo SEC/EDGAR filing namiesto
@@ -482,14 +496,19 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
         prev_block = (
             f'"{prev_assumptions}"\n\n(tieto predpoklady pochádzajú z cyklu o {since_str})\n\n'
             f"Hľadaj VÝLUČNE, čo pribudlo/zmenilo sa OD {since_str} - nie celý kontext od nuly. "
-            f"Over, či tieto predpoklady stále platia, alebo sa niečo zmenilo (event už prebehol, "
-            f"správa sa nenaplnila, sentiment sa otočil...). V reasoning výslovne napíš, či držia "
-            f"alebo čo sa zmenilo."
+            f"Tvoj dotaz MUSÍ obsahovať konkrétnu entitu/tému z týchto predpokladov (nie len "
+            f"všeobecnú cenu nástroja), inak toto overenie reálne neprebehne. Over, či tieto "
+            f"predpoklady stále platia, alebo sa niečo zmenilo (event už prebehol, správa sa "
+            f"nenaplnila, sentiment sa otočil...). V reasoning výslovne napíš, či držia alebo čo "
+            f"sa zmenilo - a ak si to tento cyklus cielene neoveril, napíš to takisto explicitne "
+            f"namiesto toho, aby si predpoklad len zopakoval ako potvrdený."
         )
     elif prev_assumptions:
         prev_block = (
-            f'"{prev_assumptions}"\n\nOver si cez web_search, či tieto predpoklady stále platia, '
-            f"alebo sa niečo zmenilo. V reasoning výslovne napíš, či držia alebo čo sa zmenilo."
+            f'"{prev_assumptions}"\n\nOver si cez web_search (dotazom cieleným na konkrétnu tému '
+            f"z týchto predpokladov, nie len na cenu nástroja), či tieto predpoklady stále platia, "
+            f"alebo sa niečo zmenilo. V reasoning výslovne napíš, či držia, čo sa zmenilo, alebo či "
+            f"si to tento cyklus vôbec cielene neoveril."
         )
     else:
         prev_block = "(žiadne - toto je prvý cyklus alebo predchádzajúci nemal záznam)"
