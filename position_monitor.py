@@ -126,7 +126,7 @@ def _backfill_missing_exact_data(session) -> None:
     _lookup_exact_close nenasiel data (burza este neindexovala fill) - skusi
     znova. Nedotyka sa hlavnej trading logiky, len doplna historicke udaje."""
     pending = session.query(Trade).filter(
-        Trade.status.in_(["closed_by_exchange", "closed_by_timeout", "closed_by_safety"]),
+        Trade.status.in_(["closed_by_exchange", "closed_by_timeout", "closed_by_safety", "closed_by_user"]),
         Trade.pnl_usd.is_(None),
     ).all()
     if not pending:
