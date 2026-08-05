@@ -135,6 +135,52 @@ DECISION_TOOL = {
     },
 }
 
+POSITION_HEALTH_TOOL = {
+    "name": "submit_position_health_check",
+    "description": (
+        "Odovzdaj priebežné hodnotenie UŽ OTVORENEJ pozície (nie rozhodnutie o novom obchode - "
+        "SL/TP na burze zostávajú nezmenené, toto je len opinion pre používateľa). Zavolaj tento "
+        "nástroj VŽDY ako posledný krok, po dokončení prípadného web_search overenia predpokladov."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "recommendation": {
+                "type": "string", "enum": ["hold", "consider_closing"],
+                "description": (
+                    "hold = pôvodné predpoklady držia, žiadny naliehavý dôvod na zásah. "
+                    "consider_closing = predpoklady sa výrazne oslabili alebo sa objavilo nové "
+                    "podstatné riziko - používateľ by mal zvážiť manuálne zatvorenie (rozhoduje "
+                    "človek cez kill-switch, TY pozíciu nezatváraš)."
+                ),
+            },
+            "expected_direction": {
+                "type": "string", "enum": ["favorable", "unfavorable", "uncertain"],
+                "description": (
+                    "Očakávaš, že sa cena v najbližšom čase bude pohybovať V PROSPECH tejto "
+                    "pozície (favorable), PROTI nej (unfavorable), alebo je to nejasné (uncertain)?"
+                ),
+            },
+            "reasoning": {
+                "type": "string",
+                "description": (
+                    "Max 3-4 vety: či pôvodné kľúčové predpoklady stále platia (alebo čo sa "
+                    "zmenilo), a prečo očakávaš daný pohyb ceny. Fakticky, bez floskúl."
+                ),
+            },
+            "key_assumptions": {
+                "type": "string",
+                "description": (
+                    "1-2 vety - AKTUALIZOVANÉ kľúčové predpoklady pre túto pozíciu (nahrádzajú "
+                    "predchádzajúce, prenesú sa do ďalšieho cyklu rovnako ako pri bežnom "
+                    "obchodnom rozhodnutí)."
+                ),
+            },
+        },
+        "required": ["recommendation", "expected_direction", "reasoning", "key_assumptions"],
+    },
+}
+
 _EQUITY_MACRO_RULES = """- **Cross-market konfirmácia**: Ak S&P500, Russell 2000 aj SOX (semikondukcia) potvrdzujú
   smer {instrument}, zvyšuje to istotu. Divergencia (napr. SOX klesá kým {instrument} rastie) je varovanie.
 - **VIX režim**: Rastúci VIX = risk-off nálada, najmä ak {instrument} zároveň rastie (divergencia =
@@ -481,7 +527,8 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                         fred_macro: dict | None = None,
                         eia_data: dict | None = None,
                         marketaux_news: list[dict] | None = None,
-                        confidence_streak: dict | None = None) -> str:
+                        confidence_streak: dict | None = None,
+                        open_position: dict | None = None) -> str:
     instrument = asset["name"]
     social_block = "\n".join(
         f"- ({p.get('likes')}♥/{p.get('retweets')}rt) {p.get('text')}"
@@ -608,7 +655,7 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
             f"nie tvoj vlastny odhad)\n"
         )
 
-    return f"""## Aktuálny dátum a čas
+    header = f"""## Aktuálny dátum a čas
 {now.strftime('%A, %d. %B %Y, %H:%M')} UTC ({now.isoformat()})
 Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/správy za posledných
 ~{interval_h} hodín, staršie ber len ako pozadový kontext (nie ako novú informáciu).
@@ -629,7 +676,27 @@ Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/sp
 ## Kľúčové predpoklady z predchádzajúceho cyklu (~{interval_h}h dozadu)
 {prev_block}
 {streak_block}
-{retro_block}
+{retro_block}"""
+
+    if open_position:
+        op = open_position
+        direction_label = "LONG" if (op["direction"] or "").lower() == "long" else "SHORT"
+        sign = "+" if op["unrealized_pnl_usd"] >= 0 else ""
+        position_block = f"""## OTVORENÁ POZÍCIA (toto NIE JE rozhodnutie o novom obchode - hodnotíš EXISTUJÚCU pozíciu)
+Smer: {direction_label} | Vstup: {op['entry_price']} | Aktuálna cena: {op['live_price']}
+Stop-loss: {op['stop_loss_price']} | Take-profit: {op['take_profit_price']} | Leverage: {op['leverage']}x
+Otvorená: {op['opened_at_str']} ({op['hours_held']:.1f}h dozadu)
+Nerealizované PnL: {sign}${op['unrealized_pnl_usd']:.2f} ({sign}{op['unrealized_pnl_pct']:.2f}% z marže)
+
+Zhodnoť, či pôvodné kľúčové predpoklady (vyššie) stále platia, alebo sa niečo podstatné zmenilo -
+over si to cez web_search rovnako ako pri bežnom cykle (dotaz cielený na konkrétnu tému z
+predpokladov, nie len na cenu nástroja). Na základe toho posúď, či očakávaš, že sa cena bude naďalej
+vyvíjať V PROSPECH tejto pozície alebo PROTI nej, a či by mal používateľ zvážiť jej manuálne
+zatvorenie. SL/TP na burze zostávajú bez zmeny bez ohľadu na tvoju odpoveď - zatvorenie NEVYKONÁVAŠ
+TY, len odporúčaš človeku, ktorý sa rozhodne sám."""
+        return f"{header}\n{position_block}\n"
+
+    return f"""{header}
 ## Cielove SL/TP vzdialenosti
 Stop-loss cca {asset['sl_pct']}% od aktuálnej ceny, take-profit cca {asset['tp_pct']}%
 (pri LONG: stop_loss_price = last_price * (1 - {asset['sl_pct']}/100), take_profit_price =
@@ -676,7 +743,53 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
         raise RuntimeError("ANTHROPIC_API_KEY nie je nastavený")
 
     system_blocks = _system_prompt_blocks(asset)
+    user_prompt = _build_user_prompt(asset, ta, cross_market, session, social,
+                                      btc_proxy, prev_assumptions, prev_cycle_time,
+                                      retrospective_reflection, new_stats_text,
+                                      fred_macro, eia_data, marketaux_news,
+                                      confidence_streak)
+    decision, web_search_log = _call_claude(asset, system_blocks, user_prompt,
+                                             DECISION_TOOL, "submit_trade_decision")
+    _validate_decision(decision)
+    return decision, web_search_log
 
+
+def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_market: dict,
+                             session: dict, social: list[dict],
+                             btc_proxy: dict | None = None,
+                             prev_assumptions: str | None = None,
+                             prev_cycle_time: datetime | None = None,
+                             retrospective_reflection: str | None = None,
+                             fred_macro: dict | None = None,
+                             eia_data: dict | None = None,
+                             marketaux_news: list[dict] | None = None) -> tuple[dict, list[dict]]:
+    """Ako analyze(), ale pre UZ OTVORENU poziciu (viz
+    trade_cycle._run_position_health_check) - namiesto rozhodnutia o novom
+    obchode (direction/SL/TP) sa Claude vyjadri, ci povodne predpoklady este
+    platia a ci by mal pouzivatel zvazit rucne zatvorenie (submit_position_health_check,
+    nie submit_trade_decision). open_position: dict s direction/entry_price/
+    live_price/stop_loss_price/take_profit_price/leverage/opened_at_str/
+    hours_held/unrealized_pnl_usd/unrealized_pnl_pct - viz volajuci."""
+    if not config.ANTHROPIC_API_KEY:
+        raise RuntimeError("ANTHROPIC_API_KEY nie je nastavený")
+
+    system_blocks = _system_prompt_blocks(asset)
+    user_prompt = _build_user_prompt(asset, ta, cross_market, session, social,
+                                      btc_proxy, prev_assumptions, prev_cycle_time,
+                                      retrospective_reflection, None,
+                                      fred_macro, eia_data, marketaux_news,
+                                      confidence_streak=None, open_position=open_position)
+    decision, web_search_log = _call_claude(asset, system_blocks, user_prompt,
+                                             POSITION_HEALTH_TOOL, "submit_position_health_check")
+    _validate_health_decision(decision)
+    return decision, web_search_log
+
+
+def _call_claude(asset: dict, system_blocks: list[dict], user_prompt: str,
+                  tool: dict, tool_name: str) -> tuple[dict, list[dict]]:
+    """Spolocna request/retry/pause_turn loop pre analyze() aj analyze_position_health()
+    - lisia sa len v tom, ktory nastroj (DECISION_TOOL vs POSITION_HEALTH_TOOL) Claude
+    dostane a ako znie user prompt (viz volajuci)."""
     # cache_control na systemovom prompte aj user sprave: ak Claude narazi na
     # pause_turn (casto sa stava pri viacerych web_search volaniach), musime
     # poslat celu doterajsiu konverzaciu znova - bez cachovania by sa system
@@ -685,12 +798,7 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
     # _system_prompt_blocks) - ten zdielany blok tak zostava teply naprieč
     # vsetkymi 6 tickermi (ADA/NIGHT bezia vzdy kazdu hodinu).
     messages = [{"role": "user",
-                 "content": [{"type": "text",
-                               "text": _build_user_prompt(asset, ta, cross_market, session, social,
-                                                           btc_proxy, prev_assumptions, prev_cycle_time,
-                                                           retrospective_reflection, new_stats_text,
-                                                           fred_macro, eia_data, marketaux_news,
-                                                           confidence_streak),
+                 "content": [{"type": "text", "text": user_prompt,
                                "cache_control": {"type": "ephemeral"}}]}]
     web_search_log: list[dict] = []
 
@@ -703,7 +811,7 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
             "system": system_blocks,
             "tools": [
                 {"type": "web_search_20260209", "name": "web_search", "max_uses": 7},
-                DECISION_TOOL,
+                tool,
             ],
             "messages": messages,
         }
@@ -747,17 +855,15 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
 
         decision_block = next(
             (b for b in content_blocks
-             if b.get("type") == "tool_use" and b.get("name") == "submit_trade_decision"),
+             if b.get("type") == "tool_use" and b.get("name") == tool_name),
             None,
         )
         if decision_block is None:
             raise RuntimeError(
-                f"Claude nezavolal submit_trade_decision (stop_reason={data.get('stop_reason')}, "
+                f"Claude nezavolal {tool_name} (stop_reason={data.get('stop_reason')}, "
                 f"content_types={[b.get('type') for b in content_blocks]})"
             )
-        decision = decision_block["input"]
-        _validate_decision(decision)
-        return decision, web_search_log
+        return decision_block["input"], web_search_log
 
     raise RuntimeError("Claude neposkytol finalnu odpoved po pause_turn pokracovani")
 
@@ -817,3 +923,14 @@ def _validate_decision(decision: dict) -> None:
     watch_price = decision.get("watch_price")
     if watch_price is not None and not isinstance(watch_price, (int, float)):
         raise ValueError(f"Neplatny watch_price: {watch_price!r}")
+
+
+def _validate_health_decision(decision: dict) -> None:
+    required = {"recommendation", "expected_direction", "reasoning", "key_assumptions"}
+    missing = required - decision.keys()
+    if missing:
+        raise ValueError(f"Chýbajúce polia v position health rozhodnutí: {missing}")
+    if decision["recommendation"] not in ("hold", "consider_closing"):
+        raise ValueError(f"Neplatné recommendation: {decision['recommendation']}")
+    if decision["expected_direction"] not in ("favorable", "unfavorable", "uncertain"):
+        raise ValueError(f"Neplatný expected_direction: {decision['expected_direction']}")

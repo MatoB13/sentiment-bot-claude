@@ -95,7 +95,16 @@ class CycleLog(Base):
     watch_price = Column(Float, nullable=True)
     watch_direction = Column(String, nullable=True)  # "above" | "below"
 
-    outcome = Column(String)            # opened | rejected | error | skipped | disabled
+    # Ak outcome=position_check (uz otvorena pozicia - viz
+    # trade_cycle._run_position_health_check), Claudeho odporucanie: "hold"
+    # (predpoklady drzia) alebo "consider_closing" (pouzivatel by mal zvazit
+    # rucne zatvorenie cez kill-switch - bot sam pozicie nezatvara).
+    health_recommendation = Column(String, nullable=True)
+    # "favorable" | "unfavorable" | "uncertain" - ci Claude ocakava, ze sa cena
+    # bude dalej hybat V PROSPECH otvorenej pozicie alebo PROTI nej.
+    health_expected_direction = Column(String, nullable=True)
+
+    outcome = Column(String)            # opened | rejected | error | skipped | disabled | position_check
     reject_reason = Column(String, nullable=True)
 
     trade_id = Column(Integer, nullable=True)  # ak outcome=opened, id v `trades`

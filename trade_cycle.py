@@ -198,6 +198,121 @@ def _get_retrospective_context(asset: dict, session) -> tuple[str | None, str | 
     return retrospective_reflection, retrospective.format_stats_for_prompt(stats), stats
 
 
+def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dict, market_session: dict,
+                                btc_proxy: dict | None, fred_macro: dict | None, session) -> None:
+    """Ked uz je otvorena pozicia, namiesto predosleho ticheho 'skipped' zaznamu
+    (2026-08 spatna vazba pouzivatela: chcel Claudeho priebezny nazor na
+    otvorenu poziciu, nie len zahltenu historiu signalov bez obsahu) spustime
+    'position health check' - Claude posudi, ci povodne kluc. predpoklady este
+    platia a ci by mal pouzivatel zvazit rucne zatvorenie (kill-switch tlacidlo
+    v monitor-web). Bot SAM poziciu nezatvara ani nemeni SL/TP - je to len
+    opinion pre cloveka. Bezi na rovnakom _is_due() intervale ako bezny
+    otvaraci cyklus (ziadny samostatny interval navyse)."""
+    name = asset["name"]
+    symbol = asset["strike_symbol"]
+    print(f"[{name}] Otvorena pozicia (trade_id={open_trade.id}) - position health check namiesto skipu.")
+
+    try:
+        market_meta = strike_client.get_market(symbol)
+        live_price = float(market_meta["mark_price"])
+        ta = market_data.get_market_snapshot(asset, session)
+        social = social_sentiment.fetch_recent_posts(name)
+    except Exception as e:
+        print(f"[{name}] Position health check: zber trhovych dat zlyhal, preskakujem: {e}")
+        session.add(CycleLog(
+            symbol=symbol, config_snapshot=_config_snapshot(asset),
+            outcome="error", reject_reason=f"health_check_market_data_failed: {e}",
+            trade_id=open_trade.id,
+        ))
+        session.commit()
+        return
+
+    opened_at = open_trade.opened_at
+    if opened_at.tzinfo is None:
+        opened_at = opened_at.replace(tzinfo=timezone.utc)
+    hours_held = (datetime.now(timezone.utc) - opened_at).total_seconds() / 3600
+
+    is_long = (open_trade.direction or "").lower() == "long"
+    pnl_pct = ((live_price - open_trade.entry_price) / open_trade.entry_price if is_long
+               else (open_trade.entry_price - live_price) / open_trade.entry_price)
+    open_position = {
+        "direction": open_trade.direction,
+        "entry_price": open_trade.entry_price,
+        "live_price": live_price,
+        "stop_loss_price": open_trade.stop_loss_price,
+        "take_profit_price": open_trade.take_profit_price,
+        "leverage": open_trade.leverage,
+        "opened_at_str": opened_at.strftime('%A, %d. %B %Y, %H:%M UTC'),
+        "hours_held": hours_held,
+        "unrealized_pnl_usd": open_trade.margin_usd * open_trade.leverage * pnl_pct,
+        "unrealized_pnl_pct": pnl_pct * 100,
+    }
+
+    prev_log = (
+        session.query(CycleLog)
+        .filter(CycleLog.symbol == symbol, CycleLog.key_assumptions.isnot(None))
+        .order_by(CycleLog.created_at.desc())
+        .first()
+    )
+    prev_assumptions = prev_log.key_assumptions if prev_log else None
+    prev_cycle_time = prev_log.created_at if prev_log else None
+
+    try:
+        # Len aktualne priebezne zhrnutie (nie generovanie noveho denneho
+        # zaznamu) - daily_reflection/summary_reflection su polia specificke
+        # pre DECISION_TOOL, position health tool ich nema. Ak vcerajsok
+        # este nebol zapracovany, spracuje sa az na buducom BEZNOM cykle
+        # (rovnako ako predtym, ked sa pri otvorenej pozicii vobec nic
+        # nefetchovalo) - nie regresia, len nerozsirujeme scope tejto zmeny.
+        retrospective_reflection, _, _ = _get_retrospective_context(asset, session)
+    except Exception as e:
+        print(f"[{name}] Vypocet retrospektivy zlyhal (pokracujem bez nej): {e}")
+        session.rollback()
+        retrospective_reflection = None
+
+    eia_data = None
+    if asset.get("needs_eia_data"):
+        try:
+            eia_data = eia_client.get_weekly_crude_stocks()
+        except Exception as e:
+            print(f"[{name}] EIA fetch zlyhal (pokracujem bez neho): {e}")
+
+    marketaux_news = None
+    if asset.get("marketaux_query"):
+        try:
+            marketaux_news = marketaux_client.get_news_sentiment(asset["marketaux_query"])
+        except Exception as e:
+            print(f"[{name}] Marketaux fetch zlyhal (pokracujem bez neho): {e}")
+
+    try:
+        health, web_search_log = claude_analyst.analyze_position_health(
+            asset, open_position, ta, cross_market, market_session, social, btc_proxy,
+            prev_assumptions, prev_cycle_time, retrospective_reflection,
+            fred_macro, eia_data, marketaux_news,
+        )
+    except Exception as e:
+        print(f"[{name}] Position health check zlyhal: {e}")
+        session.add(CycleLog(
+            symbol=symbol, live_price=live_price, ta=ta, cross_market=cross_market,
+            session_data=market_session, config_snapshot=_config_snapshot(asset),
+            outcome="error", reject_reason=f"health_check_failed: {e}", trade_id=open_trade.id,
+        ))
+        session.commit()
+        return
+
+    print(f"[{name}] Position health check: {health}")
+    session.add(CycleLog(
+        symbol=symbol, live_price=live_price, ta=ta, cross_market=cross_market,
+        session_data=market_session, config_snapshot=_config_snapshot(asset),
+        direction=open_trade.direction, outcome="position_check",
+        reasoning=health.get("reasoning"), key_assumptions=health.get("key_assumptions"),
+        web_search_log=web_search_log, health_recommendation=health.get("recommendation"),
+        health_expected_direction=health.get("expected_direction"),
+        trade_id=open_trade.id,
+    ))
+    session.commit()
+
+
 def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                          btc_proxy: dict | None, fred_macro: dict | None = None,
                          skip_due_check: bool = False) -> None:
@@ -228,15 +343,8 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             Trade.symbol == symbol, Trade.status == "open",
         ).first()
         if open_trade:
-            print(f"[{name}] Uz existuje otvorena pozicia (trade_id={open_trade.id}), preskakujem.")
-            session.add(CycleLog(
-                symbol=symbol,
-                config_snapshot=_config_snapshot(asset),
-                outcome="skipped",
-                reject_reason=f"Uz existuje otvorena pozicia (trade_id={open_trade.id}).",
-                trade_id=open_trade.id,
-            ))
-            session.commit()
+            _run_position_health_check(asset, open_trade, cross_market, market_session, btc_proxy,
+                                        fred_macro, session)
             return
 
         try:
