@@ -15,14 +15,14 @@ dopyt), NIE safe-haven ako zlato (viz claude_analyst._ENERGY_MACRO_RULES). NIGHT
 rizikovejsi/volatilnejsi mladý krypto token (nedavny Wanchain bridge hack
 2026-07-20), preto najnizsia paka a najsirsie SL/TP zo vsetkych.
 
-include_volume: zapnute len pre NAS100/NVDA/GOLD, kde ma yfinance kompletne
-(99-100%) volume data (overene 2026-07-24). Pre ADA je cez yfinance len ~41%
-barov s nenulovym volume (a aj tak je to iny trh nez Strike-ov vlastny
-order-book) - zamerne VYPNUTE, aby chybajuce/nulove hodnoty neskreslovali
-priemer a nevytvarali falosne "objemove spike" signaly. WTI/NIGHT su tiez
-zamerne VYPNUTE - volume kompletnost pre WTI (CL=F) nebola empiricky overena
-ako pri ostatnych, a NIGHT je pravdepodobne mimo yfinance pokrytia celkom
-(velmi mlady/nizko-kapitalizovany token).
+include_volume: NAS100/NVDA/GOLD cez yfinance (99-100% pokrytie, overene
+2026-07-24). ADA/NIGHT cez Binance (binance_volume_symbol nizsie) namiesto
+yfinance - Binance realne obchoduje tieto kryptomeny so spolahlivym objemom,
+na rozdiel od yfinance riedkeho ~41% pokrytia pre ADA a takmer ziadneho pre
+NIGHT (viz binance_client.py + market_data._merge_volume_from_binance,
+pridane 2026-08-06). WTI zostava zamerne VYPNUTE - volume kompletnost pre
+WTI (CL=F) cez yfinance nebola empiricky overena ako pri ostatnych, a na
+Binance ropa nie je (nie krypto asset).
 
 trade_interval_hours/off_hours_interval_hours/weekend_interval_hours: KAZDY
 asset ma vsetky tri (2026-07-31 zjednotene - predtym mali ADA/NIGHT len jednu
@@ -95,7 +95,8 @@ ADA = {
     "min_confidence": config.ADA_MIN_CONFIDENCE,
     "enabled": config.ENABLE_ADA,
     "needs_btc_proxy": True,
-    "include_volume": False,
+    "include_volume": True,
+    "binance_volume_symbol": "ADAUSDT",
     "trade_interval_hours": config.ADA_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.ADA_OFF_HOURS_INTERVAL_HOURS,
     "weekend_interval_hours": config.ADA_WEEKEND_INTERVAL_HOURS,
@@ -156,7 +157,8 @@ NIGHT = {
     "min_confidence": config.NIGHT_MIN_CONFIDENCE,
     "enabled": config.ENABLE_NIGHT,
     "needs_btc_proxy": True,
-    "include_volume": False,
+    "include_volume": True,
+    "binance_volume_symbol": "NIGHTUSDT",
     "trade_interval_hours": config.NIGHT_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.NIGHT_OFF_HOURS_INTERVAL_HOURS,
     "weekend_interval_hours": config.NIGHT_WEEKEND_INTERVAL_HOURS,

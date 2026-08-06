@@ -17,6 +17,7 @@ import pandas as pd
 import pandas_ta as ta
 import yfinance as yf
 
+import binance_client
 from db import PriceBar
 
 # Kolko poslednych hodinovych sviecok posielame Claude ako surovy podklad na
@@ -108,10 +109,13 @@ def _recent_candles(df: pd.DataFrame, bars: int, include_volume: bool = False) -
     Strike-ovo vlastne order-book volume) - nespolahlive na stavanie signalu."""
     recent = df.tail(bars)
     if include_volume:
+        # volume moze byt NaN (chybajuci yfinance match pre tuto hodinu - viz
+        # _merge_volume) - serializujeme ako null (genuinne chybajuce), nie
+        # ako 0.0 (co by vyzeralo ako konkretne nameraný nulovy objem).
         return [
             [round(float(r.open), 6), round(float(r.high), 6),
              round(float(r.low), 6), round(float(r.close), 6),
-             round(float(r.volume), 2)]
+             round(float(r.volume), 2) if pd.notna(r.volume) else None]
             for r in recent.itertuples()
         ]
     return [
@@ -163,20 +167,54 @@ def _merge_volume(df: pd.DataFrame, yf_symbol: str, yf_fallback: str | None) -> 
     order-book/trade objem) - pre assety, ktore volume-price divergenciu
     vyuzivaju (NAS100/NVDA/GOLD), ho sem doplnime z yfinance ako obohatenie
     (nie ako primarny zdroj ceny). Zlyhanie tu nesmie zhodit cely TA fetch -
-    v najhoršom pripade len chyba volume stlpec (vyplneny 0.0)."""
+    v najhoršom pripade len chyba volume stlpec (NaN, viz nizsie preco NIE 0.0).
+
+    POZOR (2026-08 produkcny incident): yfinance intradenne 1h data pre
+    kontinualne futures (napr. NQ=F) bezne zaostavaju za skutocnostou o
+    niekolko hodin (na rozdiel od akcii) - nas vlastny price_bars index je
+    vsak takmer real-time (poller kazdu minutu). Pre najnovsie hodiny preto
+    reindex s toleranciou nizsie nenajde ZIADNU zhodu (chybajuci udaj), NIE
+    ze bol objem naozaj nulovy. Predtym sa to cez fillna(0.0) tichy zmenilo
+    na FALOSNU nulu, ktora vyzerala ako skutocne namerany udaj a Claude ju
+    opakovane vyhodnocoval ako podozrive/nekonzistentne data (data_issue).
+    Teraz chybajuci match ostava NaN -> _recent_candles ho seriaizuje ako
+    null (genuinne chybajuce), nie 0 (konkretne, zavadzajuce tvrdenie)."""
     try:
         yf_df = fetch_ohlcv(yf_symbol, yf_fallback)
     except Exception as e:
         print(f"[market_data] Volume enrichment z yfinance zlyhal, pokracujem bez volume: {e}")
-        df["volume"] = 0.0
+        df["volume"] = float("nan")
         return df
     if yf_df.empty or "volume" not in yf_df.columns:
-        df["volume"] = 0.0
+        df["volume"] = float("nan")
         return df
 
     idx = yf_df.index.tz_convert("UTC").tz_localize(None) if yf_df.index.tz is not None else yf_df.index
     vol = pd.Series(yf_df["volume"].values, index=idx)
-    df["volume"] = vol.reindex(df.index, method="nearest", tolerance=pd.Timedelta("90min")).fillna(0.0)
+    df["volume"] = vol.reindex(df.index, method="nearest", tolerance=pd.Timedelta("90min"))
+    return df
+
+
+def _merge_volume_from_binance(df: pd.DataFrame, binance_symbol: str) -> pd.DataFrame:
+    """Ako _merge_volume vyssie, ale zdrojom je Binance namiesto yfinance -
+    pouziva sa pre ADA/NIGHT (viz assets.py binance_volume_symbol), kde su
+    tieto kryptomeny skutocne obchodovane so spolahlivym objemom (na rozdiel
+    od yfinance riedkeho/chybajuceho pokrytia pre krypto). Rovnaky
+    graceful-degradation vzor: zlyhanie alebo chybajuci match necha volume NaN
+    (nie 0.0 - viz komentar v _merge_volume o falosnej nule)."""
+    try:
+        klines = binance_client.get_hourly_klines(binance_symbol, limit=500)
+    except Exception as e:
+        print(f"[market_data] Binance volume enrichment zlyhal, pokracujem bez volume: {e}")
+        df["volume"] = float("nan")
+        return df
+    if not klines:
+        df["volume"] = float("nan")
+        return df
+
+    idx = pd.to_datetime([k["open_time"] for k in klines], unit="ms", utc=True).tz_localize(None)
+    vol = pd.Series([k["volume"] for k in klines], index=idx)
+    df["volume"] = vol.reindex(df.index, method="nearest", tolerance=pd.Timedelta("90min"))
     return df
 
 
@@ -189,7 +227,9 @@ def get_price_history(asset: dict, session) -> pd.DataFrame:
     symbol = asset["strike_symbol"]
     df = _load_own_bars(symbol, session)
     if _own_data_is_fresh(df):
-        if asset.get("include_volume"):
+        if asset.get("binance_volume_symbol"):
+            df = _merge_volume_from_binance(df, asset["binance_volume_symbol"])
+        elif asset.get("include_volume"):
             df = _merge_volume(df, asset["yf_symbol"], asset.get("yf_fallback"))
         return df
 

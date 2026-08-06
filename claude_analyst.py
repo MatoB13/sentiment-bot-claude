@@ -478,15 +478,18 @@ Pravidlá:
 
 
 _VOLUME_NOTE = """
-Sviečky obsahujú aj piaty údaj - `volume` (objem za danú hodinu, z {instrument}
-futures/akciových dát, kompletné a spoľahlivé). Sleduj DIVERGENCIU medzi objemom
-a cenovým pohybom: ak neobvykle vysoký objem (výrazne nad bežným objemom
-posledných sviečok) nespôsobí zodpovedajúci pohyb ceny, alebo cena sa dokonca
-otočí opačným smerom, môže to znamenať, že veľký hráč absorboval danú stranu
-(predaj/nákup) - potenciálny signál vyčerpania/otočky (klasická "climax volume"
-téza z Wyckoff/Volume Spread Analysis). Toto je len JEDEN vstup do tvojho
-úsudku popri ostatných signáloch, nie mechanické pravidlo - vyžaduje kontext
-(je objem naozaj neobvyklý, alebo len bežná variabilita)."""
+Sviečky obsahujú aj piaty údaj - `volume` (skutočne obchodovaný objem
+{instrument} za danú hodinu). Sleduj DIVERGENCIU medzi objemom a cenovým pohybom: ak
+neobvykle vysoký objem (výrazne nad bežným objemom posledných sviečok)
+nespôsobí zodpovedajúci pohyb ceny, alebo cena sa dokonca otočí opačným smerom,
+môže to znamenať, že veľký hráč absorboval danú stranu (predaj/nákup) -
+potenciálny signál vyčerpania/otočky (klasická "climax volume" téza z
+Wyckoff/Volume Spread Analysis). Toto je len JEDEN vstup do tvojho úsudku popri
+ostatných signáloch, nie mechanické pravidlo - vyžaduje kontext (je objem
+naozaj neobvyklý, alebo len bežná variabilita). POZOR: `volume: null` znamená
+CHÝBAJÚCI údaj pre danú hodinu (napr. dátový feed ešte nestihol dobehnúť) - NIE
+skutočne nameraný nulový objem. Takéto sviečky z objemovej analýzy jednoducho
+vynechaj, neinterpretuj `null` ako "nikto neobchodoval"."""
 
 
 _PER_ASSET_SYSTEM_APPENDIX_TEMPLATE = """Si skúsený intradenný analytik pre {label}.
