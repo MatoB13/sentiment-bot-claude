@@ -315,7 +315,8 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
 
 def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                          btc_proxy: dict | None, fred_macro: dict | None = None,
-                         skip_due_check: bool = False) -> None:
+                         skip_due_check: bool = False,
+                         closed_trade: dict | None = None) -> None:
     """Kompletny cyklus pre JEDEN asset - vlastna DB session/commit, aby chyba
     v jednom assete neponechala nedokoncenu transakciu pre dalsi.
 
@@ -326,7 +327,14 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
     posledneho zaznamu este neuplynul), cim by celiplny zmysel watch_monitor.py
     (reagovat OKAMZITE na cenu, nie cakat na interval) - preto ho mimoriadny
     beh vynecha. Bezny naplanovany cyklus (run_all_cycles) tento parameter
-    nenastavuje (default False), takze jeho gating ostava nezmeneny."""
+    nenastavuje (default False), takze jeho gating ostava nezmeneny.
+
+    closed_trade: ak nie None, tento beh je "post-close review" (viz
+    position_monitor._fire_post_close_reviews) - dict s trade_id/direction/
+    entry_price/exit_price/hours_held/pnl_usd/close_reason o PRAVE zatvorenej
+    pozicii, ktory sa vlozi do promptu (viz claude_analyst) a Claude popri
+    beznom otvaracom rozhodnuti zaroven zhodnoti, ci bolo zatvorenie spravne
+    timeovane (closed_trade_reflection)."""
     name = asset["name"]
     symbol = asset["strike_symbol"]
     print(f"\n--- [{name}] ---")
@@ -416,7 +424,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 prev_assumptions, prev_cycle_time,
                 retrospective_reflection, new_stats_text,
                 fred_macro, eia_data, marketaux_news,
-                confidence_streak,
+                confidence_streak, closed_trade,
             )
         except Exception as e:
             print(f"[{name}] Claude analyza zlyhala, preskakujem cyklus: {e}")
@@ -477,6 +485,8 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             watch_price=decision.get("watch_price"),
             watch_direction=decision.get("watch_direction"),
             data_issue=decision.get("data_issue"),
+            reviewed_trade_id=closed_trade["trade_id"] if closed_trade else None,
+            closed_trade_reflection=decision.get("closed_trade_reflection"),
         )
 
         try:
@@ -574,16 +584,20 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
         session.close()
 
 
-def run_triggered_check(asset: dict) -> None:
-    """Mimoriadny (watch-triggered) cyklus LEN pre jeden asset, mimo bezneho
-    zdielaneho hodinoveho tiku - vola ho watch_monitor.py, ked live cena splni
-    watch_price/watch_direction podmienku z posledneho rozhodnutia pre tento
-    asset. Makro data (cross-market/session/BTC proxy) sa fetchuju cerstvo -
+def run_triggered_check(asset: dict, closed_trade: dict | None = None) -> None:
+    """Mimoriadny cyklus LEN pre jeden asset, mimo bezneho zdielaneho hodinoveho
+    tiku - vola ho watch_monitor.py (watch_price/watch_direction podmienka
+    splnena) alebo position_monitor.py (post-close review - viz closed_trade
+    nizsie). Makro data (cross-market/session/BTC proxy) sa fetchuju cerstvo -
     yfinance je zdarma, takze jediny realny naklad tu je samotne Claude
     volanie v run_cycle_for_asset - presne to je zmysel: platit za mimoriadnu
-    analyzu len ked sa sledovana podmienka NAOZAJ splni, nie podla casu."""
+    analyzu len ked sa sledovana podmienka NAOZAJ splni, nie podla casu.
+
+    closed_trade: viz run_cycle_for_asset - ak nastavene, ide o post-close
+    review (nie watch trigger)."""
     name = asset["name"]
-    print(f"[trade_cycle] [{name}] mimoriadny beh (watch trigger)")
+    print(f"[trade_cycle] [{name}] mimoriadny beh "
+          f"({'post-close review' if closed_trade else 'watch trigger'})")
     try:
         cross_market = market_data.get_cross_market_snapshot()
         market_session = market_data.get_session_snapshot()
@@ -605,7 +619,7 @@ def run_triggered_check(asset: dict) -> None:
         print(f"[trade_cycle] [{name}] FRED fetch zlyhal (pokracujem bez neho): {e}")
 
     run_cycle_for_asset(asset, cross_market, market_session, btc_proxy, fred_macro,
-                         skip_due_check=True)
+                         skip_due_check=True, closed_trade=closed_trade)
 
 
 def _mark_disabled_assets() -> None:

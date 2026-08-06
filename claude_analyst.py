@@ -129,6 +129,18 @@ DECISION_TOOL = {
                     "v tomto cykle, toto pole VYNECHAJ."
                 ),
             },
+            "closed_trade_reflection": {
+                "type": "string",
+                "description": (
+                    "VYPLN LEN ak user sprava obsahuje sekciu 'Práve zatvorená pozícia' "
+                    "(mimoriadny cyklus spustený HNEĎ po TP/timeout/manuálnom zatvorení). 2-3 "
+                    "vety: bolo zatvorenie správne timeované, alebo mala pozícia pokračovať "
+                    "dlhšie (napr. pri TP: bol cieľ nastavený príliš konzervatívne), alebo malo "
+                    "prísť skôr? Toto je NEZÁVISLÉ od tvojho direction/confidence rozhodnutia "
+                    "nižšie (to je o tom, či TERAZ otvoriť novú pozíciu) - tu ide o SPÄTNÉ "
+                    "hodnotenie tej PREDCHÁDZAJÚCEJ. Ak sekcia chýba, toto pole VYNECHAJ."
+                ),
+            },
         },
         "required": ["direction", "confidence", "stop_loss_price", "take_profit_price",
                      "reasoning", "key_assumptions"],
@@ -518,6 +530,13 @@ def _system_prompt_blocks(asset: dict) -> list[dict]:
     ]
 
 
+_CLOSE_REASON_PROMPT_LABELS = {
+    "take_profit": "take-profit",
+    "force_closed_by_bot": "timeout - max. doba drzania prekrocena",
+    "manual_kill_switch": "rucne zatvorene pouzivatelom (kill-switch)",
+}
+
+
 def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                         social: list[dict], btc_proxy: dict | None,
                         prev_assumptions: str | None,
@@ -528,7 +547,8 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                         eia_data: dict | None = None,
                         marketaux_news: list[dict] | None = None,
                         confidence_streak: dict | None = None,
-                        open_position: dict | None = None) -> str:
+                        open_position: dict | None = None,
+                        closed_trade: dict | None = None) -> str:
     instrument = asset["name"]
     social_block = "\n".join(
         f"- ({p.get('likes')}♥/{p.get('retweets')}rt) {p.get('text')}"
@@ -696,8 +716,24 @@ zatvorenie. SL/TP na burze zostávajú bez zmeny bez ohľadu na tvoju odpoveď -
 TY, len odporúčaš človeku, ktorý sa rozhodne sám."""
         return f"{header}\n{position_block}\n"
 
+    closed_trade_block = ""
+    if closed_trade:
+        ct = closed_trade
+        sign = "+" if ct["pnl_usd"] >= 0 else ""
+        reason_label = _CLOSE_REASON_PROMPT_LABELS.get(ct["close_reason"], ct["close_reason"])
+        closed_trade_block = f"""## Práve zatvorená pozícia (dôvod: {reason_label})
+Smer: {(ct['direction'] or '').upper()} | Vstup: {ct['entry_price']} | Výstup: {ct['exit_price']}
+Držaná: {ct['hours_held']:.1f}h | PnL: {sign}${ct['pnl_usd']:.2f}
+
+Toto je mimoriadny cyklus spustený HNEĎ po zatvorení tejto pozície (nie bežný interval). Najprv cez
+closed_trade_reflection zhodnoť, či bolo zatvorenie správne timeované. Potom NEZÁVISLE posúď
+AKTUÁLNU trhovú situáciu (rovnako ako pri bežnom cykle) a rozhodni, či teraz otvoriť novú pozíciu -
+pokračujúcu v rovnakom smere (ak trend drží) alebo opačnú (ak sa obraz otočil), alebo počkať (none).
+
+"""
+
     return f"""{header}
-## Cielove SL/TP vzdialenosti
+{closed_trade_block}## Cielove SL/TP vzdialenosti
 Stop-loss cca {asset['sl_pct']}% od aktuálnej ceny, take-profit cca {asset['tp_pct']}%
 (pri LONG: stop_loss_price = last_price * (1 - {asset['sl_pct']}/100), take_profit_price =
 last_price * (1 + {asset['tp_pct']}/100); pri SHORT opačne). Môžeš sa mierne odchýliť podľa
@@ -719,7 +755,8 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
             fred_macro: dict | None = None,
             eia_data: dict | None = None,
             marketaux_news: list[dict] | None = None,
-            confidence_streak: dict | None = None) -> tuple[dict, list[dict]]:
+            confidence_streak: dict | None = None,
+            closed_trade: dict | None = None) -> tuple[dict, list[dict]]:
     """Vrati (decision, web_search_log). web_search_log je zoznam
     {"query": str, "sources": [{"title", "url", "page_age"}]} pre kazde
     vyhladavanie, ktore Claude spravil - sluzi na audit (co realne citas,
@@ -747,7 +784,8 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
                                       btc_proxy, prev_assumptions, prev_cycle_time,
                                       retrospective_reflection, new_stats_text,
                                       fred_macro, eia_data, marketaux_news,
-                                      confidence_streak)
+                                      confidence_streak, open_position=None,
+                                      closed_trade=closed_trade)
     decision, web_search_log = _call_claude(asset, system_blocks, user_prompt,
                                              DECISION_TOOL, "submit_trade_decision")
     _validate_decision(decision)

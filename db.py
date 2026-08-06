@@ -53,6 +53,12 @@ class Trade(Base):
     # POSITION_MAX_HOURS timeout force-close - viz watch_monitor._check_manual_close_requests.
     manual_close_requested_at = Column(DateTime, nullable=True)
 
+    # Nastavene, ked bol pre toto zatvorenie uz spusteny mimoriadny "post-close
+    # review" cyklus (viz position_monitor._check_and_queue_review) - zabrani
+    # opakovanemu spusteniu pri kazdom dalsom position_monitor tiku, kedze
+    # close_reason raz vyrieseny uz zostava v DB navzdy.
+    post_close_review_triggered_at = Column(DateTime, nullable=True)
+
 
 class CycleLog(Base):
     """Zaznam KAZDEHO analytickeho cyklu - aj tych, kde sa neotvorila pozicia
@@ -103,6 +109,14 @@ class CycleLog(Base):
     # "favorable" | "unfavorable" | "uncertain" - ci Claude ocakava, ze sa cena
     # bude dalej hybat V PROSPECH otvorenej pozicie alebo PROTI nej.
     health_expected_direction = Column(String, nullable=True)
+
+    # Ak tento cyklus je "post-close review" (mimoriadny beh spusteny hned po
+    # TP/timeout/manual zatvoreni - viz position_monitor + trade_cycle.
+    # run_triggered_check), id PREDTYM zatvoreneho Trade, ku ktoremu sa
+    # closed_trade_reflection vztahuje. NEZAMIENAT s `trade_id` vyssie - to je
+    # NOVY obchod otvoreny (ak vobec) V RAMCI TOHTO cyklu.
+    reviewed_trade_id = Column(Integer, nullable=True)
+    closed_trade_reflection = Column(String, nullable=True)
 
     outcome = Column(String)            # opened | rejected | error | skipped | disabled | position_check
     reject_reason = Column(String, nullable=True)
