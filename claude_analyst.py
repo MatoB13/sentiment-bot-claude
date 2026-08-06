@@ -964,7 +964,13 @@ def _validate_decision(decision: dict) -> None:
 
 
 def _validate_health_decision(decision: dict) -> None:
-    required = {"recommendation", "expected_direction", "reasoning", "key_assumptions"}
+    # key_assumptions VEDOME NIE JE tu required (na rozdiel od DECISION_TOOL) -
+    # 2026-08 produkcny incident: Claude ho pri jednom position health cykle
+    # vynechal, co predtym zahodilo CELY cyklus (aj recommendation/reasoning,
+    # ktore inak vratil spravne) len kvoli jednemu chybajucemu doplnkovemu
+    # polu. trade_cycle._run_position_health_check pri chybajucej hodnote
+    # jednoducho ponecha predchadzajuce predpoklady bez zmeny.
+    required = {"recommendation", "expected_direction", "reasoning"}
     missing = required - decision.keys()
     if missing:
         raise ValueError(f"Chýbajúce polia v position health rozhodnutí: {missing}")

@@ -305,7 +305,12 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         symbol=symbol, live_price=live_price, ta=ta, cross_market=cross_market,
         session_data=market_session, config_snapshot=_config_snapshot(asset),
         direction=open_trade.direction, outcome="position_check",
-        reasoning=health.get("reasoning"), key_assumptions=health.get("key_assumptions"),
+        reasoning=health.get("reasoning"),
+        # key_assumptions je v POSITION_HEALTH_TOOL volitelne (viz claude_analyst.
+        # _validate_health_decision) - ak ho Claude tento cyklus vynechal, radsej
+        # prenesieme povodne predpoklady bez zmeny nez aby retazec pre buduci
+        # cyklus (prev_log query vyssie) proste zmizol.
+        key_assumptions=health.get("key_assumptions") or prev_assumptions,
         web_search_log=web_search_log, health_recommendation=health.get("recommendation"),
         health_expected_direction=health.get("expected_direction"),
         trade_id=open_trade.id,
