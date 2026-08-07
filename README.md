@@ -176,6 +176,17 @@ Pozri `.env.example` — najdôležitejšie:
   samostatný, tesnejší interval nez `MONITOR_INTERVAL_MINUTES` (viz `watch_monitor.py`) - tu
   častejšia kontrola reálne znižuje šancu prehliadnuť krátky dotyk/odraz od sledovanej hladiny
 - `POSITION_MAX_HOURS` — max. držanie pozície pred force-close — zdieľané
+- `MACRO_EVENT_MAX_TRIGGERS_PER_HOUR` (default `3`) — bezpečnostná poistka pri zhluku makro udalostí;
+  ich presný čas je vopred známy (na rozdiel od cenového watch vyššie), takže sa mimoriadny cyklus
+  spustí HNEĎ pri zverejnení namiesto čakania na ďalší bežný interval. Dva zdroje udalostí (viz
+  `watch_monitor._check_macro_events`): (1) `macro_calendar.py` — počiatočný, raz naplnený zoznam
+  FOMC/CPI/NFP (overené z oficiálnych zdrojov k 2026-08-07); (2) `FlaggedMacroEvent` (DB tabuľka) —
+  **priebežnú údržbu kalendára odteraz preberá Claude sám** cez `upcoming_macro_event` pole
+  (`claude_analyst.py`/`trade_cycle._save_flagged_macro_event`) - buď keď na významný termín narazí
+  počas bežnej analýzy, alebo cielene raz denne pri retrospektívnom cykle (explicitná inštrukcia v
+  `SYSTEM_PROMPT_SHARED` prezerať web_search na udalosti v horizonte ~30-60 dní). `scope="all_assets"`
+  (napr. FOMC/CPI/NFP) spustí všetky aktívne tickery; `scope="this_asset"` (default, napr. OPEC+ pre
+  WTI, bezpečnostný deadline pre NIGHT) spustí LEN ten jeden asset - nikto nič ručne nedopĺňa
 - `TRADING_HOURS_START_UTC` / `TRADING_HOURS_END_UTC` — hranice trading hours v UTC (default `13`/`21`,
   pokrýva NYSE cash session 9:30-16:00 ET v oboch DST stavoch) — jediná skutočne zdieľaná (nie
   per-ticker) hodnota, je to fakt o trhovej štruktúre, nie preferencia jednotlivého assetu

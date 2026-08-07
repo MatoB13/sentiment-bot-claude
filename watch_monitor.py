@@ -15,12 +15,14 @@ z beznej hodinovej) analyzy sa stane najnovsim zaznamom pre dany symbol, cim
 stary watch prirodzene "zanikne" - poller uz nikdy nenajde stary riadok, takze
 netreba samostatny "consumed" flag ani expiraciu.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import assets
+import config
+import macro_calendar
 import strike_client
 import trade_cycle
-from db import CycleLog, Trade, get_session
+from db import CycleLog, FlaggedMacroEvent, Trade, TriggeredMacroEvent, get_session
 
 
 def _is_triggered(live_price: float, watch_price: float, watch_direction: str) -> bool:
@@ -80,11 +82,94 @@ def _check_manual_close_requests(session) -> None:
     session.commit()
 
 
+def _pending_events_with_scope(session, now) -> list[dict]:
+    """Zluci DVA zdroje makro udalosti s PEVNE ZNAMYM casom vopred do jednotneho
+    zoznamu {name, datetime_utc, symbol, key}:
+    1. macro_calendar.MACRO_EVENTS (FOMC/CPI/NFP) - rucne udrziavane, overene z
+       oficialnych zdrojov, symbol=None = VSETKY aktivne assety (vsetky tri su
+       uz sucastou Event Risk Gate pravidiel pre vsetkych 7 tickerov).
+    2. FlaggedMacroEvent (viz trade_cycle._save_flagged_macro_event) - Claude
+       ich priebezne SAM zaznaci pocas beznej analyzy alebo denneho
+       retrospektivneho lookaheadu cez web_search. flagged_by_symbol=None
+       (scope="all_assets" pri zaznacovani, napr. FOMC/CPI/NFP objavene
+       Claudom) = VSETKY aktivne assety, rovnaky mechanizmus ako
+       macro_calendar.py. flagged_by_symbol=konkretny asset (scope="this_asset",
+       napr. OPEC+ pre WTI, bezpecnostny deadline pre NIGHT) = LEN preň."""
+    out = []
+    for e in macro_calendar.get_pending_events(now):
+        out.append({
+            "name": e["name"], "datetime_utc": e["datetime_utc"], "symbol": None,
+            "key": macro_calendar.event_key(e),
+        })
+
+    lookback = now - timedelta(minutes=30)
+    for row in session.query(FlaggedMacroEvent).all():
+        dt = row.datetime_utc if row.datetime_utc.tzinfo else row.datetime_utc.replace(tzinfo=timezone.utc)
+        if lookback <= dt <= now:
+            key = (f"{row.name}_{dt.date().isoformat()}" if row.flagged_by_symbol is None
+                   else f"{row.name}_{dt.date().isoformat()}_{row.flagged_by_symbol}")
+            out.append({"name": row.name, "datetime_utc": dt, "symbol": row.flagged_by_symbol, "key": key})
+    return out
+
+
+def _check_macro_events(session) -> None:
+    """Makro udalosti s PEVNE ZNAMYM casom vopred, na rozdiel od cenoveho watch
+    vyssie NEPOTREBUJU cakat na nejaku podmienku - proste nastanu v znamy cas
+    (viz _pending_events_with_scope pre oba zdroje). Spusti mimoriadny cyklus
+    pre VSETKY aktivne assety (FOMC/CPI/NFP) alebo LEN pre asset, ktory
+    udalost sam zaznacil (Claudom pridane udalosti), max
+    config.MACRO_EVENT_MAX_TRIGGERS_PER_HOUR udalosti za hodinu (bezpecnostna
+    poistka pri nahodnom zhluku) - zvysok sa spracuje na buducich tikoch, kym
+    sa hodinove okno neposunie. "Pauza po poslednom" nepotrebuje vlastnu
+    logiku - _is_due() v trade_cycle.py uz prirodzene zablokuje dalsi bezny
+    tik daneho assetu, kym neuplynie jeho vlastny interval."""
+    now = datetime.now(timezone.utc)
+    pending = _pending_events_with_scope(session, now)
+    if not pending:
+        return
+
+    already_triggered = {row.event_key for row in session.query(TriggeredMacroEvent).all()}
+    due = [e for e in pending if e["key"] not in already_triggered]
+    if not due:
+        return
+
+    hour_ago = now - timedelta(hours=1)
+    triggered_this_hour = session.query(TriggeredMacroEvent).filter(
+        TriggeredMacroEvent.triggered_at >= hour_ago,
+    ).count()
+    budget = config.MACRO_EVENT_MAX_TRIGGERS_PER_HOUR - triggered_this_hour
+    if budget <= 0:
+        print(f"[watch_monitor] Makro udalosti cakaju ({[e['key'] for e in due]}), "
+              f"ale hodinovy limit ({config.MACRO_EVENT_MAX_TRIGGERS_PER_HOUR}) je vycerpany - skusim dalsi tik.")
+        return
+
+    due.sort(key=lambda e: e["datetime_utc"])
+    for event in due[:budget]:
+        key = event["key"]
+        if event["symbol"] is None:
+            target_assets = assets.enabled_assets()
+            scope_label = "vsetky aktivne assety"
+        else:
+            target_assets = [a for a in assets.enabled_assets() if a["strike_symbol"] == event["symbol"]]
+            scope_label = event["symbol"]
+        print(f"[watch_monitor] Makro udalost {key} - spustam mimoriadne cykly pre {scope_label}.")
+        # Zapisane HNED (pred behom cyklov), aby sa pri padnutom procese
+        # uprostred slucky nizsie nespustala tato udalost znova od zaciatku.
+        session.add(TriggeredMacroEvent(event_key=key))
+        session.commit()
+        for asset in target_assets:
+            try:
+                trade_cycle.run_triggered_check(asset, macro_event=event["name"])
+            except Exception as e:
+                print(f"[watch_monitor] [{asset['name']}] mimoriadny cyklus po {key} zlyhal: {e}")
+
+
 def check_watch_triggers() -> None:
     print(f"\n=== [watch_monitor] {datetime.now(timezone.utc).isoformat()} ===")
     session = get_session()
     try:
         _check_manual_close_requests(session)
+        _check_macro_events(session)
 
         # Jeden zdielany /v2/markets request pre vsetky assety naraz (rovnaky
         # vzor ako position_monitor.check_open_trades() pre /v2/positions) -

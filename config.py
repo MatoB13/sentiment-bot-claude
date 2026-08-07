@@ -62,6 +62,12 @@ MONITOR_INTERVAL_MINUTES = _float("MONITOR_INTERVAL_MINUTES", 10)
 # dodatocne synchronizuje DB zaznam).
 WATCH_INTERVAL_MINUTES = _float("WATCH_INTERVAL_MINUTES", 1)
 POSITION_MAX_HOURS = _float("POSITION_MAX_HOURS", 24)
+# Bezpecnostna poistka pri zhluku makro udalosti (viz macro_calendar.py +
+# watch_monitor._check_macro_events) - max. kolko mimoriadnych "vsetky assety"
+# behov sa spusti za poslednu hodinu. "Pauza po poslednom" netreba samostatnu
+# premennu - _is_due() uz prirodzene zablokuje dalsi bezny tik, kym neuplynie
+# dany asset {TICKER}_TRADE_INTERVAL_HOURS/OFF_HOURS/WEEKEND.
+MACRO_EVENT_MAX_TRIGGERS_PER_HOUR = _int("MACRO_EVENT_MAX_TRIGGERS_PER_HOUR", 3)
 
 # --- NIZSIE (MIN_CONFIDENCE/MARGIN_USD/LEVERAGE/DEFAULT_SL_PCT/DEFAULT_TP_PCT/
 # TRADE_INTERVAL_HOURS/OFF_HOURS_INTERVAL_HOURS/WEEKEND_INTERVAL_HOURS) su od

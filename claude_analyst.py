@@ -29,6 +29,52 @@ _RETRYABLE_STATUS = {502, 503, 504, 520, 521, 522, 523, 524, 529}
 _MAX_API_RETRIES = 2
 _API_RETRY_DELAY_SECONDS = 60
 
+# Zdielane medzi DECISION_TOOL a POSITION_HEALTH_TOOL - Claudom priebezne
+# udrziavany doplnok k rucne udrzovanemu macro_calendar.py (FOMC/CPI/NFP,
+# overene z oficialnych zdrojov). Na rozdiel od tych (vsetky aktivne assety)
+# sa udalost zaznacena TU spusti LEN pre asset, ktoreho cyklus ju zaznacil
+# (viz trade_cycle._save_flagged_macro_event + watch_monitor._check_macro_events) -
+# je typicky specificka pre tento konkretny nastroj (OPEC+ pre WTI, earnings
+# pre NVDA, bezpecnostny deadline pre NIGHT a pod.), nie sirsi makro event.
+_UPCOMING_MACRO_EVENT_PROPERTY = {
+    "type": "object",
+    "properties": {
+        "name": {
+            "type": "string",
+            "description": "Kratky nazov udalosti (napr. 'FOMC', 'OPEC+ stretnutie', 'NVDA Q3 earnings', 'White-hat bounty deadline').",
+        },
+        "datetime_utc": {
+            "type": "string",
+            "description": (
+                "Presny datum a cas v UTC, ISO 8601 (napr. '2026-09-04T12:30:00Z'). Ak nepoznas "
+                "presny cas, pouzi '00:00:00Z' daneho dna."
+            ),
+        },
+        "scope": {
+            "type": "string", "enum": ["this_asset", "all_assets"],
+            "description": (
+                "'this_asset' (default, pouzi ked si nie isty) = udalost je SPECIFICKA pre TENTO "
+                "nastroj (OPEC+ pre ropu, earnings, bezpecnostny/regulacny deadline a pod.) - "
+                "mimoriadny cyklus sa spusti LEN preň. 'all_assets' = SIROKY makro event relevantny "
+                "pre VSETKY sledovane tickery (napr. FOMC rozhodnutie, CPI, NFP, alebo iny "
+                "trh-siroky event) - mimoriadny cyklus sa spusti pre kazdy aktivny asset naraz, "
+                "takze pouzi 'all_assets' len ked si tym skutocne isty."
+            ),
+        },
+    },
+    "required": ["name", "datetime_utc"],
+    "description": (
+        "VOLITELNE - vypln LEN ak si TENTO cyklus cez web_search zistil KONKRETNY presny "
+        "datum/cas VYZNAMNEJ nadchadzajucej udalosti (nie bezny sum - MUSI byt skutocne "
+        "vyznamna, pretoze spusti mimoriadny analyticky cyklus HNED pri jej case, teda realny "
+        "naklad). Toto je jediny sposob, akym sa kalendar znamych udalosti (FOMC/CPI/NFP a inych "
+        "vyznamnych terminov) priebezne udrziava - NIKTO ho rucne nedopĺňa, takze ak zistis presny "
+        "datum dolezitej buducej udalosti, zaznac ju. Ak uz vies, ze si tuto konkretnu udalost "
+        "(rovnaky nazov aj datum) v minulom cykle uz zaznacil, znova ju VYNECHAJ (zbytocna "
+        "duplicita)."
+    ),
+}
+
 DECISION_TOOL = {
     "name": "submit_trade_decision",
     "description": (
@@ -141,6 +187,7 @@ DECISION_TOOL = {
                     "hodnotenie tej PREDCHÁDZAJÚCEJ. Ak sekcia chýba, toto pole VYNECHAJ."
                 ),
             },
+            "upcoming_macro_event": _UPCOMING_MACRO_EVENT_PROPERTY,
         },
         "required": ["direction", "confidence", "stop_loss_price", "take_profit_price",
                      "reasoning", "key_assumptions"],
@@ -188,6 +235,7 @@ POSITION_HEALTH_TOOL = {
                     "obchodnom rozhodnutí)."
                 ),
             },
+            "upcoming_macro_event": _UPCOMING_MACRO_EVENT_PROPERTY,
         },
         "required": ["recommendation", "expected_direction", "reasoning", "key_assumptions"],
     },
@@ -528,6 +576,12 @@ Pravidlá:
   pohľade malo byť LONG/SHORT. POZOR: jeden deň je veľmi malá vzorka - nerob z toho drastické
   závery, len opatrný postreh (ale ak sa vzor opakuje cez viac dní v summary_reflection, ber to
   vážnejšie). Ak túto sekciu v user správe nedostaneš, obe polia vynechaj.
+- Pri tomto istom DENNOM cykle ("Nové štatistiky za včerajšok" sekcia) navyše cieleným web_search
+  dotazom preveruj, či nie sú známe konkrétne dátumy VÝZNAMNÝCH nadchádzajúcich udalostí v horizonte
+  približne najbližších 30-60 dní (napr. ďalší termín FOMC/CPI/NFP, OPEC+ stretnutie, dôležité
+  earnings, regulačný/bezpečnostný deadline) - ak nájdeš konkrétny dátum, zaznač ho cez
+  `upcoming_macro_event` (viz jeho popis). Toto je jediný spôsob, akým sa kalendár takýchto udalostí
+  priebežne udržiava - nikto ho ručne nedopĺňa.
 - Po dokončení (prípadného) vyhľadávania zavolaj nástroj `submit_trade_decision` s finálnym
   rozhodnutím - to je jediný spôsob, ako rozhodnutie odovzdať.
 """
@@ -607,7 +661,8 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                         marketaux_news: list[dict] | None = None,
                         confidence_streak: dict | None = None,
                         open_position: dict | None = None,
-                        closed_trade: dict | None = None) -> str:
+                        closed_trade: dict | None = None,
+                        macro_event: str | None = None) -> str:
     instrument = asset["name"]
     social_block = "\n".join(
         f"- ({p.get('likes')}♥/{p.get('retweets')}rt) {p.get('text')}"
@@ -757,6 +812,16 @@ Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/sp
 {streak_block}
 {retro_block}"""
 
+    macro_event_block = ""
+    if macro_event:
+        macro_event_block = f"""## Práve zverejnená makro udalosť: {macro_event}
+Toto je mimoriadny cyklus spustený HNEĎ po plánovanom čase zverejnenia {macro_event} (nie bežný
+interval). Ako PRVÝ krok cez web_search over presné aktuálne číslo/výsledok a ako naň trh
+zareagoval - dotaz MUSÍ obsahovať "{macro_event}" a dnešný dátum. Až potom pokračuj bežným
+vyhodnotením.
+
+"""
+
     if open_position:
         op = open_position
         direction_label = "LONG" if (op["direction"] or "").lower() == "long" else "SHORT"
@@ -773,7 +838,7 @@ predpokladov, nie len na cenu nástroja). Na základe toho posúď, či očakáv
 vyvíjať V PROSPECH tejto pozície alebo PROTI nej, a či by mal používateľ zvážiť jej manuálne
 zatvorenie. SL/TP na burze zostávajú bez zmeny bez ohľadu na tvoju odpoveď - zatvorenie NEVYKONÁVAŠ
 TY, len odporúčaš človeku, ktorý sa rozhodne sám."""
-        return f"{header}\n{position_block}\n"
+        return f"{header}\n{macro_event_block}{position_block}\n"
 
     closed_trade_block = ""
     if closed_trade:
@@ -792,7 +857,7 @@ pokračujúcu v rovnakom smere (ak trend drží) alebo opačnú (ak sa obraz oto
 """
 
     return f"""{header}
-{closed_trade_block}## Cielove SL/TP vzdialenosti
+{macro_event_block}{closed_trade_block}## Cielove SL/TP vzdialenosti
 Stop-loss cca {asset['sl_pct']}% od aktuálnej ceny, take-profit cca {asset['tp_pct']}%
 (pri LONG: stop_loss_price = last_price * (1 - {asset['sl_pct']}/100), take_profit_price =
 last_price * (1 + {asset['tp_pct']}/100); pri SHORT opačne). Môžeš sa mierne odchýliť podľa
@@ -815,7 +880,8 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
             eia_data: dict | None = None,
             marketaux_news: list[dict] | None = None,
             confidence_streak: dict | None = None,
-            closed_trade: dict | None = None) -> tuple[dict, list[dict]]:
+            closed_trade: dict | None = None,
+            macro_event: str | None = None) -> tuple[dict, list[dict]]:
     """Vrati (decision, web_search_log). web_search_log je zoznam
     {"query": str, "sources": [{"title", "url", "page_age"}]} pre kazde
     vyhladavanie, ktore Claude spravil - sluzi na audit (co realne citas,
@@ -844,7 +910,7 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
                                       retrospective_reflection, new_stats_text,
                                       fred_macro, eia_data, marketaux_news,
                                       confidence_streak, open_position=None,
-                                      closed_trade=closed_trade)
+                                      closed_trade=closed_trade, macro_event=macro_event)
     decision, web_search_log = _call_claude(asset, system_blocks, user_prompt,
                                              DECISION_TOOL, "submit_trade_decision")
     _validate_decision(decision)
@@ -859,7 +925,8 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                              retrospective_reflection: str | None = None,
                              fred_macro: dict | None = None,
                              eia_data: dict | None = None,
-                             marketaux_news: list[dict] | None = None) -> tuple[dict, list[dict]]:
+                             marketaux_news: list[dict] | None = None,
+                             macro_event: str | None = None) -> tuple[dict, list[dict]]:
     """Ako analyze(), ale pre UZ OTVORENU poziciu (viz
     trade_cycle._run_position_health_check) - namiesto rozhodnutia o novom
     obchode (direction/SL/TP) sa Claude vyjadri, ci povodne predpoklady este
@@ -875,7 +942,8 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                                       btc_proxy, prev_assumptions, prev_cycle_time,
                                       retrospective_reflection, None,
                                       fred_macro, eia_data, marketaux_news,
-                                      confidence_streak=None, open_position=open_position)
+                                      confidence_streak=None, open_position=open_position,
+                                      macro_event=macro_event)
     decision, web_search_log = _call_claude(asset, system_blocks, user_prompt,
                                              POSITION_HEALTH_TOOL, "submit_position_health_check")
     _validate_health_decision(decision)

@@ -118,6 +118,12 @@ class CycleLog(Base):
     reviewed_trade_id = Column(Integer, nullable=True)
     closed_trade_reflection = Column(String, nullable=True)
 
+    # Ak tento cyklus bol vyvolany mimoriadne kvoli PRAVE zverejnenej makro
+    # udalosti (FOMC/CPI/NFP - viz macro_calendar.py + watch_monitor.
+    # _check_macro_events), nazov tej udalosti (napr. "CPI"). None pre bezne
+    # naplanovane cykly.
+    triggered_by_macro_event = Column(String, nullable=True)
+
     outcome = Column(String)            # opened | rejected | error | skipped | disabled | position_check
     reject_reason = Column(String, nullable=True)
 
@@ -186,6 +192,40 @@ class PriceBar(Base):
     high = Column(Float, nullable=False)
     low = Column(Float, nullable=False)
     close = Column(Float, nullable=False)
+
+
+class TriggeredMacroEvent(Base):
+    """Zaznamenava, ktore makro udalosti (FOMC/CPI/NFP - viz macro_calendar.py)
+    uz spustili mimoriadny cyklus, aby sa ta ista udalost nespustala opakovane
+    na kazdom dalsom watch_monitor tiku po jej case - viz
+    watch_monitor._check_macro_events. DB (nie in-memory flag), aby to
+    prezilo aj redeploy procesu."""
+    __tablename__ = "triggered_macro_events"
+
+    id = Column(Integer, primary_key=True)
+    event_key = Column(String, nullable=False, unique=True)  # napr. "CPI_2026-08-12"
+    triggered_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class FlaggedMacroEvent(Base):
+    """Vyznamne makro udalosti s presnym znamym datumom, ktore Claude SAM
+    identifikoval pocas beznej analyzy (cez web_search TOHTO cyklu, nie z
+    pamate) - viz claude_analyst DECISION_TOOL/POSITION_HEALTH_TOOL pole
+    'upcoming_macro_event' a trade_cycle._save_flagged_macro_event. Doplnok k
+    rucne udrzovanemu macro_calendar.MACRO_EVENTS (FOMC/CPI/NFP, overene z
+    oficialnych zdrojov) - pokryva OSTATNE vyznamne udalosti (OPEC+ stretnutia,
+    dolezite earnings, volby, ine centralne banky...), ktore sa nedaju vopred
+    vsetky rucne vymenovat, ale Claude ich priebezne pri svojej beznej praci
+    zachyti. watch_monitor._check_macro_events oba zdroje zlucuje pri vyhodnocovani,
+    ci uz nastal cas nejakej udalosti."""
+    __tablename__ = "flagged_macro_events"
+
+    id = Column(Integer, primary_key=True)
+    event_key = Column(String, nullable=False, unique=True)  # nazov + datum, napr. "OPEC+_2026-09-01"
+    name = Column(String, nullable=False)
+    datetime_utc = Column(DateTime, nullable=False)
+    flagged_by_symbol = Column(String, nullable=True)  # ktory asset/cyklus to prvy zaznacil
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 def _ensure_columns(engine) -> None:

@@ -18,7 +18,7 @@ import retrospective
 import risk_manager
 import social_sentiment
 import strike_client
-from db import CycleLog, DailyRetrospective, RollingRetrospective, Trade, get_session
+from db import CycleLog, DailyRetrospective, FlaggedMacroEvent, RollingRetrospective, Trade, get_session
 
 
 # Tolerancia na scheduler jitter/spracovanie predchadzajucich assetov v tom
@@ -198,8 +198,55 @@ def _get_retrospective_context(asset: dict, session) -> tuple[str | None, str | 
     return retrospective_reflection, retrospective.format_stats_for_prompt(stats), stats
 
 
+def _save_flagged_macro_event(event: dict | None, symbol: str, session) -> None:
+    """Ak Claude tento cyklus vratil upcoming_macro_event (viz claude_analyst
+    DECISION_TOOL/POSITION_HEALTH_TOOL - vyznamna nadchadzajuca udalost, ktoru
+    SAM zistil cez web_search), ulozi ju do FlaggedMacroEvent (ak uz tam nie
+    je) - watch_monitor._check_macro_events ju neskor spusti. scope="this_asset"
+    (default) = flagged_by_symbol=TENTO asset (spusti sa LEN preň).
+    scope="all_assets" = flagged_by_symbol=None (spusti vsetky aktivne assety,
+    rovnaky mechanizmus ako macro_calendar.py FOMC/CPI/NFP) - takto Claude
+    priebezne SAM udrziava aj SIROKY makro kalendar, nie len assety-specificke
+    udalosti (viz diskusia s pouzivatelom 2026-08: nechce rucne dopĺňat
+    macro_calendar.py, chce aby to Claude robil sam prubezne). Nikdy nezhodi
+    cely cyklus - chybne formatovany datum len zaloguje a ignoruje (Claude sa
+    mohol pomylit vo formate, nie je to fatalne)."""
+    if not event or not event.get("name") or not event.get("datetime_utc"):
+        return
+    try:
+        dt = datetime.fromisoformat(str(event["datetime_utc"]).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+    except ValueError as e:
+        print(f"[trade_cycle] Neplatny upcoming_macro_event.datetime_utc "
+              f"({event.get('datetime_utc')!r}): {e}, ignorujem.")
+        return
+
+    now = datetime.now(timezone.utc)
+    # Zdravorozumova poistka proti zjavne chybnemu datumu (napr. zly rok) -
+    # udalost by nemala byt v minulosti (dopredu tolerujeme malu rezervu pre
+    # timezone chyby) ani prilis daleko v buducnosti.
+    if dt < now - timedelta(hours=1) or dt > now + timedelta(days=180):
+        print(f"[trade_cycle] upcoming_macro_event '{event['name']}' ma podozrivy "
+              f"datum ({dt.isoformat()}), ignorujem.")
+        return
+
+    target_symbol = None if event.get("scope") == "all_assets" else symbol
+    key = (f"{event['name']}_{dt.date().isoformat()}" if target_symbol is None
+           else f"{event['name']}_{dt.date().isoformat()}_{target_symbol}")
+    exists = session.query(FlaggedMacroEvent.id).filter(FlaggedMacroEvent.event_key == key).first()
+    if exists:
+        return
+    session.add(FlaggedMacroEvent(
+        event_key=key, name=event["name"], datetime_utc=dt, flagged_by_symbol=target_symbol,
+    ))
+    scope_label = "vsetky assety" if target_symbol is None else target_symbol
+    print(f"[trade_cycle] Nova makro udalost zaznacena Claudom: {key} ({dt.isoformat()}, scope={scope_label})")
+
+
 def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dict, market_session: dict,
-                                btc_proxy: dict | None, fred_macro: dict | None, session) -> None:
+                                btc_proxy: dict | None, fred_macro: dict | None, session,
+                                macro_event: str | None = None) -> None:
     """Ked uz je otvorena pozicia, namiesto predosleho ticheho 'skipped' zaznamu
     (2026-08 spatna vazba pouzivatela: chcel Claudeho priebezny nazor na
     otvorenu poziciu, nie len zahltenu historiu signalov bez obsahu) spustime
@@ -288,7 +335,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         health, web_search_log = claude_analyst.analyze_position_health(
             asset, open_position, ta, cross_market, market_session, social, btc_proxy,
             prev_assumptions, prev_cycle_time, retrospective_reflection,
-            fred_macro, eia_data, marketaux_news,
+            fred_macro, eia_data, marketaux_news, macro_event,
         )
     except Exception as e:
         print(f"[{name}] Position health check zlyhal: {e}")
@@ -301,6 +348,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         return
 
     print(f"[{name}] Position health check: {health}")
+    _save_flagged_macro_event(health.get("upcoming_macro_event"), symbol, session)
     session.add(CycleLog(
         symbol=symbol, live_price=live_price, ta=ta, cross_market=cross_market,
         session_data=market_session, config_snapshot=_config_snapshot(asset),
@@ -314,6 +362,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         web_search_log=web_search_log, health_recommendation=health.get("recommendation"),
         health_expected_direction=health.get("expected_direction"),
         trade_id=open_trade.id,
+        triggered_by_macro_event=macro_event,
     ))
     session.commit()
 
@@ -321,7 +370,8 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
 def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                          btc_proxy: dict | None, fred_macro: dict | None = None,
                          skip_due_check: bool = False,
-                         closed_trade: dict | None = None) -> None:
+                         closed_trade: dict | None = None,
+                         macro_event: str | None = None) -> None:
     """Kompletny cyklus pre JEDEN asset - vlastna DB session/commit, aby chyba
     v jednom assete neponechala nedokoncenu transakciu pre dalsi.
 
@@ -339,7 +389,15 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
     entry_price/exit_price/hours_held/pnl_usd/close_reason o PRAVE zatvorenej
     pozicii, ktory sa vlozi do promptu (viz claude_analyst) a Claude popri
     beznom otvaracom rozhodnuti zaroven zhodnoti, ci bolo zatvorenie spravne
-    timeovane (closed_trade_reflection)."""
+    timeovane (closed_trade_reflection).
+
+    macro_event: ak nie None, tento beh bol vyvolany PRAVE zverejnenou makro
+    udalostou s pevne znamym casom (FOMC/CPI/NFP - viz macro_calendar.py +
+    watch_monitor._check_macro_events), napr. "CPI". Vlozi sa do promptu
+    (viz claude_analyst), aby Claude vedel, PRECO cyklus bezi mimo bezneho
+    intervalu a cielene si to cez web_search overil. Nezavisle od closed_trade
+    (obe sa mozu teoreticky zisst v tom istom cykle, ak makro udalost prijde
+    tesne po zatvoreni pozicie)."""
     name = asset["name"]
     symbol = asset["strike_symbol"]
     print(f"\n--- [{name}] ---")
@@ -357,7 +415,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
         ).first()
         if open_trade:
             _run_position_health_check(asset, open_trade, cross_market, market_session, btc_proxy,
-                                        fred_macro, session)
+                                        fred_macro, session, macro_event)
             return
 
         try:
@@ -429,7 +487,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 prev_assumptions, prev_cycle_time,
                 retrospective_reflection, new_stats_text,
                 fred_macro, eia_data, marketaux_news,
-                confidence_streak, closed_trade,
+                confidence_streak, closed_trade, macro_event,
             )
         except Exception as e:
             print(f"[{name}] Claude analyza zlyhala, preskakujem cyklus: {e}")
@@ -443,6 +501,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             return
         print(f"[{name}] Claude rozhodnutie: {decision}")
         print(f"[{name}] Web search log: {web_search_log}")
+        _save_flagged_macro_event(decision.get("upcoming_macro_event"), symbol, session)
 
         if pending_stats:
             for_date = pending_stats["for_date"]
@@ -492,6 +551,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             data_issue=decision.get("data_issue"),
             reviewed_trade_id=closed_trade["trade_id"] if closed_trade else None,
             closed_trade_reflection=decision.get("closed_trade_reflection"),
+            triggered_by_macro_event=macro_event,
         )
 
         try:
@@ -589,20 +649,29 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
         session.close()
 
 
-def run_triggered_check(asset: dict, closed_trade: dict | None = None) -> None:
+def run_triggered_check(asset: dict, closed_trade: dict | None = None,
+                         macro_event: str | None = None) -> None:
     """Mimoriadny cyklus LEN pre jeden asset, mimo bezneho zdielaneho hodinoveho
     tiku - vola ho watch_monitor.py (watch_price/watch_direction podmienka
-    splnena) alebo position_monitor.py (post-close review - viz closed_trade
-    nizsie). Makro data (cross-market/session/BTC proxy) sa fetchuju cerstvo -
-    yfinance je zdarma, takze jediny realny naklad tu je samotne Claude
-    volanie v run_cycle_for_asset - presne to je zmysel: platit za mimoriadnu
-    analyzu len ked sa sledovana podmienka NAOZAJ splni, nie podla casu.
+    splnena ALEBO macro_event - viz nizsie) alebo position_monitor.py
+    (post-close review - viz closed_trade nizsie). Makro data (cross-market/
+    session/BTC proxy) sa fetchuju cerstvo - yfinance je zdarma, takze jediny
+    realny naklad tu je samotne Claude volanie v run_cycle_for_asset - presne
+    to je zmysel: platit za mimoriadnu analyzu len ked sa sledovana podmienka
+    NAOZAJ splni, nie podla casu.
 
     closed_trade: viz run_cycle_for_asset - ak nastavene, ide o post-close
-    review (nie watch trigger)."""
+    review (nie watch trigger).
+    macro_event: viz run_cycle_for_asset - ak nastavene, ide o beh vyvolany
+    prave zverejnenou makro udalostou (FOMC/CPI/NFP)."""
     name = asset["name"]
-    print(f"[trade_cycle] [{name}] mimoriadny beh "
-          f"({'post-close review' if closed_trade else 'watch trigger'})")
+    if macro_event:
+        trigger_label = f"makro udalost {macro_event}"
+    elif closed_trade:
+        trigger_label = "post-close review"
+    else:
+        trigger_label = "watch trigger"
+    print(f"[trade_cycle] [{name}] mimoriadny beh ({trigger_label})")
     try:
         cross_market = market_data.get_cross_market_snapshot()
         market_session = market_data.get_session_snapshot()
@@ -624,7 +693,7 @@ def run_triggered_check(asset: dict, closed_trade: dict | None = None) -> None:
         print(f"[trade_cycle] [{name}] FRED fetch zlyhal (pokracujem bez neho): {e}")
 
     run_cycle_for_asset(asset, cross_market, market_session, btc_proxy, fred_macro,
-                         skip_due_check=True, closed_trade=closed_trade)
+                         skip_due_check=True, closed_trade=closed_trade, macro_event=macro_event)
 
 
 def _mark_disabled_assets() -> None:
