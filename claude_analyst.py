@@ -1,5 +1,5 @@
 """
-Zavola Claude (Anthropic API) s TA kontextom pre dany asset (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC).
+Zavola Claude (Anthropic API) s TA kontextom pre dany asset (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC/HYPE/SKHYNIX).
 Claude si sam (podla potreby) vyhlada cerstve spravy cez vstavany server-side
 web_search nastroj (ziadny NewsAPI kluc netreba) a vrati strukturovane
 rozhodnutie. System aj user prompt su parametrizovane podla assets.py profilu -
@@ -376,6 +376,64 @@ _ENERGY_MACRO_RULES = """- **Ponuka (OPEC+/produkcia)**: Rozhodnutia OPEC+ o ťa
   Cez web_search over nedávne výroky s priamym dopadom na dodávky/geopolitiku Blízkeho východu,
   rovnako ako pri inom Event Risk Gate scenári."""
 
+_HYPE_MACRO_RULES = """- **Buyback/Assistance Fund mechanizmus**: Hyperliquid protokol používa časť obchodných poplatkov
+  na priebežný spätný odkup {instrument} cez tzv. Assistance Fund - toto je štrukturálny býčí
+  mechanizmus priamo naviazaný na obchodný objem protokolu (nie len sentiment). Over cez web_search
+  najnovšie čísla objemu odkupov, ak sú dostupné.
+- **TVL/obchodný objem na Hyperliquid DEX**: Rastúci objem/TVL na samotnej burze = vyššie poplatkové
+  príjmy = silnejší buyback tlak (fundamentálny driver, nie len naratív). Klesajúci objem je opačný
+  signál.
+- **HIP governance návrhy**: Hyperliquid Improvement Proposals (nové listingy, zmeny poplatkovej
+  štruktúry, protokolové upgrady) sa hlasujú cez governance - významný schválený/zamietnutý HIP môže
+  hýbať cenou.
+- **Harmonogram token unlockov**: Pravidelné odomykanie tokenov tímu/investorov vytvára periodický
+  predajný tlak - over cez web_search najbližšie plánované dátumy unlockov.
+- **HyperEVM ekosystém**: Rast/pokles aktivity aplikácií nasadených na Hyperliquid vlastnej EVM
+  vrstve je stredno dobý naratív o zdraví celého ekosystému, nie len samotnej burzy.
+- **Konkurenčná dynamika medzi perp-DEX burzami**: Presuny trhového podielu voči iným perpetuál-DEX
+  protokolom (dYdX, GMX, Aster, Backpack, Jupiter Perps a i.) sú relevantný kontext - Hyperliquid
+  strácajúci dominanciu je medvedí signál nezávisle od širšieho krypto trhu.
+- **Riziko exploitu/decentralizácie**: Hyperliquid mal v minulosti kontroverzie okolo koncentrácie
+  validátorov a správania insurance vaultu pri veľkých pozíciách (napr. JELLY incident) - akýkoľvek
+  nový hack/exploit alebo spor o decentralizáciu je vážne medvedie riziko pre dôveru v protokol.
+- **Nízka korelácia s BTC/širším trhom**: Na rozdiel od bežných altcoinov sa {instrument} correlačne
+  správa relatívne nezávisle od BTC (empiricky overené) - protokol-špecifické správy majú zvyčajne
+  väčšiu váhu než všeobecný krypto sentiment, ale veľké trhové likvidačné kaskády/risk-off eventy
+  ho stále vedia zasiahnuť cez celkovú obchodnú aktivitu na Hyperliquid.
+- **Market Reaction Score**: rovnako dôležité ako inde - porovnaj obsah správy s reálnou cenovou
+  reakciou {instrument}.
+- **Event Risk Gate**: významné HIP hlasovania, blížiace sa token unlocky, protokolové upgrady, a
+  akýkoľvek hack/exploit su kľúčové eventy - pred/počas takého eventu buď výrazne konzervatívnejší
+  (nízka confidence alebo "none")."""
+
+_SKHYNIX_MACRO_RULES = """- **HBM/AI-datacenter capex cyklus - najsilnejší driver**: {instrument} je hlavný dodávateľ HBM3E/
+  HBM4 pamätí pre Nvidia AI GPU - dopyt je priamo naviazaný na Nvidia GPU objednávky/capex plány
+  veľkých cloud firiem. Nvidia earnings/guidance (aj keď sa netýkajú priamo {instrument}) sú
+  SILNÝ leading indicator - sleduj ich rovnako pozorne ako vlastné správy o {instrument}.
+- **DRAM/NAND komoditný cenový cyklus**: Pamäťové čipy majú historicky výrazný boom-bust cyklus
+  (spotové/kontraktové ceny DRAM/NAND) nezávislý od AI-špecifického HBM dopytu - over aktuálny
+  trend cien pamätí, ak je dostupný.
+- **Konkurencia v HBM pretekoch**: Samsung a Micron sú priami konkurenti v dodávkach pokročilej
+  pamäte - správy o ich výťažnosti/kvalifikácii u Nvidie priamo ovplyvňujú trhový podiel a teda aj
+  {instrument}.
+- **US-Čína exportné obmedzenia na polovodiče**: Nové/sprísnené obmedzenia môžu byť protivietor
+  (strata čínskeho trhu) AJ vietor v chrbát (presmerovanie dopytu mimo Číny, menšia konkurencia od
+  čínskych výrobcov) - over konkrétny dopad danej správy, nie len automaticky negatívnu reakciu.
+  Vyjadrenia americkej administratívy k obchodnej politike/clám na čipy vedia bez varovania pohnúť
+  sentimentom - over cez web_search nedávne výroky s dopadom na polovodičový sektor.
+- **Kórejský won (KRW) a Korea Exchange (KRX) seansa**: {instrument} sa obchoduje v KRW na KRX
+  (seansa cca 00:00-06:30 UTC, MIMO amerického NYSE okna) - správy z amerického nočného/večerného
+  US session (napr. Nvidia earnings zverejnené po US close) sa do ceny {instrument} často premietnu
+  až pri JEHO ďalšom otvorení KRX seansy, nie okamžite. Zohľadni tento časový posun pri hodnotení,
+  ako "čerstvá" je cenová reakcia na danú správu.
+- **Vlastné štvrťročné výsledky/guidance**: Kapex plány a HBM produkčná kapacita oznámené pri
+  vlastných earnings sú priamy signál.
+- **Market Reaction Score**: rovnako dôležité ako inde - porovnaj obsah správy s reálnou cenovou
+  reakciou {instrument}.
+- **Event Risk Gate**: Nvidia earnings, vlastné earnings {instrument}, oznámenia US exportných
+  obmedzení/ciel na polovodiče, a väčšie zmeny kontraktových cien HBM/DRAM sú kľúčové eventy - pred/
+  počas takého eventu buď výrazne konzervatívnejší (nízka confidence alebo "none")."""
+
 ASSET_TEXT = {
     "NAS100": {
         "label": "index NAS100 (Nasdaq-100)",
@@ -450,10 +508,33 @@ ASSET_TEXT = {
         ),
         "macro_rules": _BTC_MACRO_RULES,
     },
+    "HYPE": {
+        "label": "krypto HYPE (Hyperliquid, natívny token perpetuál-DEX protokolu) perpetuál",
+        "news_focus": (
+            'správach o Hyperliquid protokole (Assistance Fund buyback objem, TVL/obchodný objem '
+            'na burze, schválené/navrhované HIP governance návrhy, harmonogram token unlockov, '
+            'rast HyperEVM ekosystému), konkurenčnej dynamike voči iným perp-DEX burzám (dYdX, GMX, '
+            'Aster, Backpack, Jupiter Perps), akýchkoľvek bezpečnostných incidentoch/sporoch o '
+            'decentralizáciu validátorov, a širšom krypto naratíve (BTC dominance, risk-on/off '
+            'sentiment, veľké likvidácie na trhu)'
+        ),
+        "macro_rules": _HYPE_MACRO_RULES,
+    },
+    "SKHYNIX": {
+        "label": "akciu SK Hynix (Korea Exchange, hlavný dodávateľ HBM pamätí pre Nvidia AI GPU)",
+        "news_focus": (
+            'správach o SK Hynix samotnom (earnings, HBM3E/HBM4 kapacita/guidance), Nvidia GPU '
+            'objednávkach a capex pláne veľkých cloud firiem (silný leading indicator dopytu po '
+            'HBM), konkurencii v HBM dodávkach (Samsung, Micron), DRAM/NAND komoditnom cenovom '
+            'cykle, US-Čína exportných obmedzeniach na polovodiče, a kórejskom wone/KRX trhových '
+            'podmienkach'
+        ),
+        "macro_rules": _SKHYNIX_MACRO_RULES,
+    },
 }
 
 # System prompt je rozdeleny na 2 cache_control bloky (viz _system_prompt_blocks nizsie):
-#   1. SYSTEM_PROMPT_SHARED - vseobecna metodika, BYTE-IDENTICKA pre vsetkych 7 tickerov aj
+#   1. SYSTEM_PROMPT_SHARED - vseobecna metodika, BYTE-IDENTICKA pre vsetkych 9 tickerov aj
 #      naprieč casom (ziadne per-asset ani casovo-zavisle dosadzovanie) - cachovana s ttl="1h",
 #      cim sa realne zdiela MEDZI TICKERMI (ADA/NIGHT bezia vzdy kazdu hodinu, takze tento blok
 #      sa precita aspon raz za hodinu a nikdy nevyprsi, aj ked NAS100/GOLD/WTI cez noc/vikend
@@ -638,7 +719,7 @@ skúsený analytik):
 
 def _system_prompt_blocks(asset: dict) -> list[dict]:
     """System prompt ako 2 cache_control bloky (viz komentar nad SYSTEM_PROMPT_SHARED vyssie):
-    zdielana metodika (rovnaka pre vsetkych 7 tickerov, ttl=1h) + per-asset dodatok (nazov/makro
+    zdielana metodika (rovnaka pre vsetkych 9 tickerov, ttl=1h) + per-asset dodatok (nazov/makro
     pravidla/candle format, tiez ttl=1h - pomaha aj bez zdielania medzi tickermi)."""
     text = ASSET_TEXT[asset["name"]]
     btc_proxy_note = ", krypto-makro proxy (BTC)" if asset.get("needs_btc_proxy") else ""

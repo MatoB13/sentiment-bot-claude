@@ -72,7 +72,7 @@ MACRO_EVENT_MAX_TRIGGERS_PER_HOUR = _int("MACRO_EVENT_MAX_TRIGGERS_PER_HOUR", 3)
 # --- NIZSIE (MIN_CONFIDENCE/MARGIN_USD/LEVERAGE/DEFAULT_SL_PCT/DEFAULT_TP_PCT/
 # TRADE_INTERVAL_HOURS/OFF_HOURS_INTERVAL_HOURS/WEEKEND_INTERVAL_HOURS) su od
 # 2026-07-31 LEN interne fallback-cascade konstanty pre vypocet per-ticker
-# defaultov nizsie (NAS100_MIN_CONFIDENCE a pod.) - VSETKYCH 7 tickerov uz ma
+# defaultov nizsie (NAS100_MIN_CONFIDENCE a pod.) - VSETKYCH 9 tickerov uz ma
 # svoju vlastnu explicitne nastavenu premennu na Railway, takze tieto uz
 # NEOVPLYVNUJU ziadne skutocne rozhodnutie za behu. Nenastavuj ich uz priamo
 # na Railway - uprav rovno konkretny {TICKER}_* ekvivalent nizsie.
@@ -83,9 +83,11 @@ DEFAULT_SL_PCT = _float("DEFAULT_SL_PCT", 0.4)
 DEFAULT_TP_PCT = _float("DEFAULT_TP_PCT", 0.6)
 TRADE_INTERVAL_HOURS = _float("TRADE_INTERVAL_HOURS", 4)
 
-# --- Sedem tickerov celkovo: NAS100 (index), NVDA (akcia, POZASTAVENE),
+# --- Devat tickerov celkovo: NAS100 (index), NVDA (akcia, POZASTAVENE),
 # ADA (krypto), GOLD (komodita), WTI (ropa), NIGHT (krypto, Midnight/Cardano),
-# BTC (krypto, Bitcoin).
+# BTC (krypto, Bitcoin), HYPE (krypto, Hyperliquid), SKHYNIX (akcia, Korea
+# Exchange, SK Hynix) - posledne dve pridane 2026-08-07 ako najmenej
+# korelovane assety z korelacnej analyzy celej Strike ponuky (diverzifikacia).
 # Vsetky bezia v tom istom cykle a zdielaju cross-market/session makro fetch
 # (viz assets.py, trade_cycle.run_all_cycles), ale kazdy ma uplne nezavisly
 # risk/poziciu/rozhodnutie/frekvenciu - kazdy ma VLASTNU sadu 8 premennych
@@ -109,18 +111,26 @@ TRADE_INTERVAL_HOURS = _float("TRADE_INTERVAL_HOURS", 4)
 # neobchoduje), takze hodinova analyza tych istych zastaralych dat je zbytocny
 # naklad. Pre 24/7 krypto (ADA/NIGHT) su vsetky tri hodnoty zvycajne rovnake
 # (ziadne skutocne "off hours" preň neexistuju), ale mechanizmus je jednotny
-# pre vsetkych 7 tickerov - dovoluje to napr. neskor predlzit vikendovy
+# pre vsetkych 9 tickerov - dovoluje to napr. neskor predlzit vikendovy
 # interval aj pre ADA/NIGHT bez zmeny kodu.
 #
 # TRADING_HOURS_START_UTC/END_UTC (13-21 = NYSE cash session 9:30-16:00 ET v
-# oboch DST stavoch) ostava jedina skutocne ZDIELANA (nie per-ticker) hodnota -
-# je to fakt o trhovej strukture, nie o preferencii jednotlivého assetu.
+# oboch DST stavoch) je zdielany DEFAULT pre vsetky assety na americkych/
+# 24-7 trhoch. SKHYNIX (Korea Exchange, viz nizsie) je JEDINY asset s inou
+# skutocnou trhovou strukturou (iny kontinent/timezone), preto ma od
+# 2026-08-07 VLASTNY per-asset override (viz assets.py trading_hours_start_utc/
+# end_utc a trade_cycle._required_interval_hours) - bez toho by sa off_hours
+# logika pre SKHYNIX obratila naopak (tiche hodiny NYSE = live KRX seansa).
 TRADING_HOURS_START_UTC = _int("TRADING_HOURS_START_UTC", 13)
 TRADING_HOURS_END_UTC = _int("TRADING_HOURS_END_UTC", 21)
+# KRX regularna seansa je 09:00-15:30 KST (UTC+9, ziadny DST) = 00:00-06:30 UTC,
+# zaokruhlene na cele hodiny rovnako hrubo ako NYSE default vyssie.
+SKHYNIX_TRADING_HOURS_START_UTC = _int("SKHYNIX_TRADING_HOURS_START_UTC", 0)
+SKHYNIX_TRADING_HOURS_END_UTC = _int("SKHYNIX_TRADING_HOURS_END_UTC", 7)
 
 # Interne fallback-cascade konstanty pre {TICKER}_OFF_HOURS_INTERVAL_HOURS/
 # {TICKER}_WEEKEND_INTERVAL_HOURS nizsie (rovnaky status ako MIN_CONFIDENCE a
-# pod. vyssie - vsetkych 7 tickerov uz ma svoju vlastnu explicitnu premennu,
+# pod. vyssie - vsetkych 9 tickerov uz ma svoju vlastnu explicitnu premennu,
 # tieto uz nic za behu neovplyvnuju, nenastavuj ich priamo na Railway).
 OFF_HOURS_INTERVAL_HOURS = _float("OFF_HOURS_INTERVAL_HOURS", 2)
 WEEKEND_INTERVAL_HOURS = _float("WEEKEND_INTERVAL_HOURS", 6)
@@ -131,16 +141,21 @@ ENABLE_GOLD = _bool("ENABLE_GOLD", "true")
 ENABLE_WTI = _bool("ENABLE_WTI", "true")
 ENABLE_NIGHT = _bool("ENABLE_NIGHT", "true")
 ENABLE_BTC = _bool("ENABLE_BTC", "true")
+ENABLE_HYPE = _bool("ENABLE_HYPE", "true")
+ENABLE_SKHYNIX = _bool("ENABLE_SKHYNIX", "true")
 
 # Presny symbol/asset identifikator zisti cez strike_client.get_markets() - toto
 # su len predpoklady podla existujuceho NAS100-USD pomenovacieho vzoru, okrem
-# WTI-USD/NIGHT-USD ktore su priamo overene naozivo v /v2/markets (2026-07-31).
+# WTI-USD/NIGHT-USD/HYPE-USD/SKHYNIX-USD ktore su priamo overene naozivo v
+# /v2/markets (2026-07-31, resp. HYPE/SKHYNIX 2026-08-07).
 STRIKE_NVDA_SYMBOL = os.getenv("STRIKE_NVDA_SYMBOL", "NVDA-USD")
 STRIKE_ADA_SYMBOL = os.getenv("STRIKE_ADA_SYMBOL", "ADA-USD")
 STRIKE_GOLD_SYMBOL = os.getenv("STRIKE_GOLD_SYMBOL", "XAU-USD")
 STRIKE_WTI_SYMBOL = os.getenv("STRIKE_WTI_SYMBOL", "WTI-USD")
 STRIKE_NIGHT_SYMBOL = os.getenv("STRIKE_NIGHT_SYMBOL", "NIGHT-USD")
 STRIKE_BTC_SYMBOL = os.getenv("STRIKE_BTC_SYMBOL", "BTC-USD")
+STRIKE_HYPE_SYMBOL = os.getenv("STRIKE_HYPE_SYMBOL", "HYPE-USD")
+STRIKE_SKHYNIX_SYMBOL = os.getenv("STRIKE_SKHYNIX_SYMBOL", "SKHYNIX-USD")
 
 # ============================== NAS100 ==============================
 # Prve/povodne assety pred multi-asset refaktorom - tieto premenne su nove
@@ -173,7 +188,10 @@ NVDA_WEEKEND_INTERVAL_HOURS = _float("NVDA_WEEKEND_INTERVAL_HOURS", WEEKEND_INTE
 
 # ============================== ADA ==============================
 ADA_MIN_CONFIDENCE = _int("ADA_MIN_CONFIDENCE", MIN_CONFIDENCE)
-ADA_MARGIN_USD = _float("ADA_MARGIN_USD", MARGIN_USD)
+# Znizene z MARGIN_USD (100) na 50 - viz NIGHT/HYPE/SKHYNIX rovnaky dovod
+# nizsie (viac tickerov teraz zdiela jednu penazenku bez koordinacie, viz
+# trade_cycle.py preflight kontrola zostatku pridana 2026-08-08).
+ADA_MARGIN_USD = _float("ADA_MARGIN_USD", 50)
 # Najnizsia paka spomedzi povodnej trojice - najvyssia volatilita.
 ADA_LEVERAGE = _int("ADA_LEVERAGE", 6)
 ADA_SL_PCT = _float("ADA_SL_PCT", 3.5)
@@ -219,7 +237,7 @@ WTI_WEEKEND_INTERVAL_HOURS = _float("WTI_WEEKEND_INTERVAL_HOURS", GOLD_WEEKEND_I
 # cerstvym bezpecnostnym incidentom (Wanchain bridge hack 2026-07-20, ~97%
 # rezerv mostu odcerpanych).
 NIGHT_MIN_CONFIDENCE = _int("NIGHT_MIN_CONFIDENCE", MIN_CONFIDENCE)
-NIGHT_MARGIN_USD = _float("NIGHT_MARGIN_USD", MARGIN_USD)
+NIGHT_MARGIN_USD = _float("NIGHT_MARGIN_USD", 50)
 # MAX povolena paka na Strike pre tento symbol (margin_tiers strop, overene
 # naozivo cez get_market('NIGHT-USD') 2026-07-31) - vedome zvolena aj napriek
 # cerstvemu bezpecnostnemu incidentu.
@@ -251,3 +269,45 @@ BTC_TP_PCT = _float("BTC_TP_PCT", 2.25)
 BTC_TRADE_INTERVAL_HOURS = _float("BTC_TRADE_INTERVAL_HOURS", ADA_TRADE_INTERVAL_HOURS)
 BTC_OFF_HOURS_INTERVAL_HOURS = _float("BTC_OFF_HOURS_INTERVAL_HOURS", BTC_TRADE_INTERVAL_HOURS)
 BTC_WEEKEND_INTERVAL_HOURS = _float("BTC_WEEKEND_INTERVAL_HOURS", BTC_TRADE_INTERVAL_HOURS)
+
+# ============================== HYPE ==============================
+# Pridany 2026-08-07 - Hyperliquid (perpetual-DEX vlastny token), identifikovany
+# ako jeden z 3 najmenej korelovanych assetov naprieč celou ponukou Strike
+# (korelacna analyza s pouzivatelom, ~180d denne vynosy: priemerna |korelacia|
+# 0.09 voci vsetkym ostatnym vratane BTC/ETH) - genuinne diverzifikacny pridavok,
+# nie len dalsi krypto-beta ticker. POZOR: HYPE NIE JE na Binance (HYPEUSDT ani
+# HYPEUSDC neexistuju, overene naozivo 2026-08-07) ani na yfinance ("HYPE-USD"
+# nevracia ziadne data) - viz coingecko_client.py + assets.py coingecko_id
+# pre fallback/backfill OHLC zdroj namiesto zvycajneho yfinance. include_volume
+# preto zamerne FALSE (rovnaky dovod ako WTI - ziaden overeny spolahlivy
+# volume zdroj). SL/TP/leverage su pociatocny odhad medzi ADA a NIGHT
+# (likvidnejsi/etablovanejsi nez NIGHT, ale stale jeden-narrative altcoin) -
+# NIE empiricky backtestovane.
+HYPE_MIN_CONFIDENCE = _int("HYPE_MIN_CONFIDENCE", MIN_CONFIDENCE)
+HYPE_MARGIN_USD = _float("HYPE_MARGIN_USD", 50)
+HYPE_LEVERAGE = _int("HYPE_LEVERAGE", 8)
+HYPE_SL_PCT = _float("HYPE_SL_PCT", 3.5)
+HYPE_TP_PCT = _float("HYPE_TP_PCT", 5.25)
+# Rovnake ako ADA/NIGHT/BTC (dohodnute) - 24/7 krypto.
+HYPE_TRADE_INTERVAL_HOURS = _float("HYPE_TRADE_INTERVAL_HOURS", ADA_TRADE_INTERVAL_HOURS)
+HYPE_OFF_HOURS_INTERVAL_HOURS = _float("HYPE_OFF_HOURS_INTERVAL_HOURS", HYPE_TRADE_INTERVAL_HOURS)
+HYPE_WEEKEND_INTERVAL_HOURS = _float("HYPE_WEEKEND_INTERVAL_HOURS", HYPE_TRADE_INTERVAL_HOURS)
+
+# ============================== SKHYNIX ==============================
+# Pridany 2026-08-07 - SK Hynix (Korea Exchange, hlavny HBM dodavatel pre
+# Nvidia AI GPU) - druhy z 3 najmenej korelovanych assetov (priemerna
+# |korelacia| 0.13, vratane takmer nulovej korelacie s krypto majors aj
+# NAS100/NVDA/MU/TSLA napriek tomu, ze je to tiez "chip" nazov - iny
+# kontinent/timezone/trh). JEDINY asset obchodovany mimo US/24-7 struktury -
+# viz SKHYNIX_TRADING_HOURS_START_UTC/END_UTC vyssie (KRX seansa, NIE zdielany
+# NYSE default). SL/TP/leverage su pociatocny odhad rovnaky ako NVDA (podobny
+# profil - jednotlivy vysoko-volatilny polovodicovy titul), NIE empiricky
+# backtestovane.
+SKHYNIX_MIN_CONFIDENCE = _int("SKHYNIX_MIN_CONFIDENCE", MIN_CONFIDENCE)
+SKHYNIX_MARGIN_USD = _float("SKHYNIX_MARGIN_USD", 50)
+SKHYNIX_LEVERAGE = _int("SKHYNIX_LEVERAGE", 10)
+SKHYNIX_SL_PCT = _float("SKHYNIX_SL_PCT", 1.5)
+SKHYNIX_TP_PCT = _float("SKHYNIX_TP_PCT", 2.25)
+SKHYNIX_TRADE_INTERVAL_HOURS = _float("SKHYNIX_TRADE_INTERVAL_HOURS", TRADE_INTERVAL_HOURS)
+SKHYNIX_OFF_HOURS_INTERVAL_HOURS = _float("SKHYNIX_OFF_HOURS_INTERVAL_HOURS", OFF_HOURS_INTERVAL_HOURS)
+SKHYNIX_WEEKEND_INTERVAL_HOURS = _float("SKHYNIX_WEEKEND_INTERVAL_HOURS", WEEKEND_INTERVAL_HOURS)

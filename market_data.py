@@ -1,6 +1,6 @@
 """
-Ziskanie cenovych dat pre obchodovane assety (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC)
-a vypocet TA indikatorov.
+Ziskanie cenovych dat pre obchodovane assety (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/
+BTC/HYPE/SKHYNIX) a vypocet TA indikatorov.
 
 Primarny zdroj hodinovych OHLC sviecok je VLASTNY poller Strike mark_price
 (price_bars tabulka - viz price_poller.py): na rozdiel od yfinance (futures/
@@ -18,6 +18,7 @@ import pandas_ta as ta
 import yfinance as yf
 
 import binance_client
+import coingecko_client
 from db import PriceBar
 
 # Kolko poslednych hodinovych sviecok posielame Claude ako surovy podklad na
@@ -43,6 +44,27 @@ def fetch_ohlcv(symbol: str = "NQ=F", fallback: str | None = "^NDX",
         df = yf.download(fallback, period=period, interval=interval, progress=False, auto_adjust=True)
     df.columns = [c[0].lower() if isinstance(c, tuple) else c.lower() for c in df.columns]
     return df.dropna()
+
+
+def fetch_ohlcv_coingecko(coin_id: str, days: int = 30) -> pd.DataFrame:
+    """Alternativny fallback/backfill zdroj namiesto fetch_ohlcv() (yfinance) -
+    LEN pre assety bez yfinance/Binance pokrytia (viz coingecko_client.py a
+    assets.py coingecko_id, momentalne len HYPE). Ziadny volume stlpec
+    (endpoint ho neposkytuje) - volajuci si ho v tom pripade doplni ako NaN
+    rovnako ako pri chybajucom yfinance/Binance zapase."""
+    try:
+        rows = coingecko_client.get_ohlc(coin_id, days=days)
+    except Exception as e:
+        print(f"[market_data] CoinGecko OHLC fetch pre {coin_id} zlyhal: {e}")
+        return pd.DataFrame()
+    if not rows:
+        return pd.DataFrame()
+    idx = pd.to_datetime([r["open_time"] for r in rows], unit="ms", utc=True).tz_localize(None)
+    df = pd.DataFrame(
+        [{"open": r["open"], "high": r["high"], "low": r["low"], "close": r["close"]} for r in rows],
+        index=idx,
+    )
+    return df.sort_index()
 
 
 def compute_indicators(df: pd.DataFrame, include_volume: bool = False) -> dict:
@@ -232,6 +254,10 @@ def get_price_history(asset: dict, session) -> pd.DataFrame:
         elif asset.get("include_volume"):
             df = _merge_volume(df, asset["yf_symbol"], asset.get("yf_fallback"))
         return df
+
+    if asset.get("coingecko_id"):
+        print(f"[market_data] {symbol}: vlastne price_bars chybaju/su zastarale, padam spat na CoinGecko.")
+        return fetch_ohlcv_coingecko(asset["coingecko_id"])
 
     print(f"[market_data] {symbol}: vlastne price_bars chybaju/su zastarale, padam spat na yfinance.")
     return fetch_ohlcv(asset["yf_symbol"], asset.get("yf_fallback"))

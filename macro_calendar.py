@@ -2,7 +2,7 @@
 Rucne udrziavany kalendar makro udalosti s PEVNE ZNAMYM casom vopred (na
 rozdiel od cenoveho watch v watch_monitor.py, kde nevieme VOPRED kedy sa
 podmienka splni) - FOMC rozhodnutie, CPI, NFP. Vsetky tri su uz sucastou
-"Event Risk Gate" pravidiel pre VSETKYCH 7 tickerov (viz claude_analyst.py),
+"Event Risk Gate" pravidiel pre VSETKYCH 9 tickerov (viz claude_analyst.py),
 takze pri ich zverejneni ma zmysel spustit mimoriadny cyklus pre kazdy aktivny
 asset namiesto cakania na dalsi bezny tik (viz watch_monitor._check_macro_events).
 

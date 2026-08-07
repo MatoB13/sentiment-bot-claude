@@ -19,9 +19,9 @@ st.set_page_config(page_title="Sentiment Bot (multi-asset)", layout="wide")
 
 ENV_PATH = os.path.join(os.path.dirname(__file__), ".env")
 
-# Skutocne zdielane pre vsetky assety (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC bezia v
-# tom istom cykle). Frekvencia dotazovania (trade/off_hours/weekend interval)
-# je od 2026-07-31 PER-ASSET - viz ASSET_NUMERIC nizsie.
+# Skutocne zdielane pre vsetky assety (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC/HYPE/
+# SKHYNIX bezia v tom istom cykle). Frekvencia dotazovania (trade/off_hours/
+# weekend interval) je od 2026-07-31 PER-ASSET - viz ASSET_NUMERIC nizsie.
 SHARED_NUMERIC = [
     ("TRADING_HOURS_START_UTC", int, "Zaciatok trading hours (UTC hodina)"),
     ("TRADING_HOURS_END_UTC", int, "Koniec trading hours (UTC hodina)"),
@@ -107,6 +107,28 @@ ASSET_NUMERIC = {
         ("BTC_OFF_HOURS_INTERVAL_HOURS", float, "Interval mimo trading hours (hodiny)"),
         ("BTC_WEEKEND_INTERVAL_HOURS", float, "Interval cez vikend (hodiny)"),
     ],
+    "HYPE": [
+        ("HYPE_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
+        ("HYPE_MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
+        ("HYPE_LEVERAGE", int, "Fixna paka (notional = margin x leverage)"),
+        ("HYPE_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
+        ("HYPE_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
+        ("HYPE_TRADE_INTERVAL_HOURS", float, "Interval POCAS trading hours (hodiny) - HYPE je 24/7, defaultne rovnaky ako off_hours/weekend"),
+        ("HYPE_OFF_HOURS_INTERVAL_HOURS", float, "Interval mimo trading hours (hodiny)"),
+        ("HYPE_WEEKEND_INTERVAL_HOURS", float, "Interval cez vikend (hodiny)"),
+    ],
+    "SKHYNIX": [
+        ("SKHYNIX_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
+        ("SKHYNIX_MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
+        ("SKHYNIX_LEVERAGE", int, "Fixna paka (notional = margin x leverage)"),
+        ("SKHYNIX_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
+        ("SKHYNIX_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
+        ("SKHYNIX_TRADE_INTERVAL_HOURS", float, "Interval POCAS trading hours (hodiny) - Korea Exchange seansa (iny UTC blok nez ostatne)"),
+        ("SKHYNIX_OFF_HOURS_INTERVAL_HOURS", float, "Interval mimo trading hours (hodiny)"),
+        ("SKHYNIX_WEEKEND_INTERVAL_HOURS", float, "Interval cez vikend (hodiny)"),
+        ("SKHYNIX_TRADING_HOURS_START_UTC", int, "Zaciatok KRX seansy (UTC hodina) - JEDINY asset s vlastnym oknom, ostatne pouzivaju zdielane TRADING_HOURS_START_UTC vyssie"),
+        ("SKHYNIX_TRADING_HOURS_END_UTC", int, "Koniec KRX seansy (UTC hodina)"),
+    ],
 }
 
 # Spatna kompatibilita s povodnym menom pouzivanym nizsie v kode.
@@ -144,7 +166,7 @@ def reload_app_modules():
     importlib.reload(config)
 
 
-st.title("Sentiment Bot (NAS100 + NVDA + ADA + GOLD + WTI + NIGHT + BTC) — Dashboard")
+st.title("Sentiment Bot (NAS100 + NVDA + ADA + GOLD + WTI + NIGHT + BTC + HYPE + SKHYNIX) — Dashboard")
 
 env_values = load_env()
 
@@ -181,8 +203,8 @@ with tabs[0]:
 
     _render_numeric(SHARED_NUMERIC)
 
-    ASSET_NAMES = ["NAS100", "NVDA", "ADA", "GOLD", "WTI", "NIGHT", "BTC"]
-    OPTIONAL_ASSETS = ["NVDA", "ADA", "GOLD", "WTI", "NIGHT", "BTC"]  # NAS100 beri vzdy, ostatne su ENABLE_* prepinatelne
+    ASSET_NAMES = ["NAS100", "NVDA", "ADA", "GOLD", "WTI", "NIGHT", "BTC", "HYPE", "SKHYNIX"]
+    OPTIONAL_ASSETS = ["NVDA", "ADA", "GOLD", "WTI", "NIGHT", "BTC", "HYPE", "SKHYNIX"]  # NAS100 beri vzdy, ostatne su ENABLE_* prepinatelne
 
     asset_tabs = st.tabs(ASSET_NAMES)
     for asset_name, asset_tab in zip(ASSET_NAMES, asset_tabs):

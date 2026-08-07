@@ -1,4 +1,4 @@
-"""Analyticky/obchodny cyklus pre vsetky aktivne assety (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC).
+"""Analyticky/obchodny cyklus pre vsetky aktivne assety (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC/HYPE/SKHYNIX).
 
 Jeden scheduler tick (viz main.py) = jeden vstup do run_all_cycles(): zdielany
 makro fetch (cross-market/session, pripadne BTC proxy) sa spravi PRESNE RAZ a
@@ -42,10 +42,18 @@ def _required_interval_hours(asset: dict, now: datetime) -> float:
     Pre akcie/futures (NAS100/NVDA/GOLD/WTI) mimo trading hours a cez vikend
     podkladovy trh realne stoji alebo je velmi ticho (NVDA sa cez vikend
     vobec neobchoduje), takze hodinova analyza tych istych zastaralych dat je
-    zbytocny naklad."""
+    zbytocny naklad.
+
+    trading_hours_start_utc/end_utc (2026-08-07) su teraz PER-ASSET (viz
+    assets.py) namiesto priamo config.TRADING_HOURS_*, kedze SKHYNIX
+    (Korea Exchange) ma skutocnu seansu v uplne inych UTC hodinach nez
+    zdielany NYSE default vsetkych ostatnych - pouzitie zdielanej hodnoty by
+    preň off_hours/trade_hours logiku obratilo naopak."""
     if now.weekday() >= 5:  # sobota=5, nedela=6
         return asset["weekend_interval_hours"]
-    if config.TRADING_HOURS_START_UTC <= now.hour < config.TRADING_HOURS_END_UTC:
+    start = asset["trading_hours_start_utc"]
+    end = asset["trading_hours_end_utc"]
+    if start <= now.hour < end:
         return asset["trade_interval_hours"]
     return asset["off_hours_interval_hours"]
 
@@ -86,9 +94,12 @@ def _config_snapshot(asset: dict) -> dict:
         "trade_interval_hours": asset["trade_interval_hours"],
         "off_hours_interval_hours": asset["off_hours_interval_hours"],
         "weekend_interval_hours": asset["weekend_interval_hours"],
+        "trading_hours_start_utc": asset["trading_hours_start_utc"],
+        "trading_hours_end_utc": asset["trading_hours_end_utc"],
         "monitor_interval_minutes": config.MONITOR_INTERVAL_MINUTES,
         "watch_interval_minutes": config.WATCH_INTERVAL_MINUTES,
         "position_max_hours": config.POSITION_MAX_HOURS,
+        "macro_event_max_triggers_per_hour": config.MACRO_EVENT_MAX_TRIGGERS_PER_HOUR,
         "min_confidence": asset["min_confidence"],
         "margin_usd": asset["margin_usd"],
         "leverage": asset["leverage"],
@@ -575,6 +586,35 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
               f"| size={sized['size']} | notional=${sized['notional_usd']} "
               f"| margin=${sized['margin_usd']} | SL={sized['stop_loss_price']} "
               f"| TP={sized['take_profit_price']} | confidence={sized['confidence']}")
+
+        # Preflight kontrola zostatku (2026-08-08) - devat tickerov teraz zdiela
+        # JEDNU penazenku bez ziadneho koordinacneho mechanizmu medzi nimi, takze
+        # ak by viacero assetov chcelo otvorit v tom istom scheduler behu, tie
+        # spracovane neskor mohli doteraz narazit na surovu "insufficient
+        # balance" chybu priamo zo Strike (zachytenu az v except Exception nizsie,
+        # nerozlisitelnu od inej API chyby). Radsej to zistime VOPRED a
+        # zamietneme cisto (rovnaky vzor ako risk_manager.RejectedTrade) - zlyhanie
+        # SAMOTNEJ kontroly (napr. /v2/account nedostupne) nesmie zablokovat
+        # obchod, ktory by inak presiel - vtedy len pokracujeme a necháme Strike
+        # ako finalny backstop.
+        if not config.DRY_RUN:
+            available_balance = None
+            try:
+                available_balance = float(strike_client.get_account()["available_balance"])
+            except Exception as e:
+                print(f"[{name}] Nepodarilo sa zistit dostupny zostatok pred otvorenim ({e}) "
+                      "- pokracujem, Strike API bude finalny backstop.")
+            if available_balance is not None and available_balance < sized["margin_usd"]:
+                print(f"[{name}] Nedostatocny zostatok: potrebna marza ${sized['margin_usd']:.2f}, "
+                      f"dostupnych len ${available_balance:.2f}. Obchod preskakujem.")
+                cycle_log.outcome = "rejected"
+                cycle_log.reject_reason = (
+                    f"insufficient_balance: potrebna marza ${sized['margin_usd']:.2f}, "
+                    f"dostupny zostatok ${available_balance:.2f}"
+                )
+                session.add(cycle_log)
+                session.commit()
+                return
 
         trade = Trade(
             symbol=symbol,

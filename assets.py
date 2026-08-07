@@ -1,5 +1,6 @@
 """
-Registry vsetkych obchodovanych assetov (NAS100 + NVDA + ADA + GOLD + WTI + NIGHT).
+Registry vsetkych obchodovanych assetov (NAS100 + NVDA + ADA + GOLD + WTI +
+NIGHT + BTC + HYPE + SKHYNIX).
 
 Kazdy asset je nezavisly "bot" - vlastna poziciu, vlastny risk (SL/TP%, leverage,
 margin, min_confidence), vlastne rozhodnutie od Claude - ale vsetky bezia v tom
@@ -22,7 +23,18 @@ na rozdiel od yfinance riedkeho ~41% pokrytia pre ADA a takmer ziadneho pre
 NIGHT (viz binance_client.py + market_data._merge_volume_from_binance,
 pridane 2026-08-06). WTI zostava zamerne VYPNUTE - volume kompletnost pre
 WTI (CL=F) cez yfinance nebola empiricky overena ako pri ostatnych, a na
-Binance ropa nie je (nie krypto asset).
+Binance ropa nie je (nie krypto asset). HYPE (2026-08-07) je z rovnakeho
+dovodu VYPNUTE - nie je na Binance ani inom overenom zdroji. SKHYNIX
+(2026-08-07) je ZAPNUTE cez yfinance - pokrytie overene naozivo (~97%).
+
+coingecko_id (2026-08-07, len HYPE): alternativny OHLC fallback/backfill
+zdroj namiesto yfinance pre assety, ktore na Yahoo Finance nemaju data
+(viz coingecko_client.py + market_data.fetch_ohlcv_coingecko).
+
+trading_hours_start_utc/end_utc (2026-08-07): KAZDY asset ma tuto dvojicu
+teraz explicitne (predtym implicitne zdielana cez config.TRADING_HOURS_*)
+- vsetky okrem SKHYNIX (Korea Exchange, iny kontinent/timezone) pouzivaju
+rovnaky zdielany NYSE default (viz trade_cycle._required_interval_hours).
 
 trade_interval_hours/off_hours_interval_hours/weekend_interval_hours: KAZDY
 asset ma vsetky tri (2026-07-31 zjednotene - predtym mali ADA/NIGHT len jednu
@@ -31,7 +43,7 @@ defaultne vsetky tri rovnake (ziadne skutocne "off hours"/vikend rozlisenie
 preň neexistuje), ale su NEZAVISLE nastavitelne cez config.py/Railway -
 umoznuje to napr. neskor predlzit vikendovy interval aj pre ne bez zmeny kodu
 (viz trade_cycle._required_interval_hours, jednotny mechanizmus pre vsetkych
-7 tickerov).
+9 tickerov).
 
 marketaux_query (2026-07-31): presny dopyt pre marketaux_client.get_news_sentiment
 pre kazdy asset - NIKDY nepouzivat holy ticker/nazov bez overenia (napr. "NIGHT"
@@ -59,6 +71,8 @@ NAS100 = {
     "trade_interval_hours": config.NAS100_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.NAS100_OFF_HOURS_INTERVAL_HOURS,
     "weekend_interval_hours": config.NAS100_WEEKEND_INTERVAL_HOURS,
+    "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
+    "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "QQQ"},
 }
 
@@ -79,6 +93,8 @@ NVDA = {
     "trade_interval_hours": config.NVDA_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.NVDA_OFF_HOURS_INTERVAL_HOURS,
     "weekend_interval_hours": config.NVDA_WEEKEND_INTERVAL_HOURS,
+    "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
+    "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "NVDA"},
 }
 
@@ -100,6 +116,8 @@ ADA = {
     "trade_interval_hours": config.ADA_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.ADA_OFF_HOURS_INTERVAL_HOURS,
     "weekend_interval_hours": config.ADA_WEEKEND_INTERVAL_HOURS,
+    "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
+    "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "ADAUSD"},
 }
 
@@ -120,6 +138,8 @@ GOLD = {
     "trade_interval_hours": config.GOLD_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.GOLD_OFF_HOURS_INTERVAL_HOURS,
     "weekend_interval_hours": config.GOLD_WEEKEND_INTERVAL_HOURS,
+    "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
+    "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "GLD"},
 }
 
@@ -140,6 +160,8 @@ WTI = {
     "trade_interval_hours": config.WTI_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.WTI_OFF_HOURS_INTERVAL_HOURS,
     "weekend_interval_hours": config.WTI_WEEKEND_INTERVAL_HOURS,
+    "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
+    "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "USO"},
     "needs_eia_data": True,
 }
@@ -162,6 +184,8 @@ NIGHT = {
     "trade_interval_hours": config.NIGHT_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.NIGHT_OFF_HOURS_INTERVAL_HOURS,
     "weekend_interval_hours": config.NIGHT_WEEKEND_INTERVAL_HOURS,
+    "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
+    "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     # NIKDY holé "NIGHT" (bezne anglicke slovo, 87k+ falosnych zhod - overene
     # naozivo 2026-07-31). "Midnight" + entity_types=cryptocurrency davaju ciste
     # relevantne vysledky (Cardano Midnight sidechain, Wanchain bridge hack a pod).
@@ -188,10 +212,72 @@ BTC = {
     "trade_interval_hours": config.BTC_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.BTC_OFF_HOURS_INTERVAL_HOURS,
     "weekend_interval_hours": config.BTC_WEEKEND_INTERVAL_HOURS,
+    "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
+    "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "BTCUSD"},
 }
 
-ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC]
+HYPE = {
+    "name": "HYPE",
+    "asset_class": "crypto",
+    "strike_symbol": config.STRIKE_HYPE_SYMBOL,
+    # Ziadny spolahlivy yfinance ticker (HYPE-USD nevracia data) ani Binance
+    # par (HYPEUSDT/HYPEUSDC oba neplatne, overene naozivo 2026-08-07) - preto
+    # yf_symbol ostava len ako NEPOUZITY fallback pre pripad, ze coingecko_id
+    # zlyha (fetch_ohlcv naň aj tak vrati prazdny DataFrame, graceful no-op).
+    # Skutocny fallback/backfill zdroj je coingecko_id nizsie.
+    "yf_symbol": "HYPE-USD",
+    "yf_fallback": None,
+    "coingecko_id": "hyperliquid",
+    "sl_pct": config.HYPE_SL_PCT,
+    "tp_pct": config.HYPE_TP_PCT,
+    "leverage": config.HYPE_LEVERAGE,
+    "margin_usd": config.HYPE_MARGIN_USD,
+    "min_confidence": config.HYPE_MIN_CONFIDENCE,
+    "enabled": config.ENABLE_HYPE,
+    "needs_btc_proxy": True,
+    # FALSE zamerne - ziaden overeny spolahlivy volume zdroj (nie je na
+    # Binance, CoinGecko OHLC endpoint volume neposkytuje) - rovnaky dovod
+    # ako WTI.
+    "include_volume": False,
+    "trade_interval_hours": config.HYPE_TRADE_INTERVAL_HOURS,
+    "off_hours_interval_hours": config.HYPE_OFF_HOURS_INTERVAL_HOURS,
+    "weekend_interval_hours": config.HYPE_WEEKEND_INTERVAL_HOURS,
+    "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
+    "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
+    # NIKDY holé "HYPE" (bezne anglicke slovo) - viz social_sentiment.py/
+    # marketaux_client rovnaky vzor ako NIGHT.
+    "marketaux_query": {"search": "Hyperliquid", "entity_types": "cryptocurrency"},
+}
+
+SKHYNIX = {
+    "name": "SKHYNIX",
+    "asset_class": "stock",
+    "strike_symbol": config.STRIKE_SKHYNIX_SYMBOL,
+    "yf_symbol": "000660.KS",
+    "yf_fallback": None,
+    "sl_pct": config.SKHYNIX_SL_PCT,
+    "tp_pct": config.SKHYNIX_TP_PCT,
+    "leverage": config.SKHYNIX_LEVERAGE,
+    "margin_usd": config.SKHYNIX_MARGIN_USD,
+    "min_confidence": config.SKHYNIX_MIN_CONFIDENCE,
+    "enabled": config.ENABLE_SKHYNIX,
+    "needs_btc_proxy": False,
+    # Overene naozivo 2026-08-07 (yfinance hodinove sviecky, 10 dni): 58/60
+    # neprazdnych volume barov (~97% pokrytie) - spolahlive, na rozdiel od
+    # povodneho ADA/NIGHT problemu, ktory viedol k Binance volume zdroju.
+    "include_volume": True,
+    "trade_interval_hours": config.SKHYNIX_TRADE_INTERVAL_HOURS,
+    "off_hours_interval_hours": config.SKHYNIX_OFF_HOURS_INTERVAL_HOURS,
+    "weekend_interval_hours": config.SKHYNIX_WEEKEND_INTERVAL_HOURS,
+    # JEDINY asset s inou nez zdielanou NYSE trhovou strukturou - viz
+    # config.SKHYNIX_TRADING_HOURS_START_UTC/END_UTC (KRX seansa).
+    "trading_hours_start_utc": config.SKHYNIX_TRADING_HOURS_START_UTC,
+    "trading_hours_end_utc": config.SKHYNIX_TRADING_HOURS_END_UTC,
+    "marketaux_query": {"search": "SK Hynix"},
+}
+
+ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX]
 
 
 def enabled_assets() -> list[dict]:

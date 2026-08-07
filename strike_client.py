@@ -175,7 +175,7 @@ def open_bracket_position(direction: str, size: float, leverage: int,
     SL zostava market-style ("stop") - potrebuje garantovane vykonanie.
 
     Poziciu otvarame v ISOLATED margin mode (nie cross) - kedze bot moze mat
-    sucasne otvorene pozicie na viacerych assetoch (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC), pri
+    sucasne otvorene pozicie na viacerych assetoch (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC/HYPE/SKHYNIX), pri
     cross marginy by extremny pohyb (napr. sklz cez SL pri gape) na jednom
     assete cerpal zo ZDIELANEJ marze a mohol tak zvysit riziko likvidacie aj na
     ostatnych, inak nesuvisiacich, otvorenych poziciach. Isolated obmedzi

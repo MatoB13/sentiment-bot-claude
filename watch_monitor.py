@@ -89,7 +89,7 @@ def _pending_events_with_scope(session, now) -> list[dict]:
     zoznamu {name, datetime_utc, symbol, key}:
     1. macro_calendar.MACRO_EVENTS (FOMC/CPI/NFP) - rucne udrziavane, overene z
        oficialnych zdrojov, symbol=None = VSETKY aktivne assety (vsetky tri su
-       uz sucastou Event Risk Gate pravidiel pre vsetkych 7 tickerov).
+       uz sucastou Event Risk Gate pravidiel pre vsetkych 9 tickerov).
     2. FlaggedMacroEvent (viz trade_cycle._save_flagged_macro_event) - Claude
        ich priebezne SAM zaznaci pocas beznej analyzy alebo denneho
        retrospektivneho lookaheadu cez web_search. flagged_by_symbol=None

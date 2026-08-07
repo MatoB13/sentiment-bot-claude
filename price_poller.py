@@ -63,13 +63,15 @@ def poll_prices() -> None:
 
 def backfill_if_empty() -> None:
     """JEDNORAZOVY backfill - ak pre asset este NIE JE v price_bars ziadny
-    zaznam, natiahne poslednych ~30 dni hodinovych sviecok z yfinance ako
-    pociatocnu historiu (rovnaky zdroj/rozsah ako predtym pouzivany
-    market_data.fetch_ohlcv). Cez vikend/mimo obchodnych hodin budu v tejto
-    historii prirodzene diery (yfinance tam ziadne data nema pre futures/akcie)
-    - to je akceptovany jednorazovy naklad, dalej uz bezi vlastny poller.
-    Idempotentne (kontrola 'uz existuje aspon 1 zaznam') - bezpecne volat pri
-    kazdom starte, po prvom uspesnom behu uz nic nerobi."""
+    zaznam, natiahne poslednych ~30 dni hodinovych sviecok z yfinance (alebo
+    CoinGecko, viz asset["coingecko_id"] - momentalne len HYPE, ktore na
+    yfinance/Binance nema pokrytie) ako pociatocnu historiu (rovnaky zdroj/
+    rozsah ako predtym pouzivany market_data.fetch_ohlcv). Cez vikend/mimo
+    obchodnych hodin budu v tejto historii prirodzene diery (yfinance tam
+    ziadne data nema pre futures/akcie) - to je akceptovany jednorazovy
+    naklad, dalej uz bezi vlastny poller. Idempotentne (kontrola 'uz existuje
+    aspon 1 zaznam') - bezpecne volat pri kazdom starte, po prvom uspesnom
+    behu uz nic nerobi."""
     session = get_session()
     try:
         for asset in assets.enabled_assets():
@@ -78,13 +80,17 @@ def backfill_if_empty() -> None:
             if already_has_data:
                 continue
 
+            source = "CoinGecko" if asset.get("coingecko_id") else "yfinance"
             try:
-                df = market_data.fetch_ohlcv(asset["yf_symbol"], asset.get("yf_fallback"))
+                if asset.get("coingecko_id"):
+                    df = market_data.fetch_ohlcv_coingecko(asset["coingecko_id"])
+                else:
+                    df = market_data.fetch_ohlcv(asset["yf_symbol"], asset.get("yf_fallback"))
             except Exception as e:
-                print(f"[price_poller] Backfill pre {symbol} zlyhal (yfinance): {e}")
+                print(f"[price_poller] Backfill pre {symbol} zlyhal ({source}): {e}")
                 continue
             if df.empty:
-                print(f"[price_poller] Backfill pre {symbol}: yfinance nevratil ziadne data.")
+                print(f"[price_poller] Backfill pre {symbol}: {source} nevratil ziadne data.")
                 continue
 
             idx = df.index.tz_convert("UTC").tz_localize(None) if df.index.tz is not None else df.index
@@ -97,7 +103,7 @@ def backfill_if_empty() -> None:
                 ))
                 count += 1
             session.commit()
-            print(f"[price_poller] Backfill pre {symbol}: {count} sviecok z yfinance "
+            print(f"[price_poller] Backfill pre {symbol}: {count} sviecok z {source} "
                   "(vikendove/mimo-hodinove diery su ocakavane, dalej uz bezi vlastny poller).")
     finally:
         session.close()
