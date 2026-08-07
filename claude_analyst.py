@@ -207,7 +207,13 @@ _EQUITY_MACRO_RULES = """- **Cross-market konfirmácia**: Ak S&P500, Russell 200
 - **Event Risk Gate**: Ak cez web_search zistíš, že sa v najbližších hodinách očakáva veľký
   makro report (CPI, FOMC rozhodnutie, NFP) alebo kľúčové earnings megacap firiem (vrátane {instrument}
   samotného, ak je to jednotlivá akcia), buď výrazne konzervatívnejší (nízka confidence alebo
-  "none") - volatilita okolo takých eventov je nepredvídateľná aj pri jasnom technickom obraze."""
+  "none") - volatilita okolo takých eventov je nepredvídateľná aj pri jasnom technickom obraze.
+- **Nepredvídateľné politické výroky (Trump/Truth Social)**: Príspevky amerického prezidenta na Truth
+  Social vedia bez varovania pohnúť trhom (clá, obchodná politika, komentáre ku konkrétnym firmám) -
+  nie sú viazané na kalendár ako bežné makro eventy. Cez web_search over, či sa v poslednom čase
+  objavil takýto výrok s reálnym dopadom na {instrument}/tech sektor, alebo či je zvýšené riziko
+  blízkeho oznámenia (napr. blížiaci sa termín rozhodnutia o clách) - v takom prípade zváž nižšiu
+  confidence, rovnako ako pri inom Event Risk Gate scenári."""
 
 _CRYPTO_MACRO_RULES = """- **BTC beta**: {instrument} sa dlhodobo správa ako vysoko-beta krypto asset voči BTC - ak BTC
   prudko rastie/klesá, {instrument} to zvykne nasledovať (často zosilnene). Divergencia (BTC
@@ -244,7 +250,11 @@ _COMMODITY_MACRO_RULES = """- **Reálne výnosy (US10Y) a DXY sú hlavný hýbat
 - **Market Reaction Score**: rovnako dôležité ako inde - porovnaj obsah správy s reálnou cenovou
   reakciou {instrument}.
 - **Event Risk Gate**: FOMC/CPI/PPI/NFP sú KĽÚČOVÉ eventy pre {instrument} (priamo hýbu výnosmi/DXY
-  očakávaniami) - pred takým eventom buď výrazne konzervatívnejší (nízka confidence alebo "none")."""
+  očakávaniami) - pred takým eventom buď výrazne konzervatívnejší (nízka confidence alebo "none").
+- **Nepredvídateľné politické výroky (Trump/Truth Social)**: Príspevky amerického prezidenta vedia
+  okamžite zdvihnúť geopolitické/safe-haven riziko (sankcie, vojenské hrozby, obchodné vojny) bez
+  akéhokoľvek kalendárneho varovania. Cez web_search over nedávne výroky s dopadom na
+  geopolitiku/dolár, rovnako ako pri inom Event Risk Gate scenári."""
 
 _ENERGY_MACRO_RULES = """- **Ponuka (OPEC+/produkcia)**: Rozhodnutia OPEC+ o ťažobných kvótach (zvýšenie/zníženie), compliance
   členov, a US produkcia (Baker Hughes rig count, shale output) sú hlavný strednodobý driver ponuky.
@@ -267,7 +277,12 @@ _ENERGY_MACRO_RULES = """- **Ponuka (OPEC+/produkcia)**: Rozhodnutia OPEC+ o ťa
   reakciou {instrument}.
 - **Event Risk Gate**: EIA zásoby (týždenne), OPEC+ stretnutia, a významné geopolitické udalosti na
   Blízkom východe sú kľúčové eventy pre {instrument} - pred/počas takého eventu buď výrazne
-  konzervatívnejší (nízka confidence alebo "none")."""
+  konzervatívnejší (nízka confidence alebo "none").
+- **Nepredvídateľné politické výroky (Trump/Truth Social)**: Príspevky amerického prezidenta k
+  Iránu/sankciám/Blízkemu východu vedia bez varovania prudko pohnúť cenou ropy oboma smermi (napr.
+  hrozba/odklad úderu, oznámenie/zrušenie sankcií) - nie sú viazané na kalendár ako EIA/OPEC+ termíny.
+  Cez web_search over nedávne výroky s priamym dopadom na dodávky/geopolitiku Blízkeho východu,
+  rovnako ako pri inom Event Risk Gate scenári."""
 
 ASSET_TEXT = {
     "NAS100": {
