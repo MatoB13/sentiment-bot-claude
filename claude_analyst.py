@@ -1,5 +1,5 @@
 """
-Zavola Claude (Anthropic API) s TA kontextom pre dany asset (NAS100/NVDA/ADA/GOLD/WTI/NIGHT).
+Zavola Claude (Anthropic API) s TA kontextom pre dany asset (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC).
 Claude si sam (podla potreby) vyhlada cerstve spravy cez vstavany server-side
 web_search nastroj (ziadny NewsAPI kluc netreba) a vrati strukturovane
 rozhodnutie. System aj user prompt su parametrizovane podla assets.py profilu -
@@ -232,6 +232,36 @@ _CRYPTO_MACRO_RULES = """- **BTC beta**: {instrument} sa dlhodobo správa ako vy
   veľký protokolový upgrade/hardfork, hack/exploit v ekosystéme, veľká burzová likvidačná kaskáda)
   alebo makro event (CPI/FOMC/NFP), buď výrazne konzervatívnejší (nízka confidence alebo "none")."""
 
+_BTC_MACRO_RULES = """- **Spot ETF toky**: Čisté denné toky do/z spot BTC ETF (BlackRock IBIT, Fidelity FBTC a i.) sú od
+  2024 jeden z najsilnejších krátkodobých driverov - veľké čisté odlevy signalizujú inštitucionálny
+  predaj (medvedie), veľké prílevy nákupný tlak (býčie). Over cez web_search najnovšie čísla, ak sú
+  dostupné.
+- **Makro/Fed citlivosť (rastúca)**: BTC sa čoraz viac obchoduje ako makro risk-asset korelovaný s
+  Nasdaq/reálnymi výnosmi, nie len ako "digitálne zlato" - rýchlo rastúce výnosy/dolár sú
+  protivietor, klesajúce sú vietor v chrbát. Podobný mechanizmus ako pri equity trhoch, len s
+  vyššou volatilitou a rýchlejšou reakciou.
+- **BTC dominance / risk-on-off v rámci krypta**: Keď kapitál uteká z altcoinov do BTC ("flight to
+  bitcoin dominance"), je to znak risk-off nálady v rámci krypta - BTC vtedy môže relatívne
+  outperformovať aj pri celkovo slabom trhu. Opačne, rastúca "altcoin season" (klesajúca BTC
+  dominance) je risk-on signál pre širší trh.
+- **Inštitucionálna adopcia**: Správy o veľkých korporátnych nákupoch do treasury
+  (MicroStrategy-style), penzijných/suverénnych fondoch vstupujúcich do BTC, sú strednodobý býčí
+  naratív.
+- **Regulácia**: SEC/CFTC rozhodnutia, ETF schválenia/zamietnutia, a postoj administratívy k
+  regulácii (vrátane prípadnej "strategickej bitcoin rezervy" a iných vládnych krokov) sú kľúčové
+  eventy.
+- **Halving cyklus/miner ekonomika**: Pomaly sa meniaci pozadový faktor (posledný halving 2024) -
+  relevantné skôr pre dlhodobý naratív než pre jednotlivý cyklus, spomeň len ak je aktuálne v
+  správach.
+- **Market Reaction Score**: rovnako dôležité ako inde - porovnaj obsah správy s reálnou cenovou
+  reakciou BTC.
+- **Event Risk Gate**: FOMC/CPI/PPI/NFP (kvôli rastúcej makro citlivosti) a významné regulačné/ETF
+  udalosti sú kľúčové eventy pre BTC - pred takým eventom buď výrazne konzervatívnejší (nízka
+  confidence alebo "none").
+- **Nepredvídateľné politické výroky (Trump/Truth Social)**: Vyjadrenia k crypto politike (napr.
+  strategická rezerva, regulačné kroky) vedia bez varovania pohnúť BTC aj celým krypto trhom - over
+  cez web_search nedávne výroky, rovnako ako pri inom Event Risk Gate scenári."""
+
 _COMMODITY_MACRO_RULES = """- **Reálne výnosy (US10Y) a DXY sú hlavný hýbateľ**: Rýchlo rastúce výnosy/dolár sú protivietor pre
   {instrument} (vyššia opportunity cost držania neúročeného aktíva), klesajúce výnosy/dolár sú vietor
   v chrbát. Toto je zvyčajne silnejší signál než čokoľvek iné v cross-market bloku.
@@ -347,10 +377,21 @@ ASSET_TEXT = {
         ),
         "macro_rules": _CRYPTO_MACRO_RULES,
     },
+    "BTC": {
+        "label": "krypto BTC (Bitcoin) perpetuál",
+        "news_focus": (
+            'správach o Bitcoin ETF tokoch (BlackRock IBIT, Fidelity FBTC a i.), institucionálnej '
+            'adopcii (korporátne treasury nákupy, ETF flows), SEC/CFTC regulačných rozhodnutiach, '
+            'postoji vládnych administratív k crypto regulácii, halving/miner dynamike, Fed/makro '
+            'dátach (CPI, PPI, NFP, FOMC) kvôli rastúcej makro citlivosti BTC, a širšom krypto '
+            'naratíve (BTC dominance, risk-on/off sentiment, veľké likvidácie na trhu)'
+        ),
+        "macro_rules": _BTC_MACRO_RULES,
+    },
 }
 
 # System prompt je rozdeleny na 2 cache_control bloky (viz _system_prompt_blocks nizsie):
-#   1. SYSTEM_PROMPT_SHARED - vseobecna metodika, BYTE-IDENTICKA pre vsetkych 6 tickerov aj
+#   1. SYSTEM_PROMPT_SHARED - vseobecna metodika, BYTE-IDENTICKA pre vsetkych 7 tickerov aj
 #      naprieč casom (ziadne per-asset ani casovo-zavisle dosadzovanie) - cachovana s ttl="1h",
 #      cim sa realne zdiela MEDZI TICKERMI (ADA/NIGHT bezia vzdy kazdu hodinu, takze tento blok
 #      sa precita aspon raz za hodinu a nikdy nevyprsi, aj ked NAS100/GOLD/WTI cez noc/vikend
@@ -523,7 +564,7 @@ skúsený analytik):
 
 def _system_prompt_blocks(asset: dict) -> list[dict]:
     """System prompt ako 2 cache_control bloky (viz komentar nad SYSTEM_PROMPT_SHARED vyssie):
-    zdielana metodika (rovnaka pre vsetkych 6 tickerov, ttl=1h) + per-asset dodatok (nazov/makro
+    zdielana metodika (rovnaka pre vsetkych 7 tickerov, ttl=1h) + per-asset dodatok (nazov/makro
     pravidla/candle format, tiez ttl=1h - pomaha aj bez zdielania medzi tickermi)."""
     text = ASSET_TEXT[asset["name"]]
     btc_proxy_note = ", krypto-makro proxy (BTC)" if asset.get("needs_btc_proxy") else ""

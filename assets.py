@@ -31,7 +31,7 @@ defaultne vsetky tri rovnake (ziadne skutocne "off hours"/vikend rozlisenie
 preň neexistuje), ale su NEZAVISLE nastavitelne cez config.py/Railway -
 umoznuje to napr. neskor predlzit vikendovy interval aj pre ne bez zmeny kodu
 (viz trade_cycle._required_interval_hours, jednotny mechanizmus pre vsetkych
-6 tickerov).
+7 tickerov).
 
 marketaux_query (2026-07-31): presny dopyt pre marketaux_client.get_news_sentiment
 pre kazdy asset - NIKDY nepouzivat holy ticker/nazov bez overenia (napr. "NIGHT"
@@ -168,7 +168,30 @@ NIGHT = {
     "marketaux_query": {"search": "Midnight", "entity_types": "cryptocurrency"},
 }
 
-ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT]
+BTC = {
+    "name": "BTC",
+    "asset_class": "crypto",
+    "strike_symbol": config.STRIKE_BTC_SYMBOL,
+    "yf_symbol": "BTC-USD",
+    "yf_fallback": None,
+    "sl_pct": config.BTC_SL_PCT,
+    "tp_pct": config.BTC_TP_PCT,
+    "leverage": config.BTC_LEVERAGE,
+    "margin_usd": config.BTC_MARGIN_USD,
+    "min_confidence": config.BTC_MIN_CONFIDENCE,
+    "enabled": config.ENABLE_BTC,
+    # BTC je uz SAMO tou proxy referenciou pre ADA/NIGHT (viz
+    # market_data.get_btc_proxy_snapshot) - nepotrebuje sam seba ako kontext.
+    "needs_btc_proxy": False,
+    "include_volume": True,
+    "binance_volume_symbol": "BTCUSDT",
+    "trade_interval_hours": config.BTC_TRADE_INTERVAL_HOURS,
+    "off_hours_interval_hours": config.BTC_OFF_HOURS_INTERVAL_HOURS,
+    "weekend_interval_hours": config.BTC_WEEKEND_INTERVAL_HOURS,
+    "marketaux_query": {"symbols": "BTCUSD"},
+}
+
+ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC]
 
 
 def enabled_assets() -> list[dict]:

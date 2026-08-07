@@ -1,4 +1,4 @@
-"""Analyticky/obchodny cyklus pre vsetky aktivne assety (NAS100/NVDA/ADA/GOLD/WTI/NIGHT).
+"""Analyticky/obchodny cyklus pre vsetky aktivne assety (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC).
 
 Jeden scheduler tick (viz main.py) = jeden vstup do run_all_cycles(): zdielany
 makro fetch (cross-market/session, pripadne BTC proxy) sa spravi PRESNE RAZ a

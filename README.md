@@ -1,17 +1,21 @@
-# Sentiment Bot (Strike Finance) — NAS100 + NVDA + ADA + GOLD + WTI + NIGHT
+# Sentiment Bot (Strike Finance) — NAS100 + NVDA + ADA + GOLD + WTI + NIGHT + BTC
 
 Automatizovaný multi-asset obchodný bot na Strike Finance: **NAS100** (index),
 **NVDA** (akcia), **ADA** (krypto perpetuál), **GOLD** (komodita, zámerne
 pridaná ako protivietor k prevažne risk-on smerovaniu ostatných — safe-haven
 asset, opačná polarita VIX), **WTI** (ropa, pridaná 2026-07-31 ako vyraznejsie
-odlisny ticker - iny driver OPEC+/geopolitika/dopyt, NIE safe-haven ako zlato)
-a **NIGHT** (krypto Midnight/Cardano, pridaná v tom istom kroku — vyrazne
+odlisny ticker - iny driver OPEC+/geopolitika/dopyt, NIE safe-haven ako zlato),
+**NIGHT** (krypto Midnight/Cardano, pridaná v tom istom kroku — vyrazne
 rizikovejsi/volatilnejsi mlady token po nedavnom bridge hacku, najnizsia paka
-zo vsetkych). Každý asset je nezávislý "bot" — vlastná pozícia, vlastný risk
+zo vsetkych) a **BTC** (krypto Bitcoin, pridaná 2026-08-06 — najlikvidnejší
+market na Strike, vlastné makro pravidlá odlišné od ADA/NIGHT: ETF toky,
+inštitucionálna adopcia, rastúca makro/Fed citlivosť namiesto "len" BTC-beta
+naratívu). Každý asset je nezávislý "bot" — vlastná pozícia, vlastný risk
 (SL/TP %, leverage, margin, min. confidence, frekvencia cyklu), vlastné
 rozhodnutie od Claude — ale všetky bežia v **jednom scheduler cykle** a
-zdieľajú cross-market/session (a pre ADA/NIGHT aj BTC-proxy) makro fetch, takže
-sa tie isté dáta nesťahujú 6x (viz `assets.py`, `trade_cycle.run_all_cycles`).
+zdieľajú cross-market/session (a pre ADA/NIGHT aj BTC-proxy — BTC samotné ako
+ticker si vlastnú proxy referenciu nevyžaduje) makro fetch, takže sa tie isté
+dáta nesťahujú 7x (viz `assets.py`, `trade_cycle.run_all_cycles`).
 
 **Ako to funguje (jeden cyklus, `trade_cycle.run_all_cycles`):**
 
@@ -21,7 +25,7 @@ sa tie isté dáta nesťahujú 6x (viz `assets.py`, `trade_cycle.run_all_cycles`
    yfinance, žiadny nový platený zdroj). Rovnako sa **RAZ** natiahne aj
    `fred_client.get_macro_snapshot()` (CPI/Core CPI/Fed funds rate priamo z Fedu,
    voliteľné - viz nižšie).
-1. Pre každý aktívny asset z `assets.py` (NAS100/NVDA/ADA/GOLD/WTI/NIGHT), KTORÝ
+1. Pre každý aktívny asset z `assets.py` (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC), KTORÝ
    je práve "na rade" (viz `trade_cycle._is_due` — každý asset má vlastnú
    frekvenciu, viz nižšie):
    - `market_data.py` zostaví hodinové OHLC sviečky a spočíta TA indikátory (RSI,
@@ -29,10 +33,16 @@ sa tie isté dáta nesťahujú 6x (viz `assets.py`, `trade_cycle.run_all_cycles`
      `price_bars` tabuľka, ktorú `price_poller.py` plní každú minútu zo Strike
      `mark_price` (viz nižšie) — na rozdiel od yfinance zostáva živá aj mimo
      obchodných hodín/cez víkend, keďže Strike perpetuály obchodujú nonstop.
-     yfinance (`^NDX`/`NQ=F`, NVDA, ADA-USD, `GC=F`/`GLD`, `CL=F`/`USO`, NIGHT-USD)
-     slúži ako **fallback** (ak vlastné dáta chýbajú/sú zastarané) a ako doplnkový
-     zdroj volume dát pre NAS100/NVDA/GOLD (Strike mark_price žiadny objem
-     neposkytuje; pre WTI/NIGHT volume zámerne vypnuté, viz `assets.py`).
+     yfinance (`^NDX`/`NQ=F`, NVDA, `GC=F`/`GLD`, `CL=F`/`USO`) slúži ako
+     **fallback** (ak vlastné dáta chýbajú/sú zastarané) a ako doplnkový zdroj
+     volume dát pre NAS100/NVDA/GOLD (Strike mark_price žiadny objem
+     neposkytuje). Pre ADA/NIGHT/BTC ide objem namiesto toho z **Binance**
+     (`binance_client.py`) — sú tam skutočne obchodované so spoľahlivým
+     objemom, na rozdiel od riedkeho/chýbajúceho pokrytia cez yfinance; pre WTI
+     volume zámerne vypnuté (nebolo empiricky overené), viz `assets.py`. Objem
+     chýbajúci pre danú hodinu (yfinance intradenné dáta pre futures bežne
+     zaostávajú za realitou) sa serializuje ako `null`, nikdy nie ako falošná
+     `0` — pozri `_merge_volume`/`_merge_volume_from_binance` v `market_data.py`.
    - (voliteľne) `social_sentiment.py` stiahne najnovšie tweety/posty s
      relevantnými hashtagmi/cashtagmi pre daný asset cez X API.
    - (voliteľne) `marketaux_client.py` stiahne najnovšie finančné správy so
@@ -89,19 +99,19 @@ rozhoduje/obchoduje na SVOJOM vlastnom (pomalšom alebo rovnakom) intervale cez
 všetky assety** (jedno `get_positions()` volanie kontroluje všetky otvorené
 pozície naraz).
 
-Assety možno jednotlivo vypnúť cez `ENABLE_NVDA`/`ENABLE_ADA`/`ENABLE_GOLD`/`ENABLE_WTI`/`ENABLE_NIGHT` (NAS100 beží vždy).
+Assety možno jednotlivo vypnúť cez `ENABLE_NVDA`/`ENABLE_ADA`/`ENABLE_GOLD`/`ENABLE_WTI`/`ENABLE_NIGHT`/`ENABLE_BTC` (NAS100 beží vždy).
 
 ## ⚠️ Dôležité upozornenia
 
-- **Toto obchoduje s reálnymi peniazmi na pákový produkt — na PIATICH nezávislých
-  assetoch naraz (plus NAS100 = šesť celkovo).** SL/TP sa nastavujú cez bracket
+- **Toto obchoduje s reálnymi peniazmi na pákový produkt — na ŠIESTICH nezávislých
+  assetoch naraz (plus NAS100 = sedem celkovo).** SL/TP sa nastavujú cez bracket
   "strategy" objednávku (`POST /v2/order/strategy`, polia `tp_order`/`sl_order`),
   leverage sa nastavuje samostatne pred otvorením pozície (`POST /v2/leverage`),
   margin mode je **isolated** (nie cross - viz `strike_client.open_bracket_position`)
   a `size` je v base-asset jednotkách, nie notional USD. Overené voči
   https://docs.strikefinance.org/api/trade/orders a
   https://docs.strikefinance.org/api/trade/trading.
-- NVDA, ADA, GOLD, WTI a NIGHT majú nižšiu default paku a širšie SL/TP % než NAS100
+- NVDA, ADA, GOLD, WTI, NIGHT a BTC majú nižšiu default paku a širšie SL/TP % než NAS100
   (viz `.env.example`) — sú kalibrované na vyššiu typickú volatilitu jednotlivej
   akcie/komodity/krypta, ale over si to sám na pár dňoch DRY_RUN dát pred ostrým
   behom. **NIGHT je výrazne rizikovejší/volatilnejší** než ostatné (mladý,
@@ -147,8 +157,8 @@ Pozri `.env.example` — najdôležitejšie:
 - `ANTHROPIC_API_KEY` — tvoj Anthropic API kľúč (analytik)
 - `STRIKE_API_PRIVATE_KEY` / `STRIKE_API_PUBLIC_KEY` — API wallet ku Strike (Ed25519, vygeneruj na app.strikefinance.org/api-keys)
 - `STRIKE_NAS100_SYMBOL` / `STRIKE_NVDA_SYMBOL` / `STRIKE_ADA_SYMBOL` / `STRIKE_GOLD_SYMBOL` /
-  `STRIKE_WTI_SYMBOL` / `STRIKE_NIGHT_SYMBOL` — presný symbol/market identifikátor pre daný asset
-  na Strike (zisti cez `get_markets()` v `strike_client.py`)
+  `STRIKE_WTI_SYMBOL` / `STRIKE_NIGHT_SYMBOL` / `STRIKE_BTC_SYMBOL` — presný symbol/market
+  identifikátor pre daný asset na Strike (zisti cez `get_markets()` v `strike_client.py`)
 - `TWITTER_BEARER_TOKEN` — voliteľné, X API v2 (platený tier na zmysluplný recent search)
 - `EIA_API_KEY` — voliteľné, zdarma po registrácii (https://www.eia.gov/opendata/register.php),
   len pre WTI (týždenné komerčné zásoby ropy)
@@ -170,24 +180,25 @@ Pozri `.env.example` — najdôležitejšie:
   pokrýva NYSE cash session 9:30-16:00 ET v oboch DST stavoch) — jediná skutočne zdieľaná (nie
   per-ticker) hodnota, je to fakt o trhovej štruktúre, nie preferencia jednotlivého assetu
 
-**Per-ticker premenné (2026-07-31 zjednotené)** — každý zo 6 tickerov (NAS100/NVDA/ADA/GOLD/WTI/NIGHT)
-má VLASTNÚ sadu presne rovnakých 8 premenných, zoskupenú v `.env.example` ticker-po-tickeri:
-`{TICKER}_MIN_CONFIDENCE`, `{TICKER}_MARGIN_USD`, `{TICKER}_LEVERAGE`, `{TICKER}_SL_PCT`,
-`{TICKER}_TP_PCT`, `{TICKER}_TRADE_INTERVAL_HOURS`, `{TICKER}_OFF_HOURS_INTERVAL_HOURS`,
-`{TICKER}_WEEKEND_INTERVAL_HOURS`. Napr. `GOLD_LEVERAGE`, `NIGHT_SL_PCT`, `WTI_WEEKEND_INTERVAL_HOURS`.
+**Per-ticker premenné (2026-07-31 zjednotené, BTC pridaný 2026-08-06)** — každý zo 7 tickerov
+(NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC) má VLASTNÚ sadu presne rovnakých 8 premenných, zoskupenú v
+`.env.example` ticker-po-tickeri: `{TICKER}_MIN_CONFIDENCE`, `{TICKER}_MARGIN_USD`,
+`{TICKER}_LEVERAGE`, `{TICKER}_SL_PCT`, `{TICKER}_TP_PCT`, `{TICKER}_TRADE_INTERVAL_HOURS`,
+`{TICKER}_OFF_HOURS_INTERVAL_HOURS`, `{TICKER}_WEEKEND_INTERVAL_HOURS`. Napr. `GOLD_LEVERAGE`,
+`NIGHT_SL_PCT`, `WTI_WEEKEND_INTERVAL_HOURS`.
 
 - Predtým mal NAS100 bezpredponové názvy (`MIN_CONFIDENCE`/`MARGIN_USD`/...) a ADA/NIGHT nemali
-  `off_hours`/`weekend` vôbec - teraz je štruktúra jednotná pre všetkých šesť.
+  `off_hours`/`weekend` vôbec - teraz je štruktúra jednotná pre všetkých sedem.
 - `MIN_CONFIDENCE`, `MARGIN_USD`, `LEVERAGE`, `SL_PCT`/`TP_PCT` — risk parametre (per asset).
   `MARGIN_USD`/`LEVERAGE` určujú fixný notional (`margin x leverage`); `SL_PCT`/`TP_PCT` sú cieľové
   SL/TP ako % od live ceny — Claude navrhuje presnú vzdialenosť, ktorá sa orežie do 0.1x-5x týchto
   hodnôt (nikdy nezablokuje vstup - viz `risk_manager.py`)
 - `TRADE_INTERVAL_HOURS`/`OFF_HOURS_INTERVAL_HOURS`/`WEEKEND_INTERVAL_HOURS` — frekvencia cyklu
-  počas trading hours / mimo nich / cez víkend. Pre 24/7 krypto (ADA/NIGHT) sú `off_hours`/`weekend`
+  počas trading hours / mimo nich / cez víkend. Pre 24/7 krypto (ADA/NIGHT/BTC) sú `off_hours`/`weekend`
   defaultne rovnaké ako `trade_interval` (žiadne skutočné "off hours" preň neexistujú), ale sú
   nezávisle nastaviteľné rovnako ako pre ostatné - napr. neskôr predĺžiť víkendový interval aj pre
   ne, bez zmeny kódu.
-- `ENABLE_NVDA`/`ENABLE_ADA`/`ENABLE_GOLD`/`ENABLE_WTI`/`ENABLE_NIGHT` — `true`/`false`,
+- `ENABLE_NVDA`/`ENABLE_ADA`/`ENABLE_GOLD`/`ENABLE_WTI`/`ENABLE_NIGHT`/`ENABLE_BTC` — `true`/`false`,
   vypnutie/zapnutie daného bota (NAS100 beží vždy). NVDA je od 2026-07-31 pozastavené
   (nahradené WTI/NIGHT, cost-optimalizácia) — historické `cycle_logs`/`trades` ostávajú v DB a
   v monitor-web dashboarde, len sa nezapočítavajú do nového `web_search`/Claude nákladu
@@ -210,7 +221,7 @@ má VLASTNÚ sadu presne rovnakých 8 premenných, zoskupenú v `.env.example` t
 |---|---|
 | `main.py` | scheduler, entrypoint |
 | `config.py` | centrálne env premenné (zdieľané + per-asset) |
-| `assets.py` | registry assetov (NAS100/NVDA/ADA/GOLD/WTI/NIGHT) - symbol, TA ticker, SL/TP%, leverage, margin, min_confidence, frekvencia cyklu |
+| `assets.py` | registry assetov (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC) - symbol, TA ticker, SL/TP%, leverage, margin, min_confidence, frekvencia cyklu |
 | `db.py` | SQLAlchemy modely `Trade`/`CycleLog` (obe majú `symbol`) + session |
 | `market_data.py` | OHLCV + TA indikátory (per asset, primárne z vlastných `price_bars`, fallback yfinance), zdieľaný cross-market/session/BTC-proxy fetch |
 | `price_poller.py` | každominútový poller Strike `mark_price` do `price_bars` + jednorazový yfinance backfill |
@@ -218,6 +229,7 @@ má VLASTNÚ sadu presne rovnakých 8 premenných, zoskupenú v `.env.example` t
 | `marketaux_client.py` | (voliteľné) news + sentiment skóre per asset (free tier ~100 req/deň) |
 | `eia_client.py` | (voliteľné, len WTI) týždenné komerčné zásoby ropy priamo z EIA |
 | `fred_client.py` | (voliteľné, zdieľané) CPI/Core CPI/Fed funds rate priamo z FRED |
+| `binance_client.py` | verejné (bez kľúča) hodinové klines - zdroj `volume` pre ADA/NIGHT/BTC namiesto riedkeho yfinance pokrytia |
 | `claude_analyst.py` | zostaví per-asset prompt, zavolá Claude (s `web_search` nástrojom), parsuje JSON rozhodnutie |
 | `strike_client.py` | Ed25519 podpisovanie, open/close position, get positions/markets |
 | `risk_manager.py` | position sizing; jediny gate na vstup je confidence, SL/TP sa vzdy pouzije (nikdy nezablokuje) |

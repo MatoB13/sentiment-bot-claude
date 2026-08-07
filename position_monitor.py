@@ -1,4 +1,4 @@
-"""Periodicka kontrola otvorenych pozicii (naprieč vsetkymi assetmi - NAS100/NVDA/ADA/GOLD/WTI/NIGHT)
+"""Periodicka kontrola otvorenych pozicii (naprieč vsetkymi assetmi - NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC)
 - zaznamenanie zatvorenia a PnL."""
 from datetime import datetime, timezone
 

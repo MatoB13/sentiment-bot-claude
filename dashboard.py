@@ -19,7 +19,7 @@ st.set_page_config(page_title="Sentiment Bot (multi-asset)", layout="wide")
 
 ENV_PATH = os.path.join(os.path.dirname(__file__), ".env")
 
-# Skutocne zdielane pre vsetky assety (NAS100/NVDA/ADA/GOLD/WTI/NIGHT bezia v
+# Skutocne zdielane pre vsetky assety (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC bezia v
 # tom istom cykle). Frekvencia dotazovania (trade/off_hours/weekend interval)
 # je od 2026-07-31 PER-ASSET - viz ASSET_NUMERIC nizsie.
 SHARED_NUMERIC = [
@@ -97,6 +97,16 @@ ASSET_NUMERIC = {
         ("NIGHT_OFF_HOURS_INTERVAL_HOURS", float, "Interval mimo trading hours (hodiny)"),
         ("NIGHT_WEEKEND_INTERVAL_HOURS", float, "Interval cez vikend (hodiny)"),
     ],
+    "BTC": [
+        ("BTC_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
+        ("BTC_MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
+        ("BTC_LEVERAGE", int, "Fixna paka (notional = margin x leverage)"),
+        ("BTC_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
+        ("BTC_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
+        ("BTC_TRADE_INTERVAL_HOURS", float, "Interval POCAS trading hours (hodiny) - BTC je 24/7, defaultne rovnaky ako off_hours/weekend"),
+        ("BTC_OFF_HOURS_INTERVAL_HOURS", float, "Interval mimo trading hours (hodiny)"),
+        ("BTC_WEEKEND_INTERVAL_HOURS", float, "Interval cez vikend (hodiny)"),
+    ],
 }
 
 # Spatna kompatibilita s povodnym menom pouzivanym nizsie v kode.
@@ -134,7 +144,7 @@ def reload_app_modules():
     importlib.reload(config)
 
 
-st.title("Sentiment Bot (NAS100 + NVDA + ADA + GOLD + WTI + NIGHT) — Dashboard")
+st.title("Sentiment Bot (NAS100 + NVDA + ADA + GOLD + WTI + NIGHT + BTC) — Dashboard")
 
 env_values = load_env()
 
@@ -171,8 +181,8 @@ with tabs[0]:
 
     _render_numeric(SHARED_NUMERIC)
 
-    ASSET_NAMES = ["NAS100", "NVDA", "ADA", "GOLD", "WTI", "NIGHT"]
-    OPTIONAL_ASSETS = ["NVDA", "ADA", "GOLD", "WTI", "NIGHT"]  # NAS100 beri vzdy, ostatne su ENABLE_* prepinatelne
+    ASSET_NAMES = ["NAS100", "NVDA", "ADA", "GOLD", "WTI", "NIGHT", "BTC"]
+    OPTIONAL_ASSETS = ["NVDA", "ADA", "GOLD", "WTI", "NIGHT", "BTC"]  # NAS100 beri vzdy, ostatne su ENABLE_* prepinatelne
 
     asset_tabs = st.tabs(ASSET_NAMES)
     for asset_name, asset_tab in zip(ASSET_NAMES, asset_tabs):

@@ -66,7 +66,7 @@ POSITION_MAX_HOURS = _float("POSITION_MAX_HOURS", 24)
 # --- NIZSIE (MIN_CONFIDENCE/MARGIN_USD/LEVERAGE/DEFAULT_SL_PCT/DEFAULT_TP_PCT/
 # TRADE_INTERVAL_HOURS/OFF_HOURS_INTERVAL_HOURS/WEEKEND_INTERVAL_HOURS) su od
 # 2026-07-31 LEN interne fallback-cascade konstanty pre vypocet per-ticker
-# defaultov nizsie (NAS100_MIN_CONFIDENCE a pod.) - VSETKYCH 6 tickerov uz ma
+# defaultov nizsie (NAS100_MIN_CONFIDENCE a pod.) - VSETKYCH 7 tickerov uz ma
 # svoju vlastnu explicitne nastavenu premennu na Railway, takze tieto uz
 # NEOVPLYVNUJU ziadne skutocne rozhodnutie za behu. Nenastavuj ich uz priamo
 # na Railway - uprav rovno konkretny {TICKER}_* ekvivalent nizsie.
@@ -77,8 +77,9 @@ DEFAULT_SL_PCT = _float("DEFAULT_SL_PCT", 0.4)
 DEFAULT_TP_PCT = _float("DEFAULT_TP_PCT", 0.6)
 TRADE_INTERVAL_HOURS = _float("TRADE_INTERVAL_HOURS", 4)
 
-# --- Sest tickerov celkovo: NAS100 (index), NVDA (akcia, POZASTAVENE),
-# ADA (krypto), GOLD (komodita), WTI (ropa), NIGHT (krypto, Midnight/Cardano).
+# --- Sedem tickerov celkovo: NAS100 (index), NVDA (akcia, POZASTAVENE),
+# ADA (krypto), GOLD (komodita), WTI (ropa), NIGHT (krypto, Midnight/Cardano),
+# BTC (krypto, Bitcoin).
 # Vsetky bezia v tom istom cykle a zdielaju cross-market/session makro fetch
 # (viz assets.py, trade_cycle.run_all_cycles), ale kazdy ma uplne nezavisly
 # risk/poziciu/rozhodnutie/frekvenciu - kazdy ma VLASTNU sadu 8 premennych
@@ -102,7 +103,7 @@ TRADE_INTERVAL_HOURS = _float("TRADE_INTERVAL_HOURS", 4)
 # neobchoduje), takze hodinova analyza tych istych zastaralych dat je zbytocny
 # naklad. Pre 24/7 krypto (ADA/NIGHT) su vsetky tri hodnoty zvycajne rovnake
 # (ziadne skutocne "off hours" preň neexistuju), ale mechanizmus je jednotny
-# pre vsetkych 6 tickerov - dovoluje to napr. neskor predlzit vikendovy
+# pre vsetkych 7 tickerov - dovoluje to napr. neskor predlzit vikendovy
 # interval aj pre ADA/NIGHT bez zmeny kodu.
 #
 # TRADING_HOURS_START_UTC/END_UTC (13-21 = NYSE cash session 9:30-16:00 ET v
@@ -113,7 +114,7 @@ TRADING_HOURS_END_UTC = _int("TRADING_HOURS_END_UTC", 21)
 
 # Interne fallback-cascade konstanty pre {TICKER}_OFF_HOURS_INTERVAL_HOURS/
 # {TICKER}_WEEKEND_INTERVAL_HOURS nizsie (rovnaky status ako MIN_CONFIDENCE a
-# pod. vyssie - vsetkych 6 tickerov uz ma svoju vlastnu explicitnu premennu,
+# pod. vyssie - vsetkych 7 tickerov uz ma svoju vlastnu explicitnu premennu,
 # tieto uz nic za behu neovplyvnuju, nenastavuj ich priamo na Railway).
 OFF_HOURS_INTERVAL_HOURS = _float("OFF_HOURS_INTERVAL_HOURS", 2)
 WEEKEND_INTERVAL_HOURS = _float("WEEKEND_INTERVAL_HOURS", 6)
@@ -123,6 +124,7 @@ ENABLE_ADA = _bool("ENABLE_ADA", "true")
 ENABLE_GOLD = _bool("ENABLE_GOLD", "true")
 ENABLE_WTI = _bool("ENABLE_WTI", "true")
 ENABLE_NIGHT = _bool("ENABLE_NIGHT", "true")
+ENABLE_BTC = _bool("ENABLE_BTC", "true")
 
 # Presny symbol/asset identifikator zisti cez strike_client.get_markets() - toto
 # su len predpoklady podla existujuceho NAS100-USD pomenovacieho vzoru, okrem
@@ -132,6 +134,7 @@ STRIKE_ADA_SYMBOL = os.getenv("STRIKE_ADA_SYMBOL", "ADA-USD")
 STRIKE_GOLD_SYMBOL = os.getenv("STRIKE_GOLD_SYMBOL", "XAU-USD")
 STRIKE_WTI_SYMBOL = os.getenv("STRIKE_WTI_SYMBOL", "WTI-USD")
 STRIKE_NIGHT_SYMBOL = os.getenv("STRIKE_NIGHT_SYMBOL", "NIGHT-USD")
+STRIKE_BTC_SYMBOL = os.getenv("STRIKE_BTC_SYMBOL", "BTC-USD")
 
 # ============================== NAS100 ==============================
 # Prve/povodne assety pred multi-asset refaktorom - tieto premenne su nove
@@ -222,3 +225,23 @@ NIGHT_TP_PCT = _float("NIGHT_TP_PCT", 9.0)
 NIGHT_TRADE_INTERVAL_HOURS = _float("NIGHT_TRADE_INTERVAL_HOURS", ADA_TRADE_INTERVAL_HOURS)
 NIGHT_OFF_HOURS_INTERVAL_HOURS = _float("NIGHT_OFF_HOURS_INTERVAL_HOURS", NIGHT_TRADE_INTERVAL_HOURS)
 NIGHT_WEEKEND_INTERVAL_HOURS = _float("NIGHT_WEEKEND_INTERVAL_HOURS", NIGHT_TRADE_INTERVAL_HOURS)
+
+# ============================== BTC ==============================
+# Pridany 2026-08-06 - najlikvidnejsi/najsledovanejsi market na Strike (tesny
+# spread, hlboky orderbook - viz diskusia s pouzivatelom), navyse uz existujucu
+# infrastrukturu ciastocne zdiela (get_btc_proxy_snapshot uz BTC pouziva ako
+# krypto-makro proxy pre ADA/NIGHT). SL/TP nizsie su pociatocny odhad (BTC ma
+# citelne nizsiu volatilitu nez ADA/NIGHT, preto tesnejsie nez obe) - NIE
+# empiricky backtestovane, prehodnotit po zozbierani realnych dat (rovnaky
+# vzor ako WTI/NIGHT pri ich zavedeni).
+BTC_MIN_CONFIDENCE = _int("BTC_MIN_CONFIDENCE", MIN_CONFIDENCE)
+BTC_MARGIN_USD = _float("BTC_MARGIN_USD", MARGIN_USD)
+# Strike default_leverage pre BTC-USD je 10 (margin_tiers strop az 100x pri
+# nizkom notional, ale 10 je konzervativnejsi, konzistentny s ostatnymi).
+BTC_LEVERAGE = _int("BTC_LEVERAGE", 10)
+BTC_SL_PCT = _float("BTC_SL_PCT", 1.5)
+BTC_TP_PCT = _float("BTC_TP_PCT", 2.25)
+# Rovnake ako ADA/NIGHT (dohodnute) - vsetky tri 24/7 krypto.
+BTC_TRADE_INTERVAL_HOURS = _float("BTC_TRADE_INTERVAL_HOURS", ADA_TRADE_INTERVAL_HOURS)
+BTC_OFF_HOURS_INTERVAL_HOURS = _float("BTC_OFF_HOURS_INTERVAL_HOURS", BTC_TRADE_INTERVAL_HOURS)
+BTC_WEEKEND_INTERVAL_HOURS = _float("BTC_WEEKEND_INTERVAL_HOURS", BTC_TRADE_INTERVAL_HOURS)

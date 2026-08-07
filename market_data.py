@@ -1,5 +1,5 @@
 """
-Ziskanie cenovych dat pre obchodovane assety (NAS100/NVDA/ADA/GOLD/WTI/NIGHT)
+Ziskanie cenovych dat pre obchodovane assety (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC)
 a vypocet TA indikatorov.
 
 Primarny zdroj hodinovych OHLC sviecok je VLASTNY poller Strike mark_price
