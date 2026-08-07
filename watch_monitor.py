@@ -3,12 +3,14 @@ Lahky, NEPLATENY poller pre "watch" podmienky.
 
 Ked je Claudeho rozhodnutie "none", ale vidi konkretnu cenovu uroven cakajucu
 na potvrdenie (napr. retest), ulozi si ju do CycleLog.watch_price/watch_direction
-(viz claude_analyst.py). Tento modul kazdych WATCH_INTERVAL_MINUTES (samostatny,
-tesnejsi interval nez MONITOR_INTERVAL_MINUTES - viz main.py) skontroluje
-LEN live cenu zo Strike (ziadne Claude/web_search volanie, teda nulovy naklad) voci
-najnovsiemu CycleLog zaznamu pre kazdy asset - ak sa podmienka splni, spusti
-mimoriadny (uz platny) Claude cyklus LEN pre tento jeden asset cez
-trade_cycle.run_triggered_check().
+(viz claude_analyst.py) - volitelne aj DRUHY, nezavisly par
+watch_price_2/watch_direction_2 pre genuinne obojstranne neisty/range-bound
+setup (nad X = long, pod Y = short). Tento modul kazdych WATCH_INTERVAL_MINUTES
+(samostatny, tesnejsi interval nez MONITOR_INTERVAL_MINUTES - viz main.py)
+skontroluje LEN live cenu zo Strike (ziadne Claude/web_search volanie, teda
+nulovy naklad) voci najnovsiemu CycleLog zaznamu pre kazdy asset - ak sa
+splni PRVY ALEBO DRUHY par, spusti mimoriadny (uz platny) Claude cyklus LEN
+pre tento jeden asset cez trade_cycle.run_triggered_check().
 
 Preco staci pozerat len "najnovsi" zaznam: novy CycleLog z mimoriadneho (alebo
 z beznej hodinovej) analyzy sa stane najnovsim zaznamom pre dany symbol, cim
@@ -198,7 +200,9 @@ def check_watch_triggers() -> None:
                 .order_by(CycleLog.created_at.desc())
                 .first()
             )
-            if not last_log or last_log.watch_price is None or not last_log.watch_direction:
+            has_pair_1 = last_log and last_log.watch_price is not None and last_log.watch_direction
+            has_pair_2 = last_log and last_log.watch_price_2 is not None and last_log.watch_direction_2
+            if not has_pair_1 and not has_pair_2:
                 continue
 
             market = markets_by_symbol.get(symbol)
@@ -207,12 +211,23 @@ def check_watch_triggers() -> None:
                 continue
             live_price = float(market["mark_price"])
 
-            if not _is_triggered(live_price, last_log.watch_price, last_log.watch_direction):
+            # Obojstranny watch (viz claude_analyst.py watch_price_2/watch_direction_2) -
+            # ktorykolvek z dvoch nezavislych parov staci na spustenie; Claude si
+            # situaciu aj tak prehodnoti nanovo v mimoriadnom cykle, nemechanicky
+            # nevykonava vopred urceny smer.
+            triggered_pair = None
+            if has_pair_1 and _is_triggered(live_price, last_log.watch_price, last_log.watch_direction):
+                triggered_pair = (last_log.watch_price, last_log.watch_direction)
+            elif has_pair_2 and _is_triggered(live_price, last_log.watch_price_2, last_log.watch_direction_2):
+                triggered_pair = (last_log.watch_price_2, last_log.watch_direction_2)
+
+            if triggered_pair is None:
                 continue
+            watch_price, watch_direction = triggered_pair
 
             print(
                 f"[watch_monitor] [{name}] watch podmienka splnena "
-                f"(live={live_price}, watch={last_log.watch_direction} {last_log.watch_price}) "
+                f"(live={live_price}, watch={watch_direction} {watch_price}) "
                 "- spustam mimoriadny cyklus."
             )
             try:

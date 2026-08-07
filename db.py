@@ -101,6 +101,14 @@ class CycleLog(Base):
     watch_price = Column(Float, nullable=True)
     watch_direction = Column(String, nullable=True)  # "above" | "below"
 
+    # Volitelny DRUHY (opacny) watch par - pre genuinne obojstranne
+    # neisty/range-bound setup, kde by ROVNAKO relevantne potvrdil aj breakout
+    # hore aj breakdown dole (napr. "nad X = long, pod Y = short"). Rovnaka
+    # semantika ako watch_price/watch_direction vyssie, len druha nezavisla
+    # podmienka - watch_monitor._is_triggered sa vola pre oba pary.
+    watch_price_2 = Column(Float, nullable=True)
+    watch_direction_2 = Column(String, nullable=True)  # "above" | "below"
+
     # Ak outcome=position_check (uz otvorena pozicia - viz
     # trade_cycle._run_position_health_check), Claudeho odporucanie: "hold"
     # (predpoklady drzia) alebo "consider_closing" (pouzivatel by mal zvazit

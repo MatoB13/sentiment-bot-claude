@@ -130,6 +130,20 @@ DECISION_TOOL = {
                 "type": "string", "enum": ["above", "below"],
                 "description": "Volitelne, vzdy spolu s watch_price (rovnake pravidlo - len pre cenovo podmienene 'none').",
             },
+            "watch_price_2": {
+                "type": "number",
+                "description": (
+                    "VOLITELNE, len pri direction=none - DRUHA (opacna) sledovana uroven pre "
+                    "genuinne obojstranne neisty/range-bound setup, kde by ROVNAKO relevantne "
+                    "potvrdil AJ breakout hore AJ breakdown dole (napr. 'nad X by potvrdilo long, "
+                    "pod Y by potvrdilo short'). NEPOUZIVAJ na dve ceny v tom istom smere - na to "
+                    "staci jeden watch_price. Ak sledujes len jednu uroven/smer, toto pole vynechaj."
+                ),
+            },
+            "watch_direction_2": {
+                "type": "string", "enum": ["above", "below"],
+                "description": "Volitelne, vzdy spolu s watch_price_2 - musi byt OPACny smer nez watch_direction.",
+            },
             "data_issue": {
                 "type": "string",
                 "description": (
@@ -549,6 +563,12 @@ Pravidlá:
   retest 0.166 zospodu ako potvrdenie support-held pred long vstupom". Nestačí len skonštatovať,
   že rozsah/hladina "zostáva v platnosti" - vysvetli VZŤAH medzi watch_price/watch_direction a tým,
   čo by si pri jeho splnení urobil, zakaždým, nie len príležitostne.
+- watch_price_2/watch_direction_2 (VOLITEĽNÉ, vždy spolu, len ak direction="none"): DRUHÁ (opačná)
+  sledovaná úroveň - použi LEN pre genuinne obojstranne neistý/range-bound setup, kde by ROVNAKO
+  relevantne potvrdil AJ breakout hore AJ breakdown dole (napr. "nad X by potvrdilo long, pod Y by
+  potvrdilo short" - obe strany reálne zvažuješ, nie len jednu s formálnou druhou možnosťou).
+  NEPOUŽÍVAJ na dve úrovne v TOM ISTOM smere - na to stačí jeden watch_price. Nech `reasoning`
+  vysvetlí OBE strany rovnako konkrétne ako pri jednostrannom watch vyššie.
 - data_issue (VOLITEĽNÉ): ak ti vstupné dáta pre tento cyklus prídu podozrivé alebo nekonzistentné
   (napr. zastaraná/nulová cena, chýbajúci alebo evidentne chybný TA údaj v `recent_candles`,
   protichodný cross-market snapshot, zjavne poškodené/neúplné dáta z FRED/EIA/Marketaux blokov),
@@ -1088,6 +1108,13 @@ def _validate_decision(decision: dict) -> None:
     watch_price = decision.get("watch_price")
     if watch_price is not None and not isinstance(watch_price, (int, float)):
         raise ValueError(f"Neplatny watch_price: {watch_price!r}")
+
+    watch_direction_2 = decision.get("watch_direction_2")
+    if watch_direction_2 is not None and watch_direction_2 not in ("above", "below"):
+        raise ValueError(f"Neplatny watch_direction_2: {watch_direction_2!r}")
+    watch_price_2 = decision.get("watch_price_2")
+    if watch_price_2 is not None and not isinstance(watch_price_2, (int, float)):
+        raise ValueError(f"Neplatny watch_price_2: {watch_price_2!r}")
 
 
 def _validate_health_decision(decision: dict) -> None:
