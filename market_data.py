@@ -68,6 +68,12 @@ def fetch_ohlcv_coingecko(coin_id: str, days: int = 30) -> pd.DataFrame:
 
 
 def compute_indicators(df: pd.DataFrame, include_volume: bool = False) -> dict:
+    if df.empty:
+        # Vsetky zdroje (vlastne price_bars, yfinance/CoinGecko fallback) zlyhali
+        # alebo su prazdne - bez tejto kontroly by df["close"] nizsie zhodilo cyklus
+        # s neprehladnym KeyError('close') namiesto jasnej pricinnej spravy (viz
+        # produkcny incident 2026-08-08 - CoinGecko 429 z Railway cloud IP).
+        raise ValueError("ziadne OHLC data k dispozicii (prazdny DataFrame z vsetkych zdrojov)")
     df = df.copy()
     df["rsi14"] = ta.rsi(df["close"], length=14)
     macd = ta.macd(df["close"])

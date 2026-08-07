@@ -41,6 +41,13 @@ TWITTER_BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN", "")
 # EIA (US Energy Information Administration) - volne API, len pre WTI (tyzdenne
 # zasoby ropy - presne cislo namiesto spolahnutia sa na web_search).
 # Registracia: https://www.eia.gov/opendata/register.php
+# CoinGecko - volny "Demo" API kluc (bez platobnej karty, dedikovana kvota
+# ~30 req/min NEZDIELANA s inymi anonymnymi volajucimi) - len pre HYPE OHLC
+# fallback (viz coingecko_client.py). Bez kluca funguje aj tak (anonymny
+# pristup), ale Railway zdielana cloud IP adresa naraza na 429 Too Many
+# Requests (overene naozivo 2026-08-08 - rovnaka trieda problemu ako Binance
+# blokovanie US cloud IP). Registracia: https://www.coingecko.com/en/developers/dashboard
+COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
 EIA_API_KEY = os.getenv("EIA_API_KEY", "")
 # FRED (St. Louis Fed) - volne API, zdielane pre vsetky assety (CPI/Core CPI/
 # Fed funds rate - presne cislo namiesto web_search odhadu). Registracia:
