@@ -56,6 +56,13 @@ FRED_API_KEY = os.getenv("FRED_API_KEY", "")
 # Marketaux - free tier (100 req/den) news+sentiment API, per-asset (viz
 # assets.py marketaux_query). Registracia: https://www.marketaux.com
 MARKETAUX_API_KEY = os.getenv("MARKETAUX_API_KEY", "")
+# Vsetkych 9 tickerov ma teraz marketaux_query a vola sa 1x za KAZDY dokonceny
+# cyklus - pri realnych produkcnych intervaloch to vychadzalo ~147 volani/den
+# (overene naozivo 2026-08-08), teda uz nad volnym limitom aj bez HYPE/SKHYNIX
+# (~114/den). Spravy sa realne nemenia kazdu hodinu, preto cache namiesto
+# volania pri kazdom cykle (viz marketaux_client.py) - 3h je kompromis medzi
+# cerstvostou a poctom volani.
+MARKETAUX_CACHE_HOURS = _float("MARKETAUX_CACHE_HOURS", 3)
 
 # DB
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///trades.db")
