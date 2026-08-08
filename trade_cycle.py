@@ -102,7 +102,14 @@ def _config_snapshot(asset: dict) -> dict:
         "macro_event_max_triggers_per_hour": config.MACRO_EVENT_MAX_TRIGGERS_PER_HOUR,
         "min_confidence": asset["min_confidence"],
         "margin_usd": asset["margin_usd"],
+        # POZOR (2026-08-08): "leverage" uz NIE JE skutocne pouzita paka -
+        # tu je od tejto zmeny DOPOCITAVANA per-obchod z SL vzdialenosti +
+        # liquidation_cushion_multiple (viz risk_manager._leverage_from_cushion),
+        # tento fixny asset["leverage"] ostava len ako historicky/referencny
+        # udaj (retrospective.py fallback pre stare zaznamy). Skutocna paka
+        # kazdeho obchodu je vzdy vidiet v Obchody tabe (Trade.leverage).
         "leverage": asset["leverage"],
+        "liquidation_cushion_multiple": asset["liquidation_cushion_multiple"],
         "default_sl_pct": asset["sl_pct"],
         "default_tp_pct": asset["tp_pct"],
     }
@@ -572,7 +579,8 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 decision, has_open_position=False,
                 live_price=live_price, market_meta=market_meta,
                 min_confidence=asset["min_confidence"], sl_pct=asset["sl_pct"],
-                tp_pct=asset["tp_pct"], leverage=asset["leverage"], margin_usd=asset["margin_usd"],
+                tp_pct=asset["tp_pct"], cushion_multiple=asset["liquidation_cushion_multiple"],
+                margin_usd=asset["margin_usd"],
             )
         except risk_manager.RejectedTrade as e:
             print(f"[{name}] Obchod zamietnuty risk managerom: {e}")

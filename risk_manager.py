@@ -20,15 +20,65 @@ class RejectedTrade(Exception):
     pass
 
 
+def _leverage_cap_and_mmr(margin_usd: float, margin_tiers: list[dict]) -> tuple[int, float]:
+    """Najvyssia paka SKUTOCNE dosiahnutelna na Strike pri danej (fixnej)
+    marzi, spolu s maintenance margin rate platnou pri tejto page - viz
+    _leverage_from_cushion nizsie.
+
+    margin_tiers (zo strike_client.get_market()) su zoradene podla notional
+    stropu s KLESAJUCOU max_leverage (vyssi notional = nizsia povolena paka).
+    Kedze nasa marza je fixna (per-asset config), notional pri danej page je
+    margin_usd * leverage - hladame NAJNIZSIU (teda prvu vyhovujucu) tier,
+    ktorej vlastna max_leverage este drzi vysledny notional v jej vlastnom
+    strope (inak by sa realny strop posunul na dalsiu, prisnejsiu tier). Pre
+    nase typicke marze ($50-100) voci tier-1 stropom ($25-100k notional) je
+    vysledok prakticky vzdy tier-1 max_leverage."""
+    tiers = sorted(margin_tiers, key=lambda t: float(t["max_notional"]))
+    for tier in tiers:
+        max_lev = int(tier["max_leverage"])
+        max_notional = float(tier["max_notional"])
+        mmr = float(tier["maintenance_margin_rate"])
+        if margin_usd * max_lev <= max_notional:
+            return max_lev, mmr
+    last = tiers[-1]
+    return int(last["max_leverage"]), float(last["maintenance_margin_rate"])
+
+
+def _leverage_from_cushion(sl_distance: float, live_price: float, margin_usd: float,
+                            margin_tiers: list[dict], cushion_multiple: float) -> int:
+    """Paka dopocitana tak, aby vzdialenost do teoretickej likvidacnej ceny
+    bola PRESNE cushion_multiple-nasobkom (uz orezanej) SL vzdialenosti - napr.
+    1.5 = likvidacia je o 50% dalej od vstupu nez SL. Cielom (2026-08-08,
+    explicitne pouzivatelom) je MAXIMALIZOVAT expoziciu pri zachovani
+    bezpecneho odstupu od likvidacie - {TICKER}_LEVERAGE uz nema na skutocny
+    sizing ziaden vplyv (viz config.py), jediny strop je realny Strike-om
+    povoleny max pre danu marzu (viz _leverage_cap_and_mmr), NIKDY povodna
+    fixna konfigurovana hodnota.
+
+    Vzorec (izolovana marza, bez poplatkov): teoreticka likvidacna vzdialenost
+    (ako podiel z entry ceny) = 1/leverage - maintenance_margin_rate. Pri
+    ciely cushion_multiple * sl_fraction = 1/leverage - mmr, teda
+    leverage = 1 / (cushion_multiple * sl_fraction + mmr)."""
+    max_leverage, mmr = _leverage_cap_and_mmr(margin_usd, margin_tiers)
+    sl_fraction = sl_distance / live_price
+    raw_leverage = 1 / (cushion_multiple * sl_fraction + mmr)
+    leverage = min(math.floor(raw_leverage), max_leverage)
+    return max(leverage, 1)
+
+
 def validate_and_size(decision: dict, has_open_position: bool,
                        live_price: float, market_meta: dict,
                        min_confidence: int, sl_pct: float, tp_pct: float,
-                       leverage: int, margin_usd: float) -> dict:
+                       cushion_multiple: float, margin_usd: float) -> dict:
     """Vrati dict pripraveny na strike_client.open_bracket_position, alebo vyhodi RejectedTrade.
 
-    Position sizing je fixny: kazdy obchod pouzije `margin_usd` marzy a `leverage`
-    paku (teda vzdy rovnaky notional = margin_usd * leverage). Vsetky risk
-    parametre su per-asset (viz assets.py).
+    Position sizing: `margin_usd` je fixna (per-asset config), ale `leverage`
+    sa od 2026-08-08 DOPOCITAVA z (uz orezanej) SL vzdialenosti a
+    `cushion_multiple` - viz _leverage_from_cushion. Notional = margin_usd *
+    (takto dopocitana) leverage, teda uz NIE JE fixny naprieč obchodmi ako
+    predtym - siri SL prirodzene znamena nizsiu paku (a teda mensi notional
+    pri rovnakej marzi), tesnejsi SL vyssiu paku, vzdy orezane na skutocny
+    burzou povoleny strop.
 
     SL: Claude navrhuje absolutnu cenu, z ktorej pouzijeme len VZDIALENOST
     (abs(live_price - stop_loss_price)), orezanu do SAFETY_FLOOR_MULTIPLE..
@@ -98,6 +148,13 @@ def validate_and_size(decision: dict, has_open_position: bool,
         tp = tp + tick if decision["direction"] == "long" else tp - tick
 
     risk_reward = tp_distance / sl_distance if sl_distance else 0
+
+    # Paka az TERAZ, z uz finalnej (po tick-zaokruhleni) SL vzdialenosti -
+    # viz _leverage_from_cushion.
+    final_sl_distance = abs(live_price - sl)
+    leverage = _leverage_from_cushion(
+        final_sl_distance, live_price, margin_usd, market_meta["margin_tiers"], cushion_multiple,
+    )
 
     notional_usd = margin_usd * leverage
     size = notional_usd / live_price

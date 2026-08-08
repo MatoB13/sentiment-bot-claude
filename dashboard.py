@@ -40,7 +40,8 @@ ASSET_NUMERIC = {
     "NAS100": [
         ("NAS100_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
         ("NAS100_MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
-        ("NAS100_LEVERAGE", int, "Fixna paka (notional = margin x leverage)"),
+        ("NAS100_LEVERAGE", int, "NEPOUZIVANE pre sizing (2026-08-08+) - paka sa pocita z vankusa, len historicky referencny udaj"),
+        ("NAS100_LIQUIDATION_CUSHION_MULTIPLE", float, "Kolko-nasobok SL vzdialenosti musi byt do teoretickej likvidacie (paka sa z toho dopocita, orezana na Strike max)"),
         ("NAS100_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
         ("NAS100_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
         ("NAS100_TRADE_INTERVAL_HOURS", float, "Interval POCAS trading hours (hodiny)"),
@@ -50,7 +51,8 @@ ASSET_NUMERIC = {
     "NVDA": [
         ("NVDA_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
         ("NVDA_MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
-        ("NVDA_LEVERAGE", int, "Fixna paka (notional = margin x leverage)"),
+        ("NVDA_LEVERAGE", int, "NEPOUZIVANE pre sizing (2026-08-08+) - paka sa pocita z vankusa, len historicky referencny udaj"),
+        ("NVDA_LIQUIDATION_CUSHION_MULTIPLE", float, "Kolko-nasobok SL vzdialenosti musi byt do teoretickej likvidacie (paka sa z toho dopocita, orezana na Strike max)"),
         ("NVDA_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
         ("NVDA_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
         ("NVDA_TRADE_INTERVAL_HOURS", float, "Interval POCAS trading hours (hodiny)"),
@@ -60,7 +62,8 @@ ASSET_NUMERIC = {
     "ADA": [
         ("ADA_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
         ("ADA_MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
-        ("ADA_LEVERAGE", int, "Fixna paka (notional = margin x leverage)"),
+        ("ADA_LEVERAGE", int, "NEPOUZIVANE pre sizing (2026-08-08+) - paka sa pocita z vankusa, len historicky referencny udaj"),
+        ("ADA_LIQUIDATION_CUSHION_MULTIPLE", float, "Kolko-nasobok SL vzdialenosti musi byt do teoretickej likvidacie (paka sa z toho dopocita, orezana na Strike max)"),
         ("ADA_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
         ("ADA_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
         ("ADA_TRADE_INTERVAL_HOURS", float, "Interval POCAS trading hours (hodiny) - ADA je 24/7, defaultne rovnaky ako off_hours/weekend"),
@@ -70,7 +73,8 @@ ASSET_NUMERIC = {
     "GOLD": [
         ("GOLD_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
         ("GOLD_MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
-        ("GOLD_LEVERAGE", int, "Fixna paka (notional = margin x leverage)"),
+        ("GOLD_LEVERAGE", int, "NEPOUZIVANE pre sizing (2026-08-08+) - paka sa pocita z vankusa, len historicky referencny udaj"),
+        ("GOLD_LIQUIDATION_CUSHION_MULTIPLE", float, "Kolko-nasobok SL vzdialenosti musi byt do teoretickej likvidacie (paka sa z toho dopocita, orezana na Strike max)"),
         ("GOLD_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
         ("GOLD_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
         ("GOLD_TRADE_INTERVAL_HOURS", float, "Interval POCAS trading hours (hodiny)"),
@@ -80,7 +84,8 @@ ASSET_NUMERIC = {
     "WTI": [
         ("WTI_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
         ("WTI_MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
-        ("WTI_LEVERAGE", int, "Fixna paka (notional = margin x leverage)"),
+        ("WTI_LEVERAGE", int, "NEPOUZIVANE pre sizing (2026-08-08+) - paka sa pocita z vankusa, len historicky referencny udaj"),
+        ("WTI_LIQUIDATION_CUSHION_MULTIPLE", float, "Kolko-nasobok SL vzdialenosti musi byt do teoretickej likvidacie (paka sa z toho dopocita, orezana na Strike max)"),
         ("WTI_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
         ("WTI_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
         ("WTI_TRADE_INTERVAL_HOURS", float, "Interval POCAS trading hours (hodiny)"),
@@ -90,7 +95,8 @@ ASSET_NUMERIC = {
     "NIGHT": [
         ("NIGHT_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
         ("NIGHT_MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
-        ("NIGHT_LEVERAGE", int, "Fixna paka (notional = margin x leverage)"),
+        ("NIGHT_LEVERAGE", int, "NEPOUZIVANE pre sizing (2026-08-08+) - paka sa pocita z vankusa, len historicky referencny udaj"),
+        ("NIGHT_LIQUIDATION_CUSHION_MULTIPLE", float, "Kolko-nasobok SL vzdialenosti musi byt do teoretickej likvidacie (paka sa z toho dopocita, orezana na Strike max)"),
         ("NIGHT_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
         ("NIGHT_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
         ("NIGHT_TRADE_INTERVAL_HOURS", float, "Interval POCAS trading hours (hodiny) - NIGHT je 24/7, defaultne rovnaky ako off_hours/weekend"),
@@ -100,7 +106,8 @@ ASSET_NUMERIC = {
     "BTC": [
         ("BTC_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
         ("BTC_MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
-        ("BTC_LEVERAGE", int, "Fixna paka (notional = margin x leverage)"),
+        ("BTC_LEVERAGE", int, "NEPOUZIVANE pre sizing (2026-08-08+) - paka sa pocita z vankusa, len historicky referencny udaj"),
+        ("BTC_LIQUIDATION_CUSHION_MULTIPLE", float, "Kolko-nasobok SL vzdialenosti musi byt do teoretickej likvidacie (paka sa z toho dopocita, orezana na Strike max)"),
         ("BTC_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
         ("BTC_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
         ("BTC_TRADE_INTERVAL_HOURS", float, "Interval POCAS trading hours (hodiny) - BTC je 24/7, defaultne rovnaky ako off_hours/weekend"),
@@ -110,7 +117,8 @@ ASSET_NUMERIC = {
     "HYPE": [
         ("HYPE_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
         ("HYPE_MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
-        ("HYPE_LEVERAGE", int, "Fixna paka (notional = margin x leverage)"),
+        ("HYPE_LEVERAGE", int, "NEPOUZIVANE pre sizing (2026-08-08+) - paka sa pocita z vankusa, len historicky referencny udaj"),
+        ("HYPE_LIQUIDATION_CUSHION_MULTIPLE", float, "Kolko-nasobok SL vzdialenosti musi byt do teoretickej likvidacie (paka sa z toho dopocita, orezana na Strike max)"),
         ("HYPE_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
         ("HYPE_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
         ("HYPE_TRADE_INTERVAL_HOURS", float, "Interval POCAS trading hours (hodiny) - HYPE je 24/7, defaultne rovnaky ako off_hours/weekend"),
@@ -120,7 +128,8 @@ ASSET_NUMERIC = {
     "SKHYNIX": [
         ("SKHYNIX_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
         ("SKHYNIX_MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
-        ("SKHYNIX_LEVERAGE", int, "Fixna paka (notional = margin x leverage)"),
+        ("SKHYNIX_LEVERAGE", int, "NEPOUZIVANE pre sizing (2026-08-08+) - paka sa pocita z vankusa, len historicky referencny udaj"),
+        ("SKHYNIX_LIQUIDATION_CUSHION_MULTIPLE", float, "Kolko-nasobok SL vzdialenosti musi byt do teoretickej likvidacie (paka sa z toho dopocita, orezana na Strike max)"),
         ("SKHYNIX_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
         ("SKHYNIX_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
         ("SKHYNIX_TRADE_INTERVAL_HOURS", float, "Interval POCAS trading hours (hodiny) - Korea Exchange seansa (iny UTC blok nez ostatne)"),

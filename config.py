@@ -83,6 +83,22 @@ POSITION_MAX_HOURS = _float("POSITION_MAX_HOURS", 24)
 # dany asset {TICKER}_TRADE_INTERVAL_HOURS/OFF_HOURS/WEEKEND.
 MACRO_EVENT_MAX_TRIGGERS_PER_HOUR = _int("MACRO_EVENT_MAX_TRIGGERS_PER_HOUR", 3)
 
+# Paka uz NIE JE fixna per-asset hodnota (viz {TICKER}_LEVERAGE nizsie - tie su
+# od 2026-08-08 len referencny/historicky udaj, uz NEOVPLYVNUJU skutocny
+# sizing) - namiesto toho sa DOPOCITAVA z (Claudom navrhnutej) SL vzdialenosti
+# tak, aby vzdialenost do teoretickej likvidacnej ceny bola PRESNE tento
+# nasobok SL vzdialenosti (napr. 1.5 = likvidacia je o 50% dalej nez SL) -
+# viz risk_manager._leverage_from_cushion. Cielom (explicitne pouzivatelom
+# 2026-08-08) je MAXIMALIZOVAT expoziciu pri zachovani bezpecneho odstupu od
+# likvidacie, nie zachovat povodnu konzervativnu fixnu paku - vzdy orezane
+# zhora na skutocny Strike-om povoleny strop pre danu marzu/tier (nikdy
+# nepozadovat viac, nez burza vobec dovoli), nikdy dolu na povodnu {TICKER}_LEVERAGE.
+# Toto je zdielany DEFAULT - kazdy ticker ma navyse VLASTNY
+# {TICKER}_LIQUIDATION_CUSHION_MULTIPLE (viz nizsie pri kazdom tickeri), ktory
+# ho pri potrebe prebije nezavisle od ostatnych (rovnaky cascade vzor ako
+# {TICKER}_SL_PCT a pod.).
+LIQUIDATION_CUSHION_MULTIPLE = _float("LIQUIDATION_CUSHION_MULTIPLE", 1.5)
+
 # --- NIZSIE (MIN_CONFIDENCE/MARGIN_USD/LEVERAGE/DEFAULT_SL_PCT/DEFAULT_TP_PCT/
 # TRADE_INTERVAL_HOURS/OFF_HOURS_INTERVAL_HOURS/WEEKEND_INTERVAL_HOURS) su od
 # 2026-07-31 LEN interne fallback-cascade konstanty pre vypocet per-ticker
@@ -109,6 +125,13 @@ TRADE_INTERVAL_HOURS = _float("TRADE_INTERVAL_HOURS", 4)
 # TRADE_INTERVAL_HOURS/OFF_HOURS_INTERVAL_HOURS/WEEKEND_INTERVAL_HOURS),
 # zoskupenu nizsie ticker-po-tickeri (2026-07-31 zjednotene - predtym mal
 # NAS100 bezpredponove nazvy a ADA/NIGHT nemali off_hours/weekend vobec).
+#
+# POZOR (2026-08-08): {TICKER}_LEVERAGE uz NEOVPLYVNUJE skutocny position
+# sizing - paka sa teraz DOPOCITAVA z LIQUIDATION_CUSHION_MULTIPLE (vyssie) a
+# SL vzdialenosti (viz risk_manager._leverage_from_cushion). Tieto premenne
+# ostavaju zapisane len ako referencny/historicky udaj (dashboard config karta,
+# retrospective.py hypotetiske PnL vypocty pre stare zaznamy bez ulozenej
+# skutocnej paky) - zmena hodnoty uz nema ziaden vplyv na skutocne obchody.
 #
 # GOLD je zamerne pridany ako protivietor k prevazne risk-on smerovaniu
 # NAS100/NVDA/ADA (safe-haven, opacna VIX polarita). WTI pridany 2026-07-31 ako
@@ -180,6 +203,7 @@ STRIKE_SKHYNIX_SYMBOL = os.getenv("STRIKE_SKHYNIX_SYMBOL", "SKHYNIX-USD")
 NAS100_MIN_CONFIDENCE = _int("NAS100_MIN_CONFIDENCE", MIN_CONFIDENCE)
 NAS100_MARGIN_USD = _float("NAS100_MARGIN_USD", MARGIN_USD)
 NAS100_LEVERAGE = _int("NAS100_LEVERAGE", LEVERAGE)
+NAS100_LIQUIDATION_CUSHION_MULTIPLE = _float("NAS100_LIQUIDATION_CUSHION_MULTIPLE", LIQUIDATION_CUSHION_MULTIPLE)
 NAS100_SL_PCT = _float("NAS100_SL_PCT", DEFAULT_SL_PCT)
 NAS100_TP_PCT = _float("NAS100_TP_PCT", DEFAULT_TP_PCT)
 NAS100_TRADE_INTERVAL_HOURS = _float("NAS100_TRADE_INTERVAL_HOURS", TRADE_INTERVAL_HOURS)
@@ -193,6 +217,7 @@ NVDA_MARGIN_USD = _float("NVDA_MARGIN_USD", MARGIN_USD)
 # akcie nez indexu, takze rovnaka paka by pri bezneho pohybe znamenala vyssie
 # riziko likvidacie.
 NVDA_LEVERAGE = _int("NVDA_LEVERAGE", 10)
+NVDA_LIQUIDATION_CUSHION_MULTIPLE = _float("NVDA_LIQUIDATION_CUSHION_MULTIPLE", LIQUIDATION_CUSHION_MULTIPLE)
 # Sirsie SL/TP % nez NAS100 (0.4/0.6), rovnaky risk:reward pomer 1:1.5.
 NVDA_SL_PCT = _float("NVDA_SL_PCT", 1.5)
 NVDA_TP_PCT = _float("NVDA_TP_PCT", 2.25)
@@ -208,6 +233,7 @@ ADA_MIN_CONFIDENCE = _int("ADA_MIN_CONFIDENCE", MIN_CONFIDENCE)
 ADA_MARGIN_USD = _float("ADA_MARGIN_USD", 50)
 # Najnizsia paka spomedzi povodnej trojice - najvyssia volatilita.
 ADA_LEVERAGE = _int("ADA_LEVERAGE", 6)
+ADA_LIQUIDATION_CUSHION_MULTIPLE = _float("ADA_LIQUIDATION_CUSHION_MULTIPLE", LIQUIDATION_CUSHION_MULTIPLE)
 ADA_SL_PCT = _float("ADA_SL_PCT", 3.5)
 ADA_TP_PCT = _float("ADA_TP_PCT", 5.25)
 # 24/7 krypto - vsetky tri intervaly su defaultne rovnake (1h), ale nezavisle
@@ -223,6 +249,7 @@ GOLD_MIN_CONFIDENCE = _int("GOLD_MIN_CONFIDENCE", MIN_CONFIDENCE)
 GOLD_MARGIN_USD = _float("GOLD_MARGIN_USD", MARGIN_USD)
 # Menej volatilne nez NVDA/ADA, volatilnejsie nez index -> paka medzi NAS100 a NVDA.
 GOLD_LEVERAGE = _int("GOLD_LEVERAGE", 20)
+GOLD_LIQUIDATION_CUSHION_MULTIPLE = _float("GOLD_LIQUIDATION_CUSHION_MULTIPLE", LIQUIDATION_CUSHION_MULTIPLE)
 GOLD_SL_PCT = _float("GOLD_SL_PCT", 0.8)
 GOLD_TP_PCT = _float("GOLD_TP_PCT", 1.2)
 GOLD_TRADE_INTERVAL_HOURS = _float("GOLD_TRADE_INTERVAL_HOURS", TRADE_INTERVAL_HOURS)
@@ -238,6 +265,7 @@ WTI_MIN_CONFIDENCE = _int("WTI_MIN_CONFIDENCE", MIN_CONFIDENCE)
 WTI_MARGIN_USD = _float("WTI_MARGIN_USD", MARGIN_USD)
 # Podobne ako GOLD, o niecoo nizsie (ropa byva vnutrodenne volatilnejsia nez zlato).
 WTI_LEVERAGE = _int("WTI_LEVERAGE", 15)
+WTI_LIQUIDATION_CUSHION_MULTIPLE = _float("WTI_LIQUIDATION_CUSHION_MULTIPLE", LIQUIDATION_CUSHION_MULTIPLE)
 WTI_SL_PCT = _float("WTI_SL_PCT", 1.2)
 WTI_TP_PCT = _float("WTI_TP_PCT", 1.8)
 # Defaultne rovnake ako GOLD (dohodnute) - nezavisle prestavitelne.
@@ -256,6 +284,7 @@ NIGHT_MARGIN_USD = _float("NIGHT_MARGIN_USD", 50)
 # naozivo cez get_market('NIGHT-USD') 2026-07-31) - vedome zvolena aj napriek
 # cerstvemu bezpecnostnemu incidentu.
 NIGHT_LEVERAGE = _int("NIGHT_LEVERAGE", 10)
+NIGHT_LIQUIDATION_CUSHION_MULTIPLE = _float("NIGHT_LIQUIDATION_CUSHION_MULTIPLE", LIQUIDATION_CUSHION_MULTIPLE)
 # Najsirsie SL/TP zo vsetkych tickerov - najvyssia ocakavana volatilita.
 NIGHT_SL_PCT = _float("NIGHT_SL_PCT", 6.0)
 NIGHT_TP_PCT = _float("NIGHT_TP_PCT", 9.0)
@@ -277,6 +306,7 @@ BTC_MARGIN_USD = _float("BTC_MARGIN_USD", MARGIN_USD)
 # Strike default_leverage pre BTC-USD je 10 (margin_tiers strop az 100x pri
 # nizkom notional, ale 10 je konzervativnejsi, konzistentny s ostatnymi).
 BTC_LEVERAGE = _int("BTC_LEVERAGE", 10)
+BTC_LIQUIDATION_CUSHION_MULTIPLE = _float("BTC_LIQUIDATION_CUSHION_MULTIPLE", LIQUIDATION_CUSHION_MULTIPLE)
 BTC_SL_PCT = _float("BTC_SL_PCT", 1.5)
 BTC_TP_PCT = _float("BTC_TP_PCT", 2.25)
 # Rovnake ako ADA/NIGHT (dohodnute) - vsetky tri 24/7 krypto.
@@ -300,6 +330,7 @@ BTC_WEEKEND_INTERVAL_HOURS = _float("BTC_WEEKEND_INTERVAL_HOURS", BTC_TRADE_INTE
 HYPE_MIN_CONFIDENCE = _int("HYPE_MIN_CONFIDENCE", MIN_CONFIDENCE)
 HYPE_MARGIN_USD = _float("HYPE_MARGIN_USD", 50)
 HYPE_LEVERAGE = _int("HYPE_LEVERAGE", 8)
+HYPE_LIQUIDATION_CUSHION_MULTIPLE = _float("HYPE_LIQUIDATION_CUSHION_MULTIPLE", LIQUIDATION_CUSHION_MULTIPLE)
 HYPE_SL_PCT = _float("HYPE_SL_PCT", 3.5)
 HYPE_TP_PCT = _float("HYPE_TP_PCT", 5.25)
 # Rovnake ako ADA/NIGHT/BTC (dohodnute) - 24/7 krypto.
@@ -320,6 +351,7 @@ HYPE_WEEKEND_INTERVAL_HOURS = _float("HYPE_WEEKEND_INTERVAL_HOURS", HYPE_TRADE_I
 SKHYNIX_MIN_CONFIDENCE = _int("SKHYNIX_MIN_CONFIDENCE", MIN_CONFIDENCE)
 SKHYNIX_MARGIN_USD = _float("SKHYNIX_MARGIN_USD", 50)
 SKHYNIX_LEVERAGE = _int("SKHYNIX_LEVERAGE", 10)
+SKHYNIX_LIQUIDATION_CUSHION_MULTIPLE = _float("SKHYNIX_LIQUIDATION_CUSHION_MULTIPLE", LIQUIDATION_CUSHION_MULTIPLE)
 SKHYNIX_SL_PCT = _float("SKHYNIX_SL_PCT", 1.5)
 SKHYNIX_TP_PCT = _float("SKHYNIX_TP_PCT", 2.25)
 SKHYNIX_TRADE_INTERVAL_HOURS = _float("SKHYNIX_TRADE_INTERVAL_HOURS", TRADE_INTERVAL_HOURS)

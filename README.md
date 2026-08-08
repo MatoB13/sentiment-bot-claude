@@ -201,21 +201,32 @@ Pozri `.env.example` — najdôležitejšie:
 
 **Per-ticker premenné (2026-07-31 zjednotené, BTC pridaný 2026-08-06, HYPE+SKHYNIX pridané
 2026-08-07)** — každý z 9 tickerov (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC/HYPE/SKHYNIX) má VLASTNÚ
-sadu presne rovnakých 8 premenných, zoskupenú v `.env.example` ticker-po-tickeri:
-`{TICKER}_MIN_CONFIDENCE`, `{TICKER}_MARGIN_USD`, `{TICKER}_LEVERAGE`, `{TICKER}_SL_PCT`,
-`{TICKER}_TP_PCT`, `{TICKER}_TRADE_INTERVAL_HOURS`, `{TICKER}_OFF_HOURS_INTERVAL_HOURS`,
-`{TICKER}_WEEKEND_INTERVAL_HOURS`. Napr. `GOLD_LEVERAGE`, `NIGHT_SL_PCT`,
+sadu presne rovnakých 9 premenných, zoskupenú v `.env.example` ticker-po-tickeri:
+`{TICKER}_MIN_CONFIDENCE`, `{TICKER}_MARGIN_USD`, `{TICKER}_LEVERAGE`,
+`{TICKER}_LIQUIDATION_CUSHION_MULTIPLE`, `{TICKER}_SL_PCT`, `{TICKER}_TP_PCT`,
+`{TICKER}_TRADE_INTERVAL_HOURS`, `{TICKER}_OFF_HOURS_INTERVAL_HOURS`,
+`{TICKER}_WEEKEND_INTERVAL_HOURS`. Napr. `GOLD_LIQUIDATION_CUSHION_MULTIPLE`, `NIGHT_SL_PCT`,
 `WTI_WEEKEND_INTERVAL_HOURS`. SKHYNIX má navyše vlastnú `SKHYNIX_TRADING_HOURS_START_UTC`/`END_UTC`
 dvojicu (KRX seansa 00:00-06:30 UTC).
 
 - Predtým mal NAS100 bezpredponové názvy (`MIN_CONFIDENCE`/`MARGIN_USD`/...) a ADA/NIGHT nemali
   `off_hours`/`weekend` vôbec - teraz je štruktúra jednotná pre všetkých deväť.
-- `MIN_CONFIDENCE`, `MARGIN_USD`, `LEVERAGE`, `SL_PCT`/`TP_PCT` — risk parametre (per asset).
-  `MARGIN_USD`/`LEVERAGE` určujú fixný notional (`margin x leverage`); `SL_PCT`/`TP_PCT` sú cieľové
-  SL/TP ako % od live ceny — Claude navrhuje presnú vzdialenosť, ktorá sa orežie do 0.1x-5x týchto
-  hodnôt (nikdy nezablokuje vstup - viz `risk_manager.py`). `ADA`/`NIGHT`/`HYPE`/`SKHYNIX_MARGIN_USD`
-  sú od 2026-08-08 znížené na `$50` (ostatné `$100`) - viac tickerov teraz zdiela jednu peňaženku bez
-  koordinácie (viz preflight kontrola zostatku nižšie).
+- `MIN_CONFIDENCE`, `MARGIN_USD`, `SL_PCT`/`TP_PCT` — risk parametre (per asset). `MARGIN_USD` je
+  fixná marža na obchod; `SL_PCT`/`TP_PCT` sú cieľové SL/TP ako % od live ceny — Claude navrhuje
+  presnú vzdialenosť, ktorá sa orežie do 0.1x-5x týchto hodnôt (nikdy nezablokuje vstup - viz
+  `risk_manager.py`). `ADA`/`NIGHT`/`HYPE`/`SKHYNIX_MARGIN_USD` sú od 2026-08-08 znížené na `$50`
+  (ostatné `$100`) - viac tickerov teraz zdiela jednu peňaženku bez koordinácie (viz preflight
+  kontrola zostatku nižšie).
+- **`LEVERAGE` vs. `LIQUIDATION_CUSHION_MULTIPLE`** (2026-08-08): `{TICKER}_LEVERAGE` už
+  NEOVPLYVŇUJE skutočný position sizing - ostáva len ako historický/referenčný údaj (dashboard,
+  `retrospective.py` fallback pre staré záznamy). Skutočná páka sa teraz DOPOČÍTAVA per-obchod z
+  `{TICKER}_LIQUIDATION_CUSHION_MULTIPLE` (default `1.5`) a aktuálnej SL vzdialenosti tak, aby
+  vzdialenosť do teoretickej likvidačnej ceny bola presne tento násobok SL vzdialenosti (napr. `1.5`
+  = likvidácia je o 50% ďalej od vstupu než SL) - vždy orezané zhora na skutočný Strike-om povolený
+  strop pre danú maržu/tier (`risk_manager._leverage_cap_and_mmr`), nikdy nad to. Cieľ (explicitne
+  zvolený používateľom) je maximalizovať expozíciu pri zachovaní bezpečného odstupu od likvidácie -
+  užší SL teda dnes znamená VYŠŠIU páku/notional pri rovnakej marži, širší SL nižšiu. Nastaviteľné
+  per-ticker, keby niektorý ticker potreboval iný vankuš (napr. volatilnejší ticker vyšší multiple).
 - `TRADE_INTERVAL_HOURS`/`OFF_HOURS_INTERVAL_HOURS`/`WEEKEND_INTERVAL_HOURS` — frekvencia cyklu
   počas trading hours / mimo nich / cez víkend. Pre 24/7 krypto (ADA/NIGHT/BTC/HYPE) sú
   `off_hours`/`weekend` defaultne rovnaké ako `trade_interval` (žiadne skutočné "off hours" preň
