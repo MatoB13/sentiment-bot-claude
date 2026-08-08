@@ -183,6 +183,14 @@ Pozri `.env.example` — najdôležitejšie:
   samostatný, tesnejší interval nez `MONITOR_INTERVAL_MINUTES` (viz `watch_monitor.py`) - tu
   častejšia kontrola reálne znižuje šancu prehliadnuť krátky dotyk/odraz od sledovanej hladiny
 - `POSITION_MAX_HOURS` — max. držanie pozície pred force-close — zdieľané
+- `WATCH_TRIGGER_MAX_PER_HOUR` (default `3`, 2026-08-08) — rovnaká bezpečnostná poistka ako
+  `MACRO_EVENT_MAX_TRIGGERS_PER_HOUR` nižšie, ale pre cenový watch mechanizmus - **PER ASSET** (na
+  rozdiel od makro poistky, ktorá je jeden zdieľaný rozpočet naprieč všetkými assetmi naraz, keďže
+  makro udalosti sú často "všetky assety" burst - cenový watch je vždy nezávislý per-symbol, preto
+  má každý ticker vlastný rozpočet). Bez tejto poistky by watch-trigger mohol spúšťať mimoriadne
+  cykly neobmedzene často, ak by každý ďalší cyklus znova nastavil (aj mierne inú) blízku watch
+  úroveň. Sleduje sa cez novú `TriggeredWatch` DB tabuľku (`db.py`) - zápis PRED spustením cyklu
+  (rovnaký crash-safe vzor ako `TriggeredMacroEvent` nižšie).
 - `MACRO_EVENT_MAX_TRIGGERS_PER_HOUR` (default `3`) — bezpečnostná poistka pri zhluku makro udalostí;
   ich presný čas je vopred známy (na rozdiel od cenového watch vyššie), takže sa mimoriadny cyklus
   spustí HNEĎ pri zverejnení namiesto čakania na ďalší bežný interval. Dva zdroje udalostí (viz

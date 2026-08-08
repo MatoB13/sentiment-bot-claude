@@ -82,6 +82,15 @@ POSITION_MAX_HOURS = _float("POSITION_MAX_HOURS", 24)
 # premennu - _is_due() uz prirodzene zablokuje dalsi bezny tik, kym neuplynie
 # dany asset {TICKER}_TRADE_INTERVAL_HOURS/OFF_HOURS/WEEKEND.
 MACRO_EVENT_MAX_TRIGGERS_PER_HOUR = _int("MACRO_EVENT_MAX_TRIGGERS_PER_HOUR", 3)
+# Rovnaka bezpecnostna poistka, ale pre cenovy watch mechanizmus
+# (watch_price/watch_direction - viz claude_analyst.py) - PER ASSET (na
+# rozdiel od MACRO_EVENT_MAX_TRIGGERS_PER_HOUR vyssie, ktory je jeden
+# zdielany rozpocet naprieč vsetkymi assetmi naraz, kedze makro udalosti su
+# casto "vsetky assety" burst - cenovy watch je vzdy nezavisly per-symbol,
+# preto kazdy asset ma VLASTNY rozpocet). Bez tejto poistky by sa mohol
+# watch-trigger opakovat neobmedzene casto, ak by kazdy dalsi mimoriadny
+# cyklus znova nastavil (aj mierne inu) blizku watch uroven.
+WATCH_TRIGGER_MAX_PER_HOUR = _int("WATCH_TRIGGER_MAX_PER_HOUR", 3)
 
 # Paka uz NIE JE fixna per-asset hodnota (viz {TICKER}_LEVERAGE nizsie - tie su
 # od 2026-08-08 len referencny/historicky udaj, uz NEOVPLYVNUJU skutocny

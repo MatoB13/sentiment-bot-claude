@@ -215,6 +215,25 @@ class TriggeredMacroEvent(Base):
     triggered_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
+class TriggeredWatch(Base):
+    """Zaznamenava KAZDY watch-triggered mimoriadny cyklus (viz
+    watch_monitor.check_watch_triggers - cenova podmienka watch_price/
+    watch_direction splnena) - na rozdiel od TriggeredMacroEvent vyssie tu
+    NEIDE o dedup jednej konkretnej udalosti (cenova podmienka sa moze
+    splnit opakovane), ale o POCITADLO za posledny hodinu na asset (viz
+    config.WATCH_TRIGGER_MAX_PER_HOUR) - bez neho by sa mohla rovnaka
+    cenova hranica (alebo tesne nova, znova nastavena kazdym dalsim
+    mimoriadnym cyklom) spustat neobmedzene casto. Kazdy watch-trigger je
+    per-asset nezavisly (na rozdiel od makro udalosti, ktore su casto
+    zdielany "vsetky assety" burst), preto sa limit pocita OSOBITNE pre
+    kazdy symbol, nie ako jeden zdielany rozpocet."""
+    __tablename__ = "triggered_watches"
+
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False)
+    triggered_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class FlaggedMacroEvent(Base):
     """Vyznamne makro udalosti s presnym znamym datumom, ktore Claude SAM
     identifikoval pocas beznej analyzy (cez web_search TOHTO cyklu, nie z

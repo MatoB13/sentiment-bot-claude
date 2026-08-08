@@ -16,6 +16,14 @@ Preco staci pozerat len "najnovsi" zaznam: novy CycleLog z mimoriadneho (alebo
 z beznej hodinovej) analyzy sa stane najnovsim zaznamom pre dany symbol, cim
 stary watch prirodzene "zanikne" - poller uz nikdy nenajde stary riadok, takze
 netreba samostatny "consumed" flag ani expiraciu.
+
+Bezpecnostna poistka (2026-08-08, viz TriggeredWatch v db.py +
+config.WATCH_TRIGGER_MAX_PER_HOUR): bez nej by mohol watch-trigger jedneho
+assetu spustat mimoriadne cykly neobmedzene casto, ak by kazdy dalsi cyklus
+znova nastavil (aj mierne inu) blizku watch uroven - max. N (default 3) za
+poslednu hodinu, POCITANE OSOBITNE PRE KAZDY ASSET (na rozdiel od
+MACRO_EVENT_MAX_TRIGGERS_PER_HOUR nizsie, ktory je jeden zdielany rozpocet
+naprieč vsetkymi assetmi, kedze makro udalosti su casto "vsetky assety" burst).
 """
 from datetime import datetime, timedelta, timezone
 
@@ -24,7 +32,7 @@ import config
 import macro_calendar
 import strike_client
 import trade_cycle
-from db import CycleLog, FlaggedMacroEvent, Trade, TriggeredMacroEvent, get_session
+from db import CycleLog, FlaggedMacroEvent, Trade, TriggeredMacroEvent, TriggeredWatch, get_session
 
 
 def _is_triggered(live_price: float, watch_price: float, watch_direction: str) -> bool:
@@ -225,11 +233,25 @@ def check_watch_triggers() -> None:
                 continue
             watch_price, watch_direction = triggered_pair
 
+            hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+            triggered_this_hour = session.query(TriggeredWatch).filter(
+                TriggeredWatch.symbol == symbol, TriggeredWatch.triggered_at >= hour_ago,
+            ).count()
+            if triggered_this_hour >= config.WATCH_TRIGGER_MAX_PER_HOUR:
+                print(f"[watch_monitor] [{name}] watch podmienka splnena, ale hodinovy limit "
+                      f"({config.WATCH_TRIGGER_MAX_PER_HOUR}) je pre tento asset vycerpany - "
+                      "skusim dalsi tik.")
+                continue
+
             print(
                 f"[watch_monitor] [{name}] watch podmienka splnena "
                 f"(live={live_price}, watch={watch_direction} {watch_price}) "
                 "- spustam mimoriadny cyklus."
             )
+            # Zapisane HNED (pred behom cyklu), aby padnuty proces uprostred
+            # Claude volania nizsie nespotreboval rozpocet bez ozajstneho zapisu.
+            session.add(TriggeredWatch(symbol=symbol))
+            session.commit()
             try:
                 trade_cycle.run_triggered_check(asset)
             except Exception as e:
