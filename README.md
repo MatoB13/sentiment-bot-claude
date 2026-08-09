@@ -191,6 +191,17 @@ Pozri `.env.example` — najdôležitejšie:
   cykly neobmedzene často, ak by každý ďalší cyklus znova nastavil (aj mierne inú) blízku watch
   úroveň. Sleduje sa cez novú `TriggeredWatch` DB tabuľku (`db.py`) - zápis PRED spustením cyklu
   (rovnaký crash-safe vzor ako `TriggeredMacroEvent` nižšie).
+- `TA_LIVE_PRICE_MISMATCH_RATIO` (default `2.0`, 2026-08-09) — preventívna poistka proti
+  scale-mismatch dát objavená pri SKHYNIX incidente (`000660.KS` v KRW vs. Strike-ov syntetický USD
+  tracker, ~1400x rozdiel - watch_price nafúknutý na túto škálu bol voči live cene triviálne vždy
+  pravdivý, watch_monitor preto spúšťal cyklus takmer na každom ticku). Existujúci SL/TP safety cap
+  (`risk_manager.py`) už chránil SKUTOČNÉ OBCHODY pred zlou škálou (klampovanie na 0.1x-5x cieľového
+  %), ale `watch_price`/`watch_direction` žiadnu takú ochranu nemali. `trade_cycle._check_ta_scale`
+  porovná TA `last_price` voči Strike live cene HNEĎ pri zbere dát (ešte PRED Claude volaním, ušetrí
+  aj náklad) - ak sa líšia viac než tento násobok, cyklus sa čisto preskočí namiesto použitia
+  podozrivých dát. Zámerne NEZÁVISLÉ od konkrétneho zdroja/symbolu - zachytí to aj budúce, ešte
+  neopravené zdroje, nie len tie už identifikované (SKHYNIX/GOLD/WTI). Zdieľané (nie per-ticker) - je
+  to fakt o dátovej integrite, nie risk preferencia.
 - `MACRO_EVENT_MAX_TRIGGERS_PER_HOUR` (default `3`) — bezpečnostná poistka pri zhluku makro udalostí;
   ich presný čas je vopred známy (na rozdiel od cenového watch vyššie), takže sa mimoriadny cyklus
   spustí HNEĎ pri zverejnení namiesto čakania na ďalší bežný interval. Dva zdroje udalostí (viz

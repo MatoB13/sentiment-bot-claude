@@ -58,6 +58,31 @@ def _required_interval_hours(asset: dict, now: datetime) -> float:
     return asset["off_hours_interval_hours"]
 
 
+def _check_ta_scale(ta: dict, live_price: float, name: str) -> None:
+    """Preventivna poistka proti scale-mismatch dat (2026-08-09, po SKHYNIX
+    incidente - yfinance fallback v inej skale nez Strike nafucal watch_price
+    na hodnotu, ktora bola voci live cene triviálne vzdy pravdiva, takze
+    watch_monitor spustal cyklus na kazdom ticku). Existujuci SL/TP safety cap
+    v risk_manager.py uz chrani SKUTOCNE OBCHODY (klampovanie na 0.1x-5x
+    cieloveho %), ale watch_price/watch_direction ziadnu takuto ochranu
+    nemali - a tento problem sa moze zopakovat s AKYMKOLVEK buducim zdrojom
+    (nielen tymi uz opravenymi), preto kontrola tu nie je viazana na
+    konkretny zdroj/symbol, len na fakt "TA posledna cena vs. live cena by
+    mali byt v rozumnom pomere". Vyhodi, ak sa lisia viac nez
+    config.TA_LIVE_PRICE_MISMATCH_RATIO-nasobne - zachyti to HNED pri zbere
+    dat, este PRED Claude volanim (usetri aj naklad)."""
+    last_price = ta.get("last_price")
+    if not last_price or not live_price:
+        return
+    ratio = last_price / live_price
+    if ratio > config.TA_LIVE_PRICE_MISMATCH_RATIO or ratio < 1 / config.TA_LIVE_PRICE_MISMATCH_RATIO:
+        raise ValueError(
+            f"[{name}] TA last_price ({last_price}) a Strike live_price ({live_price}) sa lisia "
+            f"{ratio:.1f}x (limit {config.TA_LIVE_PRICE_MISMATCH_RATIO}x) - mozny scale mismatch "
+            "datoveho zdroja."
+        )
+
+
 def _is_due(asset: dict, session) -> bool:
     """True ak od posledneho zaznamu tohto assetu uplynul jeho pozadovany
     interval pre aktualny casovy usek (viz _required_interval_hours) - teraz
@@ -281,6 +306,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         market_meta = strike_client.get_market(symbol)
         live_price = float(market_meta["mark_price"])
         ta = market_data.get_market_snapshot(asset, session)
+        _check_ta_scale(ta, live_price, name)
         social = social_sentiment.fetch_recent_posts(name)
     except Exception as e:
         print(f"[{name}] Position health check: zber trhovych dat zlyhal, preskakujem: {e}")
@@ -441,6 +467,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             live_price = float(market_meta["mark_price"])
 
             ta = market_data.get_market_snapshot(asset, session)
+            _check_ta_scale(ta, live_price, name)
             social = social_sentiment.fetch_recent_posts(name)
             print(f"[{name}] Strike live_price={live_price} | TA: {ta}")
             print(f"[{name}] Nacitanych {len(social)} social prispevkov (spravy hlada Claude sam cez web_search).")

@@ -91,6 +91,18 @@ MACRO_EVENT_MAX_TRIGGERS_PER_HOUR = _int("MACRO_EVENT_MAX_TRIGGERS_PER_HOUR", 3)
 # watch-trigger opakovat neobmedzene casto, ak by kazdy dalsi mimoriadny
 # cyklus znova nastavil (aj mierne inu) blizku watch uroven.
 WATCH_TRIGGER_MAX_PER_HOUR = _int("WATCH_TRIGGER_MAX_PER_HOUR", 3)
+# Preventivna poistka proti scale-mismatch dat (2026-08-09, po SKHYNIX
+# incidente - viz market_data.get_price_history/assets.py yf_volume_only) -
+# porovnava TA last_price (z akehokolvek zdroja - vlastne price_bars alebo
+# fallback) voci Strike live_price. Existujuci SL/TP safety cap uz chranil
+# SKUTOCNE OBCHODY pred zlou skalou (klampovanie na 0.1x-5x cieloveho %), ale
+# watch_price/watch_direction ZIADNU takuto ochranu nemali (preto watch
+# "below 1400000" pri live ~1020 triggeroval na kazdom ticku) - tato kontrola
+# zachyti problem HNED pri zbere dat, este PRED Claude volanim (usetri aj
+# naklad), nezavisle od toho, KTORY konkretny zdroj/pricinu ma na svedomi -
+# funguje aj pre buduce, este neexistujuce zdroje. NIE per-asset (je to fakt
+# o datovej integrite, nie risk preferencia).
+TA_LIVE_PRICE_MISMATCH_RATIO = _float("TA_LIVE_PRICE_MISMATCH_RATIO", 2.0)
 
 # Paka uz NIE JE fixna per-asset hodnota (viz {TICKER}_LEVERAGE nizsie - tie su
 # od 2026-08-08 len referencny/historicky udaj, uz NEOVPLYVNUJU skutocny
