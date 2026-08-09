@@ -129,7 +129,12 @@ GOLD = {
     "asset_class": "commodity",
     "strike_symbol": config.STRIKE_GOLD_SYMBOL,
     "yf_symbol": "GC=F",
-    "yf_fallback": "GLD",
+    # POZOR (2026-08-09, viz SKHYNIX incident nizsie): GLD ETF NIE JE v rovnakej
+    # skale ako spot/futures zlato (GLD ~1/10 unce na akciu) - overene naozivo,
+    # Strike live ~4349 vs GC=F ~4400 (OK) vs GLD ~398 (10.9x mimo). GC=F ako
+    # primarny zdroj je spolahlivy, preto radsej ZIADEN fallback (prazdne data,
+    # cyklus sa preskoci) nez skodlivo zle skalovany.
+    "yf_fallback": None,
     "sl_pct": config.GOLD_SL_PCT,
     "tp_pct": config.GOLD_TP_PCT,
     "leverage": config.GOLD_LEVERAGE,
@@ -152,7 +157,12 @@ WTI = {
     "asset_class": "commodity",
     "strike_symbol": config.STRIKE_WTI_SYMBOL,
     "yf_symbol": "CL=F",
-    "yf_fallback": "USO",
+    # POZOR (2026-08-09, viz SKHYNIX incident nizsie): USO ETF NIE JE 1:1 s
+    # cenou WTI (historicke reverse-splity/roll-costy skreslili pomer) -
+    # overene naozivo, Strike live ~77.6 vs CL=F ~78.2 (OK) vs USO ~118.0
+    # (1.5x mimo). CL=F ako primarny zdroj je spolahlivy, preto radsej ZIADEN
+    # fallback (prazdne data, cyklus sa preskoci) nez zle skalovany.
+    "yf_fallback": None,
     "sl_pct": config.WTI_SL_PCT,
     "tp_pct": config.WTI_TP_PCT,
     "leverage": config.WTI_LEVERAGE,
