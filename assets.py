@@ -264,6 +264,25 @@ SKHYNIX = {
     "strike_symbol": config.STRIKE_SKHYNIX_SYMBOL,
     "yf_symbol": "000660.KS",
     "yf_fallback": None,
+    # POZOR (2026-08-09, produkcny incident): "000660.KS" je REALNA KRX
+    # burzova cena SK Hynix v KRW (~1 400 000+) - Strike-ove SKHYNIX-USD je
+    # ale SYNTETICKY USD tracker uplne inej skaly (~1000-1100), NIE 1:1 s
+    # realnou akciou (na rozdiel od CXMT-USD/SPCX, ktore su na Yahoo Finance
+    # ako ROVNAKY synteticky nastroj - overene ziadny "SKHYNIX-USD" ekvivalent
+    # neexistuje). Pouzitie "000660.KS" ako OHLC fallback (ked vlastne
+    # price_bars chybaju/su zastarale) zaplnilo price_bars mesiac KRW-skalych
+    # dat (2026-06-26 az 2026-08-07), co viedlo Claude k SL/TP/watch_price v
+    # uplne zlej skale (napr. watch "below 1400000" pri live cene ~1020,
+    # ktore je VZDY pravda -> watch_monitor spustal cyklus na kazdom tiku).
+    # yf_volume_only=True preto zakazuje pouzitie "000660.KS" ako OHLC/cena
+    # zdroj (viz market_data.get_price_history + price_poller.backfill_if_empty) -
+    # ostava dovolene LEN pre _merge_volume (pocet obchodovanych akcii je
+    # skalovo nezavisly udaj, na rozdiel od ceny). Kontaminovane riadky v
+    # price_bars boli rucne vymazane (2026-08-09) - do nazbierania
+    # MIN_OWN_BARS (210) vlastnych hodinovych barov (~7 dni) bude SKHYNIX bez
+    # OHLC fallback preskakovat cykly (rovnaka situacia ako HYPE bez
+    # coingecko_id - ziaden kompatibilny nahradny zdroj neexistuje).
+    "yf_volume_only": True,
     "sl_pct": config.SKHYNIX_SL_PCT,
     "tp_pct": config.SKHYNIX_TP_PCT,
     "leverage": config.SKHYNIX_LEVERAGE,
@@ -275,6 +294,8 @@ SKHYNIX = {
     # Overene naozivo 2026-08-07 (yfinance hodinove sviecky, 10 dni): 58/60
     # neprazdnych volume barov (~97% pokrytie) - spolahlive, na rozdiel od
     # povodneho ADA/NIGHT problemu, ktory viedol k Binance volume zdroju.
+    # POZOR: volume merge je skalovo nezavisly (pocet akcii, nie cena) -
+    # yf_volume_only vyssie preto NEOVPLYVNUJE toto pole.
     "include_volume": True,
     "trade_interval_hours": config.SKHYNIX_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.SKHYNIX_OFF_HOURS_INTERVAL_HOURS,

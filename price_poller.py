@@ -80,6 +80,16 @@ def backfill_if_empty() -> None:
             if already_has_data:
                 continue
 
+            if asset.get("yf_volume_only"):
+                # yf_symbol ma NEKOMPATIBILNU cenovu skalu s tymto Strike
+                # syntetickym trackerom (viz assets.py komentar pri SKHYNIX,
+                # produkcny incident 2026-08-09) - ziaden backfill, radsej
+                # prazdna historia nez zaplnenie zlou skalou. Vlastny 1-min
+                # poller nizsie (poll_prices) ju postupne nazbiera sam.
+                print(f"[price_poller] Preskakujem OHLC backfill pre {symbol}: yfinance "
+                      f"({asset['yf_symbol']}) ma nekompatibilnu cenovu skalu.")
+                continue
+
             source = "CoinGecko" if asset.get("coingecko_id") else "yfinance"
             try:
                 if asset.get("coingecko_id"):

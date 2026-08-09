@@ -265,6 +265,16 @@ def get_price_history(asset: dict, session) -> pd.DataFrame:
         print(f"[market_data] {symbol}: vlastne price_bars chybaju/su zastarale, padam spat na CoinGecko.")
         return fetch_ohlcv_coingecko(asset["coingecko_id"])
 
+    if asset.get("yf_volume_only"):
+        # yf_symbol ma NEKOMPATIBILNU cenovu skalu s tymto Strike syntetickym
+        # trackerom (viz assets.py komentar pri SKHYNIX) - pouzitelny LEN pre
+        # _merge_volume vyssie, nikdy ako plnohodnotny OHLC fallback. Radsej
+        # prazdne data (cyklus sa preskoci, viz compute_indicators guard) nez
+        # tiche zaplnenie zlou skalou.
+        print(f"[market_data] {symbol}: vlastne price_bars chybaju/su zastarale a yfinance "
+              f"({asset['yf_symbol']}) ma nekompatibilnu cenovu skalu - preskakujem, ziadny fallback.")
+        return pd.DataFrame()
+
     print(f"[market_data] {symbol}: vlastne price_bars chybaju/su zastarale, padam spat na yfinance.")
     return fetch_ohlcv(asset["yf_symbol"], asset.get("yf_fallback"))
 
