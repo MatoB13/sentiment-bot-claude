@@ -191,7 +191,10 @@ Pozri `.env.example` — najdôležitejšie:
   cykly neobmedzene často, ak by každý ďalší cyklus znova nastavil (aj mierne inú) blízku watch
   úroveň. Sleduje sa cez novú `TriggeredWatch` DB tabuľku (`db.py`) - zápis PRED spustením cyklu
   (rovnaký crash-safe vzor ako `TriggeredMacroEvent` nižšie).
-- `TA_LIVE_PRICE_MISMATCH_RATIO` (default `2.0`, 2026-08-09) — preventívna poistka proti
+- `TA_LIVE_PRICE_MISMATCH_RATIO` (default `3.0`, 2026-08-09 — pôvodne navrhované `2.0`, zdvihnuté po
+  backteste na reálnom 10.10.2025 krypto flash-crashi: ADA mala v jednej hodine skutočný intra-hour
+  knôt 2.62x pod otváracou cenou, čo by pri `2.0` bol falošný poplach na genuinnom trhovom pohybe,
+  nie na chybe dát) — preventívna poistka proti
   scale-mismatch dát objavená pri SKHYNIX incidente (`000660.KS` v KRW vs. Strike-ov syntetický USD
   tracker, ~1400x rozdiel - watch_price nafúknutý na túto škálu bol voči live cene triviálne vždy
   pravdivý, watch_monitor preto spúšťal cyklus takmer na každom ticku). Existujúci SL/TP safety cap

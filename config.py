@@ -102,7 +102,14 @@ WATCH_TRIGGER_MAX_PER_HOUR = _int("WATCH_TRIGGER_MAX_PER_HOUR", 3)
 # naklad), nezavisle od toho, KTORY konkretny zdroj/pricinu ma na svedomi -
 # funguje aj pre buduce, este neexistujuce zdroje. NIE per-asset (je to fakt
 # o datovej integrite, nie risk preferencia).
-TA_LIVE_PRICE_MISMATCH_RATIO = _float("TA_LIVE_PRICE_MISMATCH_RATIO", 2.0)
+# 3.0 (nie 2.0 - povodny navrh) - overene naozivo na realnom 10.10.2025 krypto
+# flash-crashi (likvidacna kaskada): ADA mala v jednej hodine skutocny knot
+# (intra-hour low) 2.62x pod jej otvaracou cenou (Binance data), co by pri 2.0x
+# prahu bol falosny poplach na genuinnom (aj ked extremnom) trhovom pohybe, nie
+# na chybe dat. 3.0x dava rezervu aj nad tento realny extrem, pricom stale
+# spolahlivo chyta vsetky doteraz najdene skutocne chyby (SKHYNIX 1373x,
+# GOLD/GLD 10.9x - obe daleko nad 3x).
+TA_LIVE_PRICE_MISMATCH_RATIO = _float("TA_LIVE_PRICE_MISMATCH_RATIO", 3.0)
 
 # Paka uz NIE JE fixna per-asset hodnota (viz {TICKER}_LEVERAGE nizsie - tie su
 # od 2026-08-08 len referencny/historicky udaj, uz NEOVPLYVNUJU skutocny
