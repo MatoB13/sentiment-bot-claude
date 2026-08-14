@@ -19,6 +19,10 @@ QUERIES = {
     # NIKDY holé "HYPE" (bezne anglicke slovo) - rovnaky dovod ako NIGHT.
     "HYPE": '("Hyperliquid" OR $HYPE) lang:en -is:retweet',
     "SKHYNIX": '("SK Hynix" OR "SK hynix" OR $000660) lang:en -is:retweet',
+    "AAOI": '($AAOI OR "Applied Optoelectronics") lang:en -is:retweet',
+    # NIKDY holé "MINIMAX"/"minimax" (bezny CS/teoria hier pojem, rovnaky
+    # dovod ako NIGHT/HYPE) - viazane frazy namiesto toho.
+    "MINIMAX": '("MiniMax Group" OR "MiniMax AI") lang:en -is:retweet',
 }
 
 

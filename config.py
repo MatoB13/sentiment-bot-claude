@@ -214,6 +214,11 @@ ENABLE_NIGHT = _bool("ENABLE_NIGHT", "true")
 ENABLE_BTC = _bool("ENABLE_BTC", "true")
 ENABLE_HYPE = _bool("ENABLE_HYPE", "true")
 ENABLE_SKHYNIX = _bool("ENABLE_SKHYNIX", "true")
+# AAOI/MINIMAX pridane 2026-08-14, default FALSE (rovnaky "pozastaveny" vzor
+# ako NVDA) - LEN zbieraju cenovu historiu cez price_poller.py, kym niekto
+# rucne nezapne (viz per-asset sekcie nizsie pre kontext).
+ENABLE_AAOI = _bool("ENABLE_AAOI", "false")
+ENABLE_MINIMAX = _bool("ENABLE_MINIMAX", "false")
 
 # Presny symbol/asset identifikator zisti cez strike_client.get_markets() - toto
 # su len predpoklady podla existujuceho NAS100-USD pomenovacieho vzoru, okrem
@@ -391,3 +396,53 @@ SKHYNIX_TP_PCT = _float("SKHYNIX_TP_PCT", 2.25)
 SKHYNIX_TRADE_INTERVAL_HOURS = _float("SKHYNIX_TRADE_INTERVAL_HOURS", TRADE_INTERVAL_HOURS)
 SKHYNIX_OFF_HOURS_INTERVAL_HOURS = _float("SKHYNIX_OFF_HOURS_INTERVAL_HOURS", OFF_HOURS_INTERVAL_HOURS)
 SKHYNIX_WEEKEND_INTERVAL_HOURS = _float("SKHYNIX_WEEKEND_INTERVAL_HOURS", WEEKEND_INTERVAL_HOURS)
+
+# ============================== AAOI (NEAKTIVNE - zbiera historiu) ==============================
+# Pridany 2026-08-14 (Applied Optoelectronics, NASDAQ - opticke komponenty pre
+# AI datacentra). ENABLE_AAOI default FALSE (rovnaky "pozastaveny" vzor ako
+# NVDA) - zamerne LEN zbiera cenovu historiu cez price_poller.py (viz jeho
+# zmena na ALL_ASSETS namiesto enabled_assets()), Claude analyza sa nespusta,
+# kym niekto rucne ENABLE_AAOI=true nenastavi (viz spolocny ENABLE_* blok
+# vyssie). Vsetko ostatne (ASSET_TEXT v claude_analyst.py, marketaux_query a
+# pod.) je uz plne priprevene, aby zapnutie fungovalo bez dalsieho kodovania.
+# Realny NASDAQ titul (nie synteticky pre-IPO tracker ako CXMT/SPCX/MINIMAX) -
+# zdiela bezny TRADING_HOURS_START/END_UTC (rovnaky vzor ako NVDA).
+STRIKE_AAOI_SYMBOL = os.getenv("STRIKE_AAOI_SYMBOL", "AAOI-USD")
+AAOI_MIN_CONFIDENCE = _int("AAOI_MIN_CONFIDENCE", MIN_CONFIDENCE)
+AAOI_MARGIN_USD = _float("AAOI_MARGIN_USD", 50)
+AAOI_LEVERAGE = _int("AAOI_LEVERAGE", 10)
+AAOI_LIQUIDATION_CUSHION_MULTIPLE = _float("AAOI_LIQUIDATION_CUSHION_MULTIPLE", LIQUIDATION_CUSHION_MULTIPLE)
+# Rovnaky profil ako NVDA/SKHYNIX (jednotlivy volatilny polovodicovy/opticky
+# titul) - pociatocny odhad, NIE empiricky backtestovane (prehodnotit po
+# zozbierani realnych dat, rovnaky vzor ako pri predoslych novych tickeroch).
+AAOI_SL_PCT = _float("AAOI_SL_PCT", 1.9)
+AAOI_TP_PCT = _float("AAOI_TP_PCT", 2.85)
+AAOI_TRADE_INTERVAL_HOURS = _float("AAOI_TRADE_INTERVAL_HOURS", TRADE_INTERVAL_HOURS)
+AAOI_OFF_HOURS_INTERVAL_HOURS = _float("AAOI_OFF_HOURS_INTERVAL_HOURS", OFF_HOURS_INTERVAL_HOURS)
+AAOI_WEEKEND_INTERVAL_HOURS = _float("AAOI_WEEKEND_INTERVAL_HOURS", WEEKEND_INTERVAL_HOURS)
+
+# ============================== MINIMAX (NEAKTIVNE - zbiera historiu) ==============================
+# Pridany 2026-08-14 (MiniMax Group - sukromna/pre-IPO cinska AI firma,
+# synteticky Strike tracker rovnakeho typu ako CXMT/SPCX). ENABLE_MINIMAX
+# default FALSE z rovnakeho dovodu ako AAOI vyssie (viz spolocny ENABLE_*
+# blok vyssie) - LEN zbiera historiu. NEMA ziadny realny burzovy trh (nie je
+# verejne obchodovana) - preto na rozdiel od AAOI/SKHYNIX NEDAVA zmysel
+# viazat "trading hours" na ziadnu konkretnu burzu. Traktovana ako 24/7
+# (rovnaky mechanizmus ako ADA/NIGHT/BTC/HYPE) - off_hours/weekend interval
+# su defaultne rovnake ako trade interval, takze zdielany TRADING_HOURS_
+# START/END_UTC okno je funkcne bezvyznamne (rovnaky trik ako ADA/NIGHT
+# pouzivaju).
+STRIKE_MINIMAX_SYMBOL = os.getenv("STRIKE_MINIMAX_SYMBOL", "MINIMAX-USD")
+MINIMAX_MIN_CONFIDENCE = _int("MINIMAX_MIN_CONFIDENCE", MIN_CONFIDENCE)
+MINIMAX_MARGIN_USD = _float("MINIMAX_MARGIN_USD", 50)
+MINIMAX_LEVERAGE = _int("MINIMAX_LEVERAGE", 10)
+MINIMAX_LIQUIDATION_CUSHION_MULTIPLE = _float("MINIMAX_LIQUIDATION_CUSHION_MULTIPLE", LIQUIDATION_CUSHION_MULTIPLE)
+# Uplne nova trieda assetu bez akejkolvek cenovej historie k dispozicii (viz
+# assets.py komentar) - najkonzervativnejsi pociatocny odhad zo vsetkych
+# tickerov (rovnaka sirka ako NIGHT pri jeho zavedeni, z rovnakeho dovodu:
+# genuinne nezname riziko), NIE empiricky backtestovane.
+MINIMAX_SL_PCT = _float("MINIMAX_SL_PCT", 6.0)
+MINIMAX_TP_PCT = _float("MINIMAX_TP_PCT", 9.0)
+MINIMAX_TRADE_INTERVAL_HOURS = _float("MINIMAX_TRADE_INTERVAL_HOURS", TRADE_INTERVAL_HOURS)
+MINIMAX_OFF_HOURS_INTERVAL_HOURS = _float("MINIMAX_OFF_HOURS_INTERVAL_HOURS", MINIMAX_TRADE_INTERVAL_HOURS)
+MINIMAX_WEEKEND_INTERVAL_HOURS = _float("MINIMAX_WEEKEND_INTERVAL_HOURS", MINIMAX_TRADE_INTERVAL_HOURS)

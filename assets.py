@@ -319,7 +319,71 @@ SKHYNIX = {
     "marketaux_query": {"search": "SK Hynix"},
 }
 
-ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX]
+AAOI = {
+    "name": "AAOI",
+    "asset_class": "stock",
+    "strike_symbol": config.STRIKE_AAOI_SYMBOL,
+    "yf_symbol": "AAOI",
+    "yf_fallback": None,
+    "sl_pct": config.AAOI_SL_PCT,
+    "tp_pct": config.AAOI_TP_PCT,
+    "leverage": config.AAOI_LEVERAGE,
+    "liquidation_cushion_multiple": config.AAOI_LIQUIDATION_CUSHION_MULTIPLE,
+    "margin_usd": config.AAOI_MARGIN_USD,
+    "min_confidence": config.AAOI_MIN_CONFIDENCE,
+    "enabled": config.ENABLE_AAOI,
+    "needs_btc_proxy": False,
+    # Realny NASDAQ titul cez yfinance - volume pokrytie by malo byt spolahlive
+    # (rovnaky zdroj/vzor ako NVDA/TSLA), overit naozivo po prvom zbere dat.
+    "include_volume": True,
+    "trade_interval_hours": config.AAOI_TRADE_INTERVAL_HOURS,
+    "off_hours_interval_hours": config.AAOI_OFF_HOURS_INTERVAL_HOURS,
+    "weekend_interval_hours": config.AAOI_WEEKEND_INTERVAL_HOURS,
+    "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
+    "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
+    "marketaux_query": {"symbols": "AAOI"},
+}
+
+MINIMAX = {
+    "name": "MINIMAX",
+    # Sukromna/pre-IPO firma (MiniMax Group) - synteticky Strike tracker,
+    # NIE realna verejne obchodovana akcia (na rozdiel od AAOI). Rovnaka
+    # kategoria ako CXMT/SPCX na Strike, ziadny z troch je (zatial) v tomto
+    # registri sledovany.
+    "asset_class": "private_equity_synthetic",
+    "strike_symbol": config.STRIKE_MINIMAX_SYMBOL,
+    # Ziadny verejny zdroj cenovych dat neexistuje (nie je na yfinance/Binance/
+    # CoinGecko - overene naozivo 2026-08-14) - yf_symbol ostava len ako
+    # NEPOUZITY fallback (rovnaky vzor ako HYPE pred pridanim coingecko_id),
+    # v praxi vzdy vrati prazdny DataFrame. Historia sa DA ZBIERAT LEN cez
+    # vlastny 1-min Strike poller (viz price_poller.py zmena na ALL_ASSETS).
+    "yf_symbol": "MINIMAX",
+    "yf_fallback": None,
+    "sl_pct": config.MINIMAX_SL_PCT,
+    "tp_pct": config.MINIMAX_TP_PCT,
+    "leverage": config.MINIMAX_LEVERAGE,
+    "liquidation_cushion_multiple": config.MINIMAX_LIQUIDATION_CUSHION_MULTIPLE,
+    "margin_usd": config.MINIMAX_MARGIN_USD,
+    "min_confidence": config.MINIMAX_MIN_CONFIDENCE,
+    "enabled": config.ENABLE_MINIMAX,
+    "needs_btc_proxy": False,
+    # FALSE - ziaden zdroj vobec (viz yf_symbol komentar vyssie), na rozdiel
+    # od WTI/HYPE kde aspon cena/OHLC ma zdroj a len volume chyba.
+    "include_volume": False,
+    "trade_interval_hours": config.MINIMAX_TRADE_INTERVAL_HOURS,
+    "off_hours_interval_hours": config.MINIMAX_OFF_HOURS_INTERVAL_HOURS,
+    "weekend_interval_hours": config.MINIMAX_WEEKEND_INTERVAL_HOURS,
+    "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
+    "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
+    # "minimax" je bezny CS/teoria hier pojem (minimax algoritmus) - holy
+    # "symbols"/"search" dopyt by davat rovnaky typ falosnych zhod ako NIGHT
+    # pred opravou. Viacslovna fraza znizuje riziko kolizie; entity_types sa
+    # nedava (MiniMax nie je cryptocurrency ani listovana equity, ziadna
+    # Marketaux kategoria nesedi presne).
+    "marketaux_query": {"search": "MiniMax Group"},
+}
+
+ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX, AAOI, MINIMAX]
 
 
 def enabled_assets() -> list[dict]:

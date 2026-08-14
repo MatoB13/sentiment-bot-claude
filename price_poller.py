@@ -16,8 +16,16 @@ from db import PriceBar, get_session
 
 def poll_prices() -> None:
     """Zavola sa kazdu minutu (viz main.py) - vytvori/aktualizuje PriceBar
-    riadok pre AKTUALNU hodinu kazdeho aktivneho assetu (open pri prvom
-    tiku danej hodiny, high/low priebezne, close = najnovsia cena)."""
+    riadok pre AKTUALNU hodinu KAZDEHO assetu v registri (nie len enabled_assets()
+    - viz nizsie), open pri prvom tiku danej hodiny, high/low priebezne,
+    close = najnovsia cena.
+
+    ZAMERNE ALL_ASSETS, nie enabled_assets() (2026-08-14, viz AAOI/MINIMAX
+    pridanie): pozastavene/este-nezapnute tickery (NVDA, AAOI, MINIMAX) takto
+    priebezne zbieraju cenovu historiu, aby mali pri buducom zapnuti uz
+    nazbierane data namiesto zaciatku od nuly. Ziadny extra naklad - /v2/markets
+    je aj tak JEDEN bulk GET pokryvajuci vsetky symboly naraz, nezavisle od
+    toho, kolko z nich potom nizsie iterujeme."""
     try:
         markets = strike_client.get_markets()
     except Exception as e:
@@ -30,7 +38,7 @@ def poll_prices() -> None:
     session = get_session()
     try:
         updated = 0
-        for asset in assets.enabled_assets():
+        for asset in assets.ALL_ASSETS:
             symbol = asset["strike_symbol"]
             raw_price = prices.get(symbol)
             if raw_price is None:
@@ -52,7 +60,7 @@ def poll_prices() -> None:
                 bar.close = price
             updated += 1
         session.commit()
-        print(f"[price_poller] {updated}/{len(assets.enabled_assets())} tickerov "
+        print(f"[price_poller] {updated}/{len(assets.ALL_ASSETS)} tickerov "
               f"aktualizovanych (hodina {hour_start.isoformat()}).")
     except Exception as e:
         print(f"[price_poller] Zapis zlyhal: {e}")
@@ -71,10 +79,15 @@ def backfill_if_empty() -> None:
     ziadne data nema pre futures/akcie) - to je akceptovany jednorazovy
     naklad, dalej uz bezi vlastny poller. Idempotentne (kontrola 'uz existuje
     aspon 1 zaznam') - bezpecne volat pri kazdom starte, po prvom uspesnom
-    behu uz nic nerobi."""
+    behu uz nic nerobi.
+
+    ALL_ASSETS (nie enabled_assets()) z rovnakeho dovodu ako v poll_prices()
+    vyssie - pozastavene/este-nezapnute tickery maju dostat rovnaky jednorazovy
+    backfill ako aktivne (pre MINIMAX bez ziadneho externeho zdroja aj tak
+    ticho no-op-ne, viz nizsie)."""
     session = get_session()
     try:
-        for asset in assets.enabled_assets():
+        for asset in assets.ALL_ASSETS:
             symbol = asset["strike_symbol"]
             already_has_data = session.query(PriceBar.id).filter(PriceBar.symbol == symbol).first()
             if already_has_data:

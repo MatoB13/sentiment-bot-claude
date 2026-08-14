@@ -434,6 +434,64 @@ _SKHYNIX_MACRO_RULES = """- **HBM/AI-datacenter capex cyklus - najsilnejší dri
   obmedzení/ciel na polovodiče, a väčšie zmeny kontraktových cien HBM/DRAM sú kľúčové eventy - pred/
   počas takého eventu buď výrazne konzervatívnejší (nízka confidence alebo "none")."""
 
+_AAOI_MACRO_RULES = """- **AI-datacenter capex cyklus - najsilnejší driver**: {instrument} vyrába optické transceivery
+  (800G/1.6T generácie) pre AI datacentrá - dopyt je priamo naviazaný na capex plány hyperscalerov
+  (Microsoft, Meta, Google, Amazon, Oracle) a nepriamo na Nvidia GPU objednávky (viac GPU klastrov =
+  viac potreby na prepojenie sietí). Hyperscaler capex guidance/earnings sú SILNÝ leading indicator.
+- **Malá trhová kapitalizácia = extrémna citlivosť na jednotlivé správy**: Na rozdiel od NVDA/SKHYNIX
+  je {instrument} small-cap titul - výhra/prehra jednotlivého veľkého kontraktu, alebo vlastné
+  quarterly earnings/guidance, historicky spôsobili jednodňové pohyby ceny rádovo 20-30%+. Ber to do
+  úvahy pri confidence aj SL/TP úsudku - bežná volatilita tohto tickera je štrukturálne vyššia než
+  pri väčších polovodičových menách.
+- **Konkurencia**: Coherent, Lumentum, Fabrinet, a čínski výrobcovia (Innolight, Eoptolink) súperia o
+  rovnaké hyperscaler kontrakty - správy o ich výťažnosti/kvalifikácii/cenovej vojne priamo ovplyvňujú
+  trhový podiel {instrument}.
+- **Kapitálová štruktúra/riziko dilúcie**: Menšie rastové technologické firmy často financujú
+  expanziu cez sekundárne ponuky akcií (dilúcia existujúcich držiteľov) - správy o plánovanom
+  kapitálovom zvýšení sú relevantný medvedí signál nezávisle od prevádzkových fundamentov.
+- **US-Čína exportné obmedzenia na polovodiče/optiku**: Podobný duálny efekt ako pri SKHYNIX (môže
+  byť protivietor aj vietor v chrbát podľa konkrétneho dopadu) - over cez web_search, nepredpokladaj
+  automaticky negatívnu reakciu.
+- **Market Reaction Score**: rovnako dôležité ako inde - porovnaj obsah správy s reálnou cenovou
+  reakciou {instrument}.
+- **Event Risk Gate**: vlastné earnings {instrument} (najvyššia priorita kvôli historickej
+  volatilite), hyperscaler capex oznámenia/earnings, a US exportné obmedzenia na polovodiče sú
+  kľúčové eventy - pred/počas takého eventu buď výrazne konzervatívnejší (nízka confidence alebo
+  "none").
+- **Nepredvídateľné politické výroky (Trump/Truth Social)**: Vyjadrenia k obchodnej politike/clám na
+  polovodiče/technológie vedia bez varovania pohnúť sentimentom - over cez web_search nedávne výroky
+  s dopadom na polovodičový/optický sektor."""
+
+_MINIMAX_MACRO_RULES = """- **KRITICKÉ UPOZORNENIE - toto NIE JE bežne obchodovaná akcia**: MiniMax Group je SÚKROMNÁ
+  (neverejne obchodovaná) čínska AI firma - "cena" {instrument} na Strike je syntetický tracker bez
+  reálneho akciového trhu/orderbooku za sebou (rovnaká kategória ako CXMT/SPCX na Strike). Cenový
+  pohyb je pravdepodobne oveľa viac sentiment/špekulácia-driven a menej naviazaný na overiteľné
+  fundamenty než pri bežne obchodovaných akciách (napr. AAOI/SKHYNIX/NVDA) - zváž túto štrukturálnu
+  neistotu pri confidence (nižšia než by rovnaký signál dostal na likvidnejšom tickeri).
+- **Financovanie/ocenenie**: správy o nových investičných kolách (funding rounds), zmenách ocenenia
+  (valuation) pri privátnych transakciách, alebo potenciálnom IPO/verejnom listingu sú kľúčové
+  katalyzátory - toto je pre súkromnú firmu ekvivalent "earnings" u verejne obchodovanej.
+- **Konkurenčná čínska/globálna AI krajina**: porovnaj s inými čínskymi AI labmi (DeepSeek, Zhipu
+  AI/Z.ai, Moonshot AI/Kimi, Baichuan) aj globálnymi (OpenAI, Anthropic, Google DeepMind) - prelomové
+  modely/produkty konkurencie môžu ovplyvniť vnímané postavenie {instrument} aj bez priamej správy o
+  firme samotnej.
+- **Čínska regulácia AI sektora a US-Čína technologické obmedzenia**: vysoká citlivosť, podobne ako
+  SKHYNIX/polovodiče, ale s dodatočným rizikom priamych sankcií/blacklistingu (Entity List a pod.) -
+  toto je systémové riziko špecifické pre čínske AI firmy.
+- **Slabšia trhová hĺbka → vyššia korelácia so širším risk-on/off sentimentom**: keďže ide o
+  syntetický tracker na krypto-natívnej derivátovej platforme (nie skutočný akciový trh), cena môže
+  reagovať viac na všeobecnú náladu (BTC/krypto risk-on-off, VIX režim) než na fundamenty firmy - ber
+  to ako dodatočný kontextový signál, podobne ako pri kryptu.
+- **Market Reaction Score**: rovnako dôležité ako inde, možno ešte viac vzhľadom na tenší trh -
+  porovnaj obsah správy s reálnou cenovou reakciou {instrument}.
+- **Event Risk Gate**: akákoľvek správa o financovaní/ocenení, väčšom produktovom launchi, čínskej
+  AI regulácii, alebo geopolitickej eskalácii US-Čína AI/čip politiky - buď výrazne konzervatívnejší
+  (nízka confidence alebo "none"), keďže potvrdenie/vyvrátenie takýchto správ je pri súkromnej firme
+  ťažšie overiteľné než pri verejne obchodovanej.
+- **Nepredvídateľné politické výroky (Trump/Truth Social)**: vyjadrenia k čínskej technologickej/
+  obchodnej politike (clá, exportné obmedzenia, investičné reštrikcie) vedia bez varovania pohnúť
+  sentimentom - over cez web_search nedávne výroky s dopadom na čínsky AI/tech sektor."""
+
 ASSET_TEXT = {
     "NAS100": {
         "label": "index NAS100 (Nasdaq-100)",
@@ -530,6 +588,29 @@ ASSET_TEXT = {
             'podmienkach'
         ),
         "macro_rules": _SKHYNIX_MACRO_RULES,
+    },
+    "AAOI": {
+        "label": "akciu AAOI (Applied Optoelectronics - opticke komponenty pre AI datacentra)",
+        "news_focus": (
+            'správach o AAOI samotnom (earnings, guidance, nove kontrakty s hyperscalermi), '
+            'AI-datacenter capex objednávkach velkych zakazníkov (Microsoft, Meta, Google, Amazon, '
+            'Oracle), konkurencii (Coherent, Lumentum, Fabrinet, Innolight/Eoptolink), pripadnej '
+            'diluci akcii, a US-Cina exportnych obmedzeniach na polovodice/optiku, popri Fed/makro '
+            'datach (CPI, PPI, NFP, FOMC)'
+        ),
+        "macro_rules": _AAOI_MACRO_RULES,
+    },
+    "MINIMAX": {
+        "label": "syntetický Strike tracker MiniMax Group (súkromná čínska AI firma, NIE verejne obchodovaná akcia)",
+        "news_focus": (
+            'správach o MiniMax Group (financovanie/funding rounds, ocenenie/valuation, produktove '
+            'launche, prípadné IPO/verejný listing), konkurenčnej čínskej AI krajine (DeepSeek, Zhipu '
+            'AI/Z.ai, Moonshot AI/Kimi, Baichuan) aj globálnej (OpenAI, Anthropic, Google DeepMind), '
+            'čínskej regulácii AI sektora a US-Čína technologických obmedzeniach/sankciách, a širšom '
+            'krypto/risk-on-off naratíve (kedže ide o tracker na krypto-natívnej platforme bez '
+            'reálnej trhovej hĺbky)'
+        ),
+        "macro_rules": _MINIMAX_MACRO_RULES,
     },
 }
 

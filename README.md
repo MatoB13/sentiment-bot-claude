@@ -1,4 +1,4 @@
-# Sentiment Bot (Strike Finance) — NAS100 + NVDA + ADA + GOLD + WTI + NIGHT + BTC + HYPE + SKHYNIX
+# Sentiment Bot (Strike Finance) — NAS100 + NVDA + ADA + GOLD + WTI + NIGHT + BTC + HYPE + SKHYNIX + AAOI + MINIMAX
 
 Automatizovaný multi-asset obchodný bot na Strike Finance: **NAS100** (index),
 **NVDA** (akcia), **ADA** (krypto perpetuál), **GOLD** (komodita, zámerne
@@ -14,9 +14,17 @@ naratívu), **HYPE** (krypto Hyperliquid, pridaná 2026-08-07 spolu so SKHYNIX
 ako 2 z 3 najmenej korelovaných assetov z korelačnej analýzy celej Strike
 ponuky — genuinná diverzifikácia, nie len ďalší krypto-beta ticker; OHLC
 zdroj je výnimočne CoinGecko namiesto Binance/yfinance, ktoré HYPE
-nepokrývajú) a **SKHYNIX** (akcia SK Hynix na Korea Exchange, hlavný dodávateľ
+nepokrývajú), **SKHYNIX** (akcia SK Hynix na Korea Exchange, hlavný dodávateľ
 HBM pamätí pre Nvidia AI GPU — jediný asset s vlastnou KRX seansou 00:00-06:30
-UTC namiesto zdieľanej NYSE session). Každý asset je nezávislý "bot" —
+UTC namiesto zdieľanej NYSE session), **AAOI** a **MINIMAX** (obe pridané
+2026-08-14, **NEAKTÍVNE** — `ENABLE_AAOI`/`ENABLE_MINIMAX=false`, rovnaký
+"pozastavený" vzor ako NVDA. AAOI je reálna NASDAQ akcia — Applied
+Optoelectronics, optické komponenty pre AI datacentrá, small-cap s historicky
+vysokou volatilitou. MINIMAX je **syntetický Strike tracker súkromnej**
+(pre-IPO) čínskej AI firmy MiniMax Group — rovnaká kategória ako CXMT/SPCX na
+Strike, žiadny reálny burzový trh za sebou. Obe zatiaľ LEN zbierajú cenovú
+históriu cez `price_poller.py` — pripravené na aktivovanie bez ďalšieho
+kódovania, keď sa nazbiera dosť dát). Každý asset je nezávislý "bot" —
 vlastná pozícia, vlastný risk (SL/TP %, leverage, margin, min. confidence,
 frekvencia cyklu, trading hours), vlastné rozhodnutie od Claude — ale všetky
 bežia v **jednom scheduler cykle** a zdieľajú cross-market/session (a pre
@@ -32,9 +40,9 @@ referenciu nevyžaduje) makro fetch, takže sa tie isté dáta nesťahujú 9x (v
    yfinance, žiadny nový platený zdroj). Rovnako sa **RAZ** natiahne aj
    `fred_client.get_macro_snapshot()` (CPI/Core CPI/Fed funds rate priamo z Fedu,
    voliteľné - viz nižšie).
-1. Pre každý aktívny asset z `assets.py` (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC/HYPE/SKHYNIX), KTORÝ
-   je práve "na rade" (viz `trade_cycle._is_due` — každý asset má vlastnú
-   frekvenciu, viz nižšie):
+1. Pre každý aktívny asset z `assets.py` (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC/HYPE/SKHYNIX/AAOI/MINIMAX
+   — NVDA/AAOI/MINIMAX sú momentálne `enabled=False`, viz vyššie), KTORÝ je práve "na rade" (viz
+   `trade_cycle._is_due` — každý asset má vlastnú frekvenciu, viz nižšie):
    - `market_data.py` zostaví hodinové OHLC sviečky a spočíta TA indikátory (RSI,
      MACD, EMA20/50/200, Bollinger Bands, ATR, trend). Primárny zdroj je **vlastná**
      `price_bars` tabuľka, ktorú `price_poller.py` plní každú minútu zo Strike
@@ -106,12 +114,14 @@ rozhoduje/obchoduje na SVOJOM vlastnom (pomalšom alebo rovnakom) intervale cez
 všetky assety** (jedno `get_positions()` volanie kontroluje všetky otvorené
 pozície naraz).
 
-Assety možno jednotlivo vypnúť cez `ENABLE_NVDA`/`ENABLE_ADA`/`ENABLE_GOLD`/`ENABLE_WTI`/`ENABLE_NIGHT`/`ENABLE_BTC` (NAS100 beží vždy).
+Assety možno jednotlivo vypnúť cez `ENABLE_NVDA`/`ENABLE_ADA`/`ENABLE_GOLD`/`ENABLE_WTI`/`ENABLE_NIGHT`/`ENABLE_BTC`/`ENABLE_HYPE`/`ENABLE_SKHYNIX`/`ENABLE_AAOI`/`ENABLE_MINIMAX` (NAS100 beží vždy; NVDA/AAOI/MINIMAX sú momentálne default `false`).
 
 ## ⚠️ Dôležité upozornenia
 
-- **Toto obchoduje s reálnymi peniazmi na pákový produkt — na ŠIESTICH nezávislých
-  assetoch naraz (plus NAS100 = sedem celkovo).** SL/TP sa nastavujú cez bracket
+- **Toto obchoduje s reálnymi peniazmi na pákový produkt — momentálne na SIEDMICH
+  nezávislých assetoch naraz (plus NAS100 = osem celkovo aktívnych; AAOI/MINIMAX/NVDA
+  sú registrované, ale `enabled=false`, takže reálne neobchodujú, len zbierajú
+  cenovú históriu).** SL/TP sa nastavujú cez bracket
   "strategy" objednávku (`POST /v2/order/strategy`, polia `tp_order`/`sl_order`),
   leverage sa nastavuje samostatne pred otvorením pozície (`POST /v2/leverage`),
   margin mode je **isolated** (nie cross - viz `strike_client.open_bracket_position`)
@@ -222,7 +232,8 @@ Pozri `.env.example` — najdôležitejšie:
   iný kontinent/timezone ako zdieľaný NYSE default)
 
 **Per-ticker premenné (2026-07-31 zjednotené, BTC pridaný 2026-08-06, HYPE+SKHYNIX pridané
-2026-08-07)** — každý z 9 tickerov (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC/HYPE/SKHYNIX) má VLASTNÚ
+2026-08-07, AAOI+MINIMAX pridané 2026-08-14)** — každý z 11 tickerov
+(NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC/HYPE/SKHYNIX/AAOI/MINIMAX) má VLASTNÚ
 sadu presne rovnakých 9 premenných, zoskupenú v `.env.example` ticker-po-tickeri:
 `{TICKER}_MIN_CONFIDENCE`, `{TICKER}_MARGIN_USD`, `{TICKER}_LEVERAGE`,
 `{TICKER}_LIQUIDATION_CUSHION_MULTIPLE`, `{TICKER}_SL_PCT`, `{TICKER}_TP_PCT`,
@@ -255,10 +266,15 @@ dvojicu (KRX seansa 00:00-06:30 UTC).
   neexistujú), ale sú nezávisle nastaviteľné rovnako ako pre ostatné - napr. neskôr predĺžiť
   víkendový interval aj pre ne, bez zmeny kódu.
 - `ENABLE_NVDA`/`ENABLE_ADA`/`ENABLE_GOLD`/`ENABLE_WTI`/`ENABLE_NIGHT`/`ENABLE_BTC`/`ENABLE_HYPE`/
-  `ENABLE_SKHYNIX` — `true`/`false`, vypnutie/zapnutie daného bota (NAS100 beží vždy). NVDA je od
-  2026-07-31 pozastavené (nahradené WTI/NIGHT, cost-optimalizácia) — historické `cycle_logs`/`trades`
-  ostávajú v DB a v monitor-web dashboarde, len sa nezapočítavajú do nového `web_search`/Claude
-  nákladu (viz `trade_cycle._mark_disabled_assets` pre "Pozastavené" označenie).
+  `ENABLE_SKHYNIX`/`ENABLE_AAOI`/`ENABLE_MINIMAX` — `true`/`false`, vypnutie/zapnutie daného bota
+  (NAS100 beží vždy). NVDA je od 2026-07-31 pozastavené (nahradené WTI/NIGHT, cost-optimalizácia) —
+  historické `cycle_logs`/`trades` ostávajú v DB a v monitor-web dashboarde, len sa nezapočítavajú do
+  nového `web_search`/Claude nákladu (viz `trade_cycle._mark_disabled_assets` pre "Pozastavené"
+  označenie). AAOI/MINIMAX sú od 2026-08-14 v rovnakom stave, ale z iného dôvodu — ešte NIKDY
+  neobchodovali (nie "pozastavené", ale "zatiaľ nezapnuté"): `price_poller.py` pre ne beží (zbiera
+  históriu do `price_bars`), ale Claude analýza/`trade_cycle` cyklus sa nespúšťa, kým niekto ručne
+  `ENABLE_AAOI`/`ENABLE_MINIMAX=true` nenastaví. Všetko ostatné (systémový prompt, marketaux/Twitter
+  dotazy, risk parametre) je už pripravené, takže zapnutie nevyžaduje žiadny ďalší kód.
 - **Preflight kontrola zostatku** (2026-08-08, `trade_cycle.py`): pred každým skutočným otvorením
   pozície (mimo `DRY_RUN`) sa overí `/v2/account` `available_balance` voči potrebnej marži - ak
   nestačí, obchod sa čisto zamietne (`outcome="rejected"`, `reject_reason="insufficient_balance: ..."`)
@@ -282,7 +298,7 @@ dvojicu (KRX seansa 00:00-06:30 UTC).
 |---|---|
 | `main.py` | scheduler, entrypoint |
 | `config.py` | centrálne env premenné (zdieľané + per-asset) |
-| `assets.py` | registry assetov (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC/HYPE/SKHYNIX) - symbol, TA ticker, SL/TP%, leverage, margin, min_confidence, frekvencia cyklu, trading hours |
+| `assets.py` | registry assetov (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC/HYPE/SKHYNIX/AAOI/MINIMAX) - symbol, TA ticker, SL/TP%, leverage, margin, min_confidence, frekvencia cyklu, trading hours |
 | `coingecko_client.py` | verejné CoinGecko OHLC dáta - fallback/backfill zdroj LEN pre HYPE (nie je na Binance ani yfinance) |
 | `db.py` | SQLAlchemy modely `Trade`/`CycleLog` (obe majú `symbol`) + session |
 | `market_data.py` | OHLCV + TA indikátory (per asset, primárne z vlastných `price_bars`, fallback yfinance), zdieľaný cross-market/session/BTC-proxy fetch |
