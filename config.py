@@ -25,6 +25,12 @@ def _int(name: str, default: int) -> int:
 # Anthropic
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-5")
+# Volitelny per-ticker override output_config.effort (low/medium/high/xhigh/max) -
+# prazdny retazec (default) = output_config sa vobec neposle, API pouzije svoj
+# vlastny default ("high" na Sonnet 5). Pridane 2026-08-14 na obmedzeny test
+# vyssej hlbky reasoningu LEN pre ADA (nastav ADA_EFFORT=xhigh na Railway),
+# bez akehokolvek vplyvu na ostatnych 8 tickerov (viz assets.py ADA["effort"]).
+ADA_EFFORT = os.getenv("ADA_EFFORT", "")
 
 # Strike
 STRIKE_API_PRIVATE_KEY = os.getenv("STRIKE_API_PRIVATE_KEY", "")

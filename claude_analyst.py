@@ -1068,12 +1068,22 @@ def _call_claude(asset: dict, system_blocks: list[dict], user_prompt: str,
                                "cache_control": {"type": "ephemeral"}}]}]
     web_search_log: list[dict] = []
 
+    # Volitelny per-asset effort test (viz config.ADA_EFFORT/assets.py) - "" (default)
+    # = output_config sa neposle vobec (API default "high"). Pri xhigh/max sa thinking
+    # rozpocet moze vyrazne zvacsit (Anthropic odporuca max_tokens >= 64000), povodnych
+    # 8192 by pri hlbsom uvazovani mohlo orezat odpoved este PRED tool-use blokom
+    # (submit_trade_decision by sa vobec nezavolal) - preto pri xhigh/max zvysujeme strop.
+    effort = asset.get("effort")
+    max_tokens = 8192
+    if effort in ("xhigh", "max"):
+        max_tokens = 24000
+
     # server-side web_search moze pri velmi dlhom hladani vratit stop_reason=pause_turn -
     # v takom pripade treba poslat konverzaciu znova a nechat ju dokoncit (max 1 pokracovanie).
     for _ in range(2):
         payload = {
             "model": config.CLAUDE_MODEL,
-            "max_tokens": 8192,
+            "max_tokens": max_tokens,
             "system": system_blocks,
             "tools": [
                 {"type": "web_search_20260209", "name": "web_search", "max_uses": 7},
@@ -1081,6 +1091,8 @@ def _call_claude(asset: dict, system_blocks: list[dict], user_prompt: str,
             ],
             "messages": messages,
         }
+        if effort:
+            payload["output_config"] = {"effort": effort}
 
         for attempt in range(_MAX_API_RETRIES + 1):
             resp = requests.post(
@@ -1108,7 +1120,7 @@ def _call_claude(asset: dict, system_blocks: list[dict], user_prompt: str,
         print(f"[claude_analyst] [{asset['name']}] usage: input={usage.get('input_tokens')} "
               f"cache_write={usage.get('cache_creation_input_tokens')} "
               f"cache_read={usage.get('cache_read_input_tokens')} output={usage.get('output_tokens')} "
-              f"stop_reason={data.get('stop_reason')}")
+              f"effort={effort or 'default'} stop_reason={data.get('stop_reason')}")
 
         if data.get("stop_reason") == "pause_turn":
             # NEZNACIME cache_control na tento blok: cyklus ma tvrdy strop 2 volania

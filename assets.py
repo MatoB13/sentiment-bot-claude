@@ -122,6 +122,8 @@ ADA = {
     "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "ADAUSD"},
+    # Volitelny effort test (viz config.ADA_EFFORT) - prazdne = bez zmeny.
+    "effort": config.ADA_EFFORT,
 }
 
 GOLD = {
