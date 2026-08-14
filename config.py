@@ -426,12 +426,14 @@ AAOI_WEEKEND_INTERVAL_HOURS = _float("AAOI_WEEKEND_INTERVAL_HOURS", WEEKEND_INTE
 # synteticky Strike tracker rovnakeho typu ako CXMT/SPCX). ENABLE_MINIMAX
 # default FALSE z rovnakeho dovodu ako AAOI vyssie (viz spolocny ENABLE_*
 # blok vyssie) - LEN zbiera historiu. NEMA ziadny realny burzovy trh (nie je
-# verejne obchodovana) - preto na rozdiel od AAOI/SKHYNIX NEDAVA zmysel
-# viazat "trading hours" na ziadnu konkretnu burzu. Traktovana ako 24/7
-# (rovnaky mechanizmus ako ADA/NIGHT/BTC/HYPE) - off_hours/weekend interval
-# su defaultne rovnake ako trade interval, takze zdielany TRADING_HOURS_
-# START/END_UTC okno je funkcne bezvyznamne (rovnaky trik ako ADA/NIGHT
-# pouzivaju).
+# verejne obchodovana), takze presne "trading hours" NEPOZNAME - ale to NIE
+# JE dovod traktovat ju ako 24/7 krypto (2026-08-14, oprava po spatnej
+# vazbe - povodny navrh hodinoveho behu cez cely vikend bol zly default pre
+# neco, co krypto nie je). Namiesto toho pouziva ROVNAKY vzor ako AAOI/WTI/
+# GOLD nizsie/vyssie - zdielane TRADING_HOURS_START/END_UTC ako pragmaticka
+# aproximacia (rovnaky pristup, aky uz ma WTI/GOLD, kedze ani tie doslovne
+# nekopiruju NYSE cash session, len ju pouzivaju ako rozumny default) a
+# SKUTOCNE znizeny off_hours/weekend interval (nie rovnaky ako trade_interval).
 STRIKE_MINIMAX_SYMBOL = os.getenv("STRIKE_MINIMAX_SYMBOL", "MINIMAX-USD")
 MINIMAX_MIN_CONFIDENCE = _int("MINIMAX_MIN_CONFIDENCE", MIN_CONFIDENCE)
 MINIMAX_MARGIN_USD = _float("MINIMAX_MARGIN_USD", 50)
@@ -444,5 +446,5 @@ MINIMAX_LIQUIDATION_CUSHION_MULTIPLE = _float("MINIMAX_LIQUIDATION_CUSHION_MULTI
 MINIMAX_SL_PCT = _float("MINIMAX_SL_PCT", 6.0)
 MINIMAX_TP_PCT = _float("MINIMAX_TP_PCT", 9.0)
 MINIMAX_TRADE_INTERVAL_HOURS = _float("MINIMAX_TRADE_INTERVAL_HOURS", TRADE_INTERVAL_HOURS)
-MINIMAX_OFF_HOURS_INTERVAL_HOURS = _float("MINIMAX_OFF_HOURS_INTERVAL_HOURS", MINIMAX_TRADE_INTERVAL_HOURS)
-MINIMAX_WEEKEND_INTERVAL_HOURS = _float("MINIMAX_WEEKEND_INTERVAL_HOURS", MINIMAX_TRADE_INTERVAL_HOURS)
+MINIMAX_OFF_HOURS_INTERVAL_HOURS = _float("MINIMAX_OFF_HOURS_INTERVAL_HOURS", OFF_HOURS_INTERVAL_HOURS)
+MINIMAX_WEEKEND_INTERVAL_HOURS = _float("MINIMAX_WEEKEND_INTERVAL_HOURS", WEEKEND_INTERVAL_HOURS)
