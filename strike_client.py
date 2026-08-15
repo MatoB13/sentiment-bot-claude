@@ -129,6 +129,25 @@ def get_fill_history(symbol: str, start_ms: int | None = None, end_ms: int | Non
     return result if isinstance(result, list) else result.get("fills", [])
 
 
+def get_funding_history(symbol: str, start_ms: int | None = None, end_ms: int | None = None,
+                         limit: int = 1000) -> list[dict]:
+    """/v2/history/funding - periodicke funding platby za drzanie perpetual
+    pozicie (kladne amount = prijate, zaporne = zaplatene), NEZAVISLE od
+    /v2/history/fill (fills obsahuju len obchodne PnL/poplatky, ziadny funding -
+    overene naprieč zaznamami 2026-08-15). Zdokumentovane pod api/user/rest-api/
+    history (nie api/trade/history, kde su len order/fill) - preto lahko
+    prehliadnutelne."""
+    params = [f"symbol={symbol}", f"limit={limit}"]
+    if start_ms is not None:
+        params.append(f"startTime={start_ms}")
+    if end_ms is not None:
+        params.append(f"endTime={end_ms}")
+    result = _request("GET", f"/v2/history/funding?{'&'.join(params)}")
+    if isinstance(result, list):
+        return result
+    return (result.get("funding") if isinstance(result, dict) else None) or []
+
+
 def get_markets() -> list[dict]:
     """Vrati zoznam vsetkych marketov (obsahuje presny symbol, tick/step size, mark_price...)."""
     result = _request("GET", "/v2/markets")

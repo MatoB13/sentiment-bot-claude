@@ -6,6 +6,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 import assets
 import config
+import funding_tracker
 import position_monitor
 import price_poller
 import trade_cycle
@@ -34,6 +35,12 @@ def main():
         price_poller.backfill_if_empty()
     except Exception as e:
         print(f"[main] price_poller.backfill_if_empty zlyhal neocakavane: {e}")
+    # Rovnaky vzor ako vyssie, ale pre funding platby (viz funding_tracker.py,
+    # 2026-08-15) - uplne nezavisle od trade/fill trackovania.
+    try:
+        funding_tracker.backfill_if_empty()
+    except Exception as e:
+        print(f"[main] funding_tracker.backfill_if_empty zlyhal neocakavane: {e}")
 
     # Prve spustenie kazdeho jobu je explicitne volanie nizsie ("hned na starte"),
     # takze scheduler ma zacat tikat az o jeden cely interval neskor - inak by sa
@@ -57,6 +64,12 @@ def main():
                        minutes=config.MONITOR_INTERVAL_MINUTES,
                        next_run_time=now + timedelta(minutes=config.MONITOR_INTERVAL_MINUTES),
                        id="position_monitor")
+    # Rovnaky interval ako position_monitor - funding sa akumuluje priebezne
+    # pocas drzania pozicie, netreba na to samostatny (tesnejsi) tik.
+    scheduler.add_job(funding_tracker.poll_new, "interval",
+                       minutes=config.MONITOR_INTERVAL_MINUTES,
+                       next_run_time=now + timedelta(minutes=config.MONITOR_INTERVAL_MINUTES),
+                       id="funding_tracker")
     # Samostatny (tesnejsi) interval nez position_monitor - watch_monitor nerobi
     # ziadne Claude/web_search volanie, kym sa sledovana cenova podmienka reálne
     # nesplni (viz watch_monitor.py), takze castejsi tik je lacny. Na rozdiel od
@@ -92,6 +105,10 @@ def main():
         position_monitor.check_open_trades()
     except Exception as e:
         print(f"[main] check_open_trades zlyhal neocakavane: {e}")
+    try:
+        funding_tracker.poll_new()
+    except Exception as e:
+        print(f"[main] funding_tracker.poll_new zlyhal neocakavane: {e}")
     try:
         watch_monitor.check_watch_triggers()
     except Exception as e:

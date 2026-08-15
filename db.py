@@ -224,6 +224,27 @@ class PriceBar(Base):
     close = Column(Float, nullable=False)
 
 
+class FundingPayment(Base):
+    """Periodicke funding platby za drzanie perpetual pozicie na Strike
+    (kladne amount = prijate, zaporne = zaplatene) - viz strike_client.
+    get_funding_history() + funding_tracker.py. UPLNE NEZAVISLE od Trade/
+    fillov: /v2/history/fill neobsahuje funding vobec (overene 2026-08-15,
+    kvoli rozdielu medzi nasim trackovanym PnL a Strike leaderboardom).
+    strike_id = Strike-ove vlastne id zaznamu, unique kluc na dedup pri
+    kazdom pollovani (viz funding_tracker.poll_new)."""
+    __tablename__ = "funding_payments"
+
+    id = Column(Integer, primary_key=True)
+    strike_id = Column(Integer, unique=True, nullable=False, index=True)
+    symbol = Column(String, nullable=False, index=True)
+    position_side = Column(String, nullable=True)  # "Long" | "Short"
+    position_size = Column(Float, nullable=True)
+    funding_rate = Column(Float, nullable=True)
+    amount = Column(Float, nullable=False)  # signed - kladne=prijate, zaporne=zaplatene
+    occurred_at = Column(DateTime, nullable=False, index=True)  # Strike-ov timestamp
+    fetched_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class TriggeredMacroEvent(Base):
     """Zaznamenava, ktore makro udalosti (FOMC/CPI/NFP - viz macro_calendar.py)
     uz spustili mimoriadny cyklus, aby sa ta ista udalost nespustala opakovane
