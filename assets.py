@@ -383,7 +383,35 @@ MINIMAX = {
     "marketaux_query": {"search": "MiniMax Group"},
 }
 
-ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX, AAOI, MINIMAX]
+ZEC = {
+    "name": "ZEC",
+    "asset_class": "crypto",
+    "strike_symbol": config.STRIKE_ZEC_SYMBOL,
+    "yf_symbol": "ZEC-USD",
+    "yf_fallback": None,
+    "sl_pct": config.ZEC_SL_PCT,
+    "tp_pct": config.ZEC_TP_PCT,
+    "leverage": config.ZEC_LEVERAGE,
+    "liquidation_cushion_multiple": config.ZEC_LIQUIDATION_CUSHION_MULTIPLE,
+    "margin_usd": config.ZEC_MARGIN_USD,
+    "min_confidence": config.ZEC_MIN_CONFIDENCE,
+    "enabled": config.ENABLE_ZEC,
+    # Rovnaky dovod ako ADA/NIGHT/BTC (24/7 krypto, dava zmysel porovnavat sa
+    # voci sirsiemu krypto trhu).
+    "needs_btc_proxy": True,
+    # Overene naozivo 2026-08-15 (yfinance ZEC-USD + Binance ZECUSDT obe
+    # funguju bez problemov) - rovnaky spolahlivy volume zdroj ako ADA/NIGHT.
+    "include_volume": True,
+    "binance_volume_symbol": "ZECUSDT",
+    "trade_interval_hours": config.ZEC_TRADE_INTERVAL_HOURS,
+    "off_hours_interval_hours": config.ZEC_OFF_HOURS_INTERVAL_HOURS,
+    "weekend_interval_hours": config.ZEC_WEEKEND_INTERVAL_HOURS,
+    "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
+    "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
+    "marketaux_query": {"symbols": "ZECUSD"},
+}
+
+ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX, AAOI, MINIMAX, ZEC]
 
 
 def enabled_assets() -> list[dict]:

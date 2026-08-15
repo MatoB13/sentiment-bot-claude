@@ -23,6 +23,7 @@ QUERIES = {
     # NIKDY holé "MINIMAX"/"minimax" (bezny CS/teoria hier pojem, rovnaky
     # dovod ako NIGHT/HYPE) - viazane frazy namiesto toho.
     "MINIMAX": '("MiniMax Group" OR "MiniMax AI") lang:en -is:retweet',
+    "ZEC": '($ZEC OR "Zcash" OR "Zcash shielded") lang:en -is:retweet',
 }
 
 

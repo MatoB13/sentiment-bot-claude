@@ -249,6 +249,9 @@ ENABLE_SKHYNIX = _bool("ENABLE_SKHYNIX", "true")
 # rucne nezapne (viz per-asset sekcie nizsie pre kontext).
 ENABLE_AAOI = _bool("ENABLE_AAOI", "false")
 ENABLE_MINIMAX = _bool("ENABLE_MINIMAX", "false")
+# ZEC pridany 2026-08-15, rovnaky "aktivny hned" vzor ako WTI/NIGHT/HYPE/SKHYNIX
+# (na rozdiel od AAOI/MINIMAX, ktore vedome zacali len ako zber historie).
+ENABLE_ZEC = _bool("ENABLE_ZEC", "true")
 
 # Presny symbol/asset identifikator zisti cez strike_client.get_markets() - toto
 # su len predpoklady podla existujuceho NAS100-USD pomenovacieho vzoru, okrem
@@ -262,6 +265,8 @@ STRIKE_NIGHT_SYMBOL = os.getenv("STRIKE_NIGHT_SYMBOL", "NIGHT-USD")
 STRIKE_BTC_SYMBOL = os.getenv("STRIKE_BTC_SYMBOL", "BTC-USD")
 STRIKE_HYPE_SYMBOL = os.getenv("STRIKE_HYPE_SYMBOL", "HYPE-USD")
 STRIKE_SKHYNIX_SYMBOL = os.getenv("STRIKE_SKHYNIX_SYMBOL", "SKHYNIX-USD")
+# ZEC-USD overene naozivo v /v2/markets (2026-08-15).
+STRIKE_ZEC_SYMBOL = os.getenv("STRIKE_ZEC_SYMBOL", "ZEC-USD")
 
 # ============================== NAS100 ==============================
 # Prve/povodne assety pred multi-asset refaktorom - tieto premenne su nove
@@ -478,3 +483,22 @@ MINIMAX_TP_PCT = _float("MINIMAX_TP_PCT", 9.0)
 MINIMAX_TRADE_INTERVAL_HOURS = _float("MINIMAX_TRADE_INTERVAL_HOURS", TRADE_INTERVAL_HOURS)
 MINIMAX_OFF_HOURS_INTERVAL_HOURS = _float("MINIMAX_OFF_HOURS_INTERVAL_HOURS", OFF_HOURS_INTERVAL_HOURS)
 MINIMAX_WEEKEND_INTERVAL_HOURS = _float("MINIMAX_WEEKEND_INTERVAL_HOURS", WEEKEND_INTERVAL_HOURS)
+
+# ============================== ZEC ==============================
+# Pridany 2026-08-15 na ziadost pouzivatela - Zcash (krypto, opt-in "shielded"
+# privacy transakcie cez zk-SNARKy). Rizikovy profil VEDOME nastaveny rovnako
+# ako ADA (SL/TP/leverage/intervaly su identicke) - na rozdiel od NIGHT/HYPE
+# NEIDE o pociatocny odhad kvoli chybajucim datam, ale o priamy pozadavok
+# "podobne ako ADA". Vlastny Claude system prompt (macro_rules/news_focus) v
+# claude_analyst.py je ale UPLNE samostatny - odlisne fundamenty (established
+# privacy coin od 2016 vs. Cardano L1 smart-contract platforma) - viz tam.
+ZEC_MIN_CONFIDENCE = _int("ZEC_MIN_CONFIDENCE", MIN_CONFIDENCE)
+ZEC_MARGIN_USD = _float("ZEC_MARGIN_USD", 50)
+ZEC_LEVERAGE = _int("ZEC_LEVERAGE", 6)
+ZEC_LIQUIDATION_CUSHION_MULTIPLE = _float("ZEC_LIQUIDATION_CUSHION_MULTIPLE", LIQUIDATION_CUSHION_MULTIPLE)
+ZEC_SL_PCT = _float("ZEC_SL_PCT", 3.5)
+ZEC_TP_PCT = _float("ZEC_TP_PCT", 5.25)
+# 24/7 krypto - vsetky tri intervaly defaultne rovnake ako ADA.
+ZEC_TRADE_INTERVAL_HOURS = _float("ZEC_TRADE_INTERVAL_HOURS", ADA_TRADE_INTERVAL_HOURS)
+ZEC_OFF_HOURS_INTERVAL_HOURS = _float("ZEC_OFF_HOURS_INTERVAL_HOURS", ZEC_TRADE_INTERVAL_HOURS)
+ZEC_WEEKEND_INTERVAL_HOURS = _float("ZEC_WEEKEND_INTERVAL_HOURS", ZEC_TRADE_INTERVAL_HOURS)

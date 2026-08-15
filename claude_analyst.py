@@ -517,6 +517,38 @@ _MINIMAX_MACRO_RULES = """- **KRITICKÉ UPOZORNENIE - toto NIE JE bežne obchodo
   obchodnej politike (clá, exportné obmedzenia, investičné reštrikcie) vedia bez varovania pohnúť
   sentimentom - over cez web_search nedávne výroky s dopadom na čínsky AI/tech sektor."""
 
+_ZEC_MACRO_RULES = """- **Regulacne/delisting riziko privacy coinov - najdolezitejsi ODLISUJUCI faktor oproti bezným
+  altcoinom**: {instrument} (Zcash) umoznuje volitelne "shielded" (súkromné, zk-SNARK) transakcie -
+  privacy coiny (ZEC, Monero/XMR, Dash) opakovane čelia AML/travel-rule tlaku a delistingom na
+  burzách (historicky Japonsko, Južná Kórea, UK, EU pod MiCA). Akákoľvek nová burzová
+  reštrikcia/delisting alebo regulačné vyhlásenie (najmä FATF travel rule, US Treasury/OFAC postoj k
+  privacy-preserving nástrojom - podobný precedens ako sankcie na Tornado Cash 2022) je vážne
+  medvedie riziko nezávislé od širšieho krypto trhu - toto je jediný typ udalosti pri {instrument},
+  kde treba byť opatrnejší než pri bežnom altcoine.
+- **Podiel shielded (súkromného) poolu**: rastúci podiel ZEC držaného/presúvaného cez shielded pool
+  (oproti transparentným transakciám) je komunitou aj analytikmi sledovaná fundamentálna metrika -
+  vnímaná ako potvrdenie reálneho "digital cash" use-case, nie len špekulácie. Over cez web_search
+  najnovšie čísla, ak sú dostupné.
+- **Korelácia s privacy-coin košom (najmä Monero/XMR)**: {instrument} sa čiastočne obchoduje ako
+  súčasť "privacy coin" skupiny - regulačné správy dopadajúce na XMR/Dash často potiahnu aj ZEC aj
+  bez priamej správy o Zcash samotnom. Divergencia (XMR sa hýbe, {instrument} nie) je dôležitý signál
+  idiosynkratického (nie skupinového) faktora.
+- **BTC beta**: na rozdiel od mladších narrative-driven tokenov (napr. HYPE/NIGHT) je {instrument}
+  etablovaný coin (od 2016) s viac "štandardným" altcoin správaním - vo väčšine období sleduje BTC
+  (často zosilnene), okrem prípadov privacy-špecifických katalyzátorov vyššie.
+- **Halving/dev fund pozadie**: {instrument} má Bitcoin-podobný cyklus znižovania blokovej odmeny
+  (posledný "druhý halving" november 2024) a časť odmeny ide do dev fondu (Zcash Community
+  Grants/ECC/Zcash Foundation) - pomaly sa meniaci pozadový faktor, spomeň len ak je aktuálne v
+  správach (napr. governance spor o alokáciu fondu).
+- **Rizikový režim cez equity trhy**: rovnako ako pri inom kryptu, S&P500/Nasdaq a VIX sú sekundárny
+  kontext (risk-on/off korelácia), nie hlavný signál.
+- **Market Reaction Score**: rovnako dôležité ako inde - porovnaj obsah správy s reálnou cenovou
+  reakciou {instrument}.
+- **Event Risk Gate**: nová burzová reštrikcia/delisting privacy coinov, FATF/regulačné vyhlásenia k
+  privacy-preserving nástrojom, a bežné krypto makro eventy (CPI/FOMC/NFP, veľké likvidačné kaskády)
+  sú kľúčové eventy - pred/počas takého eventu buď výrazne konzervatívnejší (nízka confidence alebo
+  "none")."""
+
 ASSET_TEXT = {
     "NAS100": {
         "label": "index NAS100 (Nasdaq-100)",
@@ -636,6 +668,17 @@ ASSET_TEXT = {
             'reálnej trhovej hĺbky)'
         ),
         "macro_rules": _MINIMAX_MACRO_RULES,
+    },
+    "ZEC": {
+        "label": "krypto ZEC (Zcash, privacy coin s volitelnymi shielded transakciami) perpetuál",
+        "news_focus": (
+            'správach o Zcash sieti (podiel shielded/súkromného poolu, sieťové upgrady, dev fund/ '
+            'Zcash Community Grants governance), regulačnom/burzovom tlaku na privacy coiny '
+            '(delistingy, FATF travel rule, US Treasury/OFAC postoj k privacy-preserving nástrojom), '
+            'korelovanom pohybe iných privacy coinov (najmä Monero/XMR), a širšom krypto naratíve '
+            '(BTC dominance, risk-on/off sentiment, veľké likvidácie na trhu)'
+        ),
+        "macro_rules": _ZEC_MACRO_RULES,
     },
 }
 
