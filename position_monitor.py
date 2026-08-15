@@ -184,17 +184,15 @@ def _check_and_queue_review(trade: Trade, pending_reviews: list) -> None:
 
 
 def _fire_post_close_reviews(pending_reviews: list) -> None:
-    """Bezi AZ PO session.close() (viz check_open_trades) - trade_cycle.run_triggered_check
+    """Bezi AZ PO session.close() (viz check_open_trades) - trade_cycle.dispatch_triggered_check
     otvara vlastnu nezavislu session, netreba (ani nesmieme) zdielat tu s uz
-    zatvorenou position_monitor session."""
+    zatvorenou position_monitor session. NA POZADI (viz jej docstring) - inak
+    by pomaly review jedneho zatvoreneho obchodu blokoval kontrolu OSTATNYCH
+    (stale otvorenych) pozicii na dalsom tiku."""
     for asset, closed_trade in pending_reviews:
         print(f"[position_monitor] [{asset['name']}] post-close review "
               f"(dovod={closed_trade['close_reason']}, pnl=${closed_trade['pnl_usd']:.2f}).")
-        try:
-            trade_cycle.run_triggered_check(asset, closed_trade=closed_trade)
-        except Exception as e:
-            # jeden asset nesmie zhodit review ostatnych
-            print(f"[position_monitor] [{asset['name']}] post-close review zlyhal: {e}")
+        trade_cycle.dispatch_triggered_check(asset, closed_trade=closed_trade)
 
 
 def _check_and_queue_close_notification(trade: Trade, pending_notifications: list) -> None:

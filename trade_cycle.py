@@ -5,6 +5,7 @@ makro fetch (cross-market/session, pripadne BTC proxy) sa spravi PRESNE RAZ a
 potom sa pouzije pre kazdy aktivny asset z assets.py nezavisle - kazdy ma
 vlastnu poziciu, vlastny risk (SL/TP%, leverage, margin, min_confidence) a
 vlastne Claude rozhodnutie. Zlyhanie jedneho assetu nesmie zhodit ostatne."""
+import threading
 from datetime import datetime, timedelta, timezone
 
 import assets
@@ -836,6 +837,33 @@ def run_triggered_check(asset: dict, closed_trade: dict | None = None,
 
     run_cycle_for_asset(asset, cross_market, market_session, btc_proxy, fred_macro,
                          skip_due_check=True, closed_trade=closed_trade, macro_event=macro_event)
+
+
+def dispatch_triggered_check(asset: dict, **kwargs) -> None:
+    """Ako run_triggered_check() vyssie, ale NA POZADI (samostatny thread) -
+    pouzivaju watch_monitor.py a position_monitor.py namiesto priameho volania.
+
+    Dovod (2026-08-15, produkcny nalez): run_triggered_check zvykne trvat 1-3
+    min (Claude + web_search, obzvlast pri effort=xhigh), a oba volajuce joby
+    (watch_monitor.check_watch_triggers, position_monitor.check_open_trades)
+    ho predtym volali PRIAMO/blokujuco - kym cakali na Claude odpoved pre JEDEN
+    asset, kontrola OSTATNYCH tickerov v tom istom behu stala, a APScheduler
+    (max_instances=1 default) preskocil aj CELY dalsi 1-min tik ("maximum
+    number of running instances reached"). To znamena, ze na 2-3 min sa
+    prestali kontrolovat VSETKY ostatne watch podmienky / otvorene pozicie,
+    nielen ta jedna, co trigger vyvolala. Dispatch na pozadie drzi kazdy
+    scheduler tik kratky (len lahke DB/HTTP volania), takze sa uz nikdy
+    nepreskakuje. run_triggered_check() otvara VLASTNU nezavislu DB session
+    (viz jej docstring), takze je bezpecne volat z ineho threadu."""
+    name = asset["name"]
+
+    def _run():
+        try:
+            run_triggered_check(asset, **kwargs)
+        except Exception as e:
+            print(f"[trade_cycle] [{name}] mimoriadny beh na pozadi zlyhal: {e}")
+
+    threading.Thread(target=_run, daemon=True, name=f"triggered-{name}").start()
 
 
 def _mark_disabled_assets() -> None:

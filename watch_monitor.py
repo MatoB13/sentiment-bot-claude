@@ -10,7 +10,9 @@ setup (nad X = long, pod Y = short). Tento modul kazdych WATCH_INTERVAL_MINUTES
 skontroluje LEN live cenu zo Strike (ziadne Claude/web_search volanie, teda
 nulovy naklad) voci najnovsiemu CycleLog zaznamu pre kazdy asset - ak sa
 splni PRVY ALEBO DRUHY par, spusti mimoriadny (uz platny) Claude cyklus LEN
-pre tento jeden asset cez trade_cycle.run_triggered_check().
+pre tento jeden asset cez trade_cycle.dispatch_triggered_check() - NA POZADI
+(viz jej docstring), aby pomaly Claude beh pre jeden asset neblokoval
+kontrolu ostatnych tickerov v tom istom tiku.
 
 Preco staci pozerat len "najnovsi" zaznam: novy CycleLog z mimoriadneho (alebo
 z beznej hodinovej) analyzy sa stane najnovsim zaznamom pre dany symbol, cim
@@ -168,10 +170,7 @@ def _check_macro_events(session) -> None:
         session.add(TriggeredMacroEvent(event_key=key))
         session.commit()
         for asset in target_assets:
-            try:
-                trade_cycle.run_triggered_check(asset, macro_event=event["name"])
-            except Exception as e:
-                print(f"[watch_monitor] [{asset['name']}] mimoriadny cyklus po {key} zlyhal: {e}")
+            trade_cycle.dispatch_triggered_check(asset, macro_event=event["name"])
 
 
 def check_watch_triggers() -> None:
@@ -252,11 +251,7 @@ def check_watch_triggers() -> None:
             # Claude volania nizsie nespotreboval rozpocet bez ozajstneho zapisu.
             session.add(TriggeredWatch(symbol=symbol))
             session.commit()
-            try:
-                trade_cycle.run_triggered_check(asset)
-            except Exception as e:
-                # jeden asset nesmie zhodit kontrolu ostatnych
-                print(f"[watch_monitor] [{name}] mimoriadny cyklus zlyhal: {e}")
+            trade_cycle.dispatch_triggered_check(asset)
     finally:
         session.close()
 
