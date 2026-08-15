@@ -138,6 +138,8 @@ def _config_snapshot(asset: dict) -> dict:
         "liquidation_cushion_multiple": asset["liquidation_cushion_multiple"],
         "default_sl_pct": asset["sl_pct"],
         "default_tp_pct": asset["tp_pct"],
+        "claude_model": config.CLAUDE_MODEL,
+        "effort": asset.get("effort") or None,
     }
 
 
