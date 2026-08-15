@@ -201,6 +201,17 @@ Pozri `.env.example` — najdôležitejšie:
   cykly neobmedzene často, ak by každý ďalší cyklus znova nastavil (aj mierne inú) blízku watch
   úroveň. Sleduje sa cez novú `TriggeredWatch` DB tabuľku (`db.py`) - zápis PRED spustením cyklu
   (rovnaký crash-safe vzor ako `TriggeredMacroEvent` nižšie).
+- `WATCH_CONFIDENCE_MARGIN` (default `5`, 2026-08-15) — rozšírenie watch mechanizmu z
+  `direction="none"` aj na `direction=long/short`, ktoré risk manager zamietol ČISTO kvôli
+  confidence. Ak Claude navrhne smer a jeho confidence padne do pásma
+  `[{TICKER}_MIN_CONFIDENCE − margin, {TICKER}_MIN_CONFIDENCE)`, dostane presné číselné pásmo v
+  user správe a MÁ sa vždy explicitne vyjadriť (`confidence_threshold_note` na `submit_trade_decision`),
+  pri akej cene by — čisto technicky, nikdy plynutím času — jeho confidence prekročila prah. Tú cenu
+  zapíše do (už existujúcich) `watch_price`/`watch_direction`, ktoré `watch_monitor.py` sleduje úplne
+  rovnako ako pri `direction="none"` (nerozlišuje, odkiaľ hodnota pochádza) - žiadny nový kód na
+  stranu Strike, stále chránené `WATCH_TRIGGER_MAX_PER_HOUR` vyššie, a spustený mimoriadny cyklus je
+  VŽDY kompletne čerstvá analýza (nie mechanické vykonanie pôvodného návrhu). Je v poriadku, ak Claude
+  napíše, že cenu nevie odhadnúť - watch sa vtedy jednoducho nenastaví.
 - `TA_LIVE_PRICE_MISMATCH_RATIO` (default `3.0`, 2026-08-09 — pôvodne navrhované `2.0`, zdvihnuté po
   backteste na reálnom 10.10.2025 krypto flash-crashi: ADA mala v jednej hodine skutočný intra-hour
   knôt 2.62x pod otváracou cenou, čo by pri `2.0` bol falošný poplach na genuinnom trhovom pohybe,

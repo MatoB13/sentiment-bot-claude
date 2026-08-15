@@ -97,6 +97,22 @@ MACRO_EVENT_MAX_TRIGGERS_PER_HOUR = _int("MACRO_EVENT_MAX_TRIGGERS_PER_HOUR", 3)
 # watch-trigger opakovat neobmedzene casto, ak by kazdy dalsi mimoriadny
 # cyklus znova nastavil (aj mierne inu) blizku watch uroven.
 WATCH_TRIGGER_MAX_PER_HOUR = _int("WATCH_TRIGGER_MAX_PER_HOUR", 3)
+# Pridane 2026-08-15 - rozsirenie watch mechanizmu z direction="none" aj na
+# direction=long/short, ktore risk_manager zamietol CISTO kvoli confidence
+# (viz claude_analyst.py confidence_threshold_note + DECISION_TOOL). Ak
+# Claude navrhne smer a jeho confidence padne do pasma
+# [{TICKER}_MIN_CONFIDENCE - WATCH_CONFIDENCE_MARGIN, {TICKER}_MIN_CONFIDENCE),
+# dostane v user prompte tento pasmo cislicami a MA sa VZDY explicitne
+# vyjadrit, pri akej cene by (cisto technicky, nie plynutim casu) confidence
+# prekrocila prah - tu cenu zapise do (uz existujucich) watch_price/
+# watch_direction, ktore watch_monitor.py uz beztak sleduje bez ohladu na to,
+# aky direction mal posledny CycleLog. Ziadna nova trieda rizika: spustenie
+# watch-u vedie k rovnakemu mimoriadnemu cyklu s COMPLETNE cerstvou analyzou
+# (nie mechanickemu vykonaniu povodneho navrhu), chranenemu tym istym
+# WATCH_TRIGGER_MAX_PER_HOUR stropom vyssie. Zdielane (nie per-ticker) -
+# jednoduchy relativny offset od min_confidence, ktory zostava spravny aj ak
+# sa {TICKER}_MIN_CONFIDENCE niekedy zmeni.
+WATCH_CONFIDENCE_MARGIN = _float("WATCH_CONFIDENCE_MARGIN", 5)
 # Preventivna poistka proti scale-mismatch dat (2026-08-09, po SKHYNIX
 # incidente - viz market_data.get_price_history/assets.py yf_volume_only) -
 # porovnava TA last_price (z akehokolvek zdroja - vlastne price_bars alebo

@@ -117,32 +117,57 @@ DECISION_TOOL = {
             "watch_price": {
                 "type": "number",
                 "description": (
-                    "Volitelne - len ked direction=none A skutocny blokujuci dovod je "
-                    "konkretna CENOVA uroven (retest/breakout), ktoru by cenovy pohyb sam "
-                    "vedel potvrdit. NEVYPLNAJ, ak je blokujuci dovod CASOVA UDALOST "
+                    "Volitelne - vypln v JEDNOM z DVOCH nezavislych pripadov: "
+                    "(1) direction=none A skutocny blokujuci dovod je konkretna CENOVA "
+                    "uroven (retest/breakout), ktoru by cenovy pohyb sam vedel potvrdit. "
+                    "NEVYPLNAJ v tomto pripade, ak je blokujuci dovod CASOVA UDALOST "
                     "(FOMC/CPI/NFP/PMI/earnings) - ziadny cenovy pohyb pred udalostou "
                     "neistotu nevyriesi, takze by to sposobilo zbytocne opakovane "
-                    "mimoriadne cykly pri beznom trhovom sume. Vynechaj cely field, ak "
-                    "nie je relevantny."
+                    "mimoriadne cykly pri beznom trhovom sume. "
+                    "(2) direction=long/short A vyplnas aj confidence_threshold_note "
+                    "nizsie - sem daj presne tu istu cenu, ktoru si tam popisal. "
+                    "Vynechaj cely field, ak nie je relevantny ani jeden pripad."
                 ),
             },
             "watch_direction": {
                 "type": "string", "enum": ["above", "below"],
-                "description": "Volitelne, vzdy spolu s watch_price (rovnake pravidlo - len pre cenovo podmienene 'none').",
+                "description": (
+                    "Volitelne, vzdy spolu s watch_price (rovnaky pripad (1) alebo (2) - "
+                    "viz jeho popis)."
+                ),
             },
             "watch_price_2": {
                 "type": "number",
                 "description": (
-                    "VOLITELNE, len pri direction=none - DRUHA (opacna) sledovana uroven pre "
-                    "genuinne obojstranne neisty/range-bound setup, kde by ROVNAKO relevantne "
-                    "potvrdil AJ breakout hore AJ breakdown dole (napr. 'nad X by potvrdilo long, "
-                    "pod Y by potvrdilo short'). NEPOUZIVAJ na dve ceny v tom istom smere - na to "
-                    "staci jeden watch_price. Ak sledujes len jednu uroven/smer, toto pole vynechaj."
+                    "VOLITELNE, len pri direction=none (NIE pri pripade (2) confidence_threshold_note "
+                    "nizsie - tam je vzdy len jedna relevantna cena) - DRUHA (opacna) sledovana "
+                    "uroven pre genuinne obojstranne neisty/range-bound setup, kde by ROVNAKO "
+                    "relevantne potvrdil AJ breakout hore AJ breakdown dole (napr. 'nad X by "
+                    "potvrdilo long, pod Y by potvrdilo short'). NEPOUZIVAJ na dve ceny v tom "
+                    "istom smere - na to staci jeden watch_price. Ak sledujes len jednu "
+                    "uroven/smer, toto pole vynechaj."
                 ),
             },
             "watch_direction_2": {
                 "type": "string", "enum": ["above", "below"],
                 "description": "Volitelne, vzdy spolu s watch_price_2 - musi byt OPACny smer nez watch_direction.",
+            },
+            "confidence_threshold_note": {
+                "type": "string",
+                "description": (
+                    "VYPLŇ VZDY, ked direction=long alebo short A tvoja confidence vyjde v pasme "
+                    "tesne pod prahom na otvorenie pozicie (presne cislicne pasmo pre tento cyklus "
+                    "dostanes v user sprave). Napis, PRI AKEJ CENE by tvoja confidence z CISTO "
+                    "TECHNICKEHO hladiska (potvrdeny breakout, uspesny retest, prekonanie "
+                    "konkretnej urovne - NIKDY plynutim casu) prekrocila prah - a tu istu cenu daj "
+                    "aj do watch_price/watch_direction, aby ju lacny poller sledoval a pri splneni "
+                    "spustil mimoriadny cyklus (kde situaciu znova kompletne vyhodnotis od zaciatku, "
+                    "nemechanicky sa nevykona tento povodny navrh). Je UPLNE V PORIADKU napisat, ze "
+                    "v danej situacii takú cenu nevies odhadnut (napr. blokujuci dovod nie je "
+                    "cenova uroven, ale cakanie na konkretnu spravu/event) - vtedy watch_price/"
+                    "watch_direction nechaj prazdne. Mimo tohto pasma (confidence bezpecne nad "
+                    "alebo zjavne pod prahom) toto pole uplne vynechaj."
+                ),
             },
             "data_issue": {
                 "type": "string",
@@ -707,24 +732,39 @@ Pravidlá:
   (napr. konkrétny očakávaný event a jeho dátum, prevládajúci naratív, aktívny katalyzátor).
   Toto dostane budúci cyklus na overenie, či ešte platí - ber to ako odkaz "čo si myslím, že
   je teraz pravda" pre svoje budúce ja.
-- watch_price/watch_direction (VOLITEĽNÉ, len ak direction="none"): nastav LEN ak je skutočný
-  blokujúci dôvod tvojho "none" rozhodnutia konkrétna CENOVÁ úroveň (napr. čakáš na retest
+- watch_price/watch_direction (VOLITEĽNÉ): nastav v JEDNOM z DVOCH nezávislých prípadov.
+  (1) direction="none" A skutočný blokujúci dôvod je konkrétna CENOVÁ úroveň (napr. čakáš na retest
   supportu/resistance, potvrdenie breakoutu) - teda niečo, čo by CENOVÝ POHYB samotný vedel
-  vyriešiť. Toto spustí lacný poller sledujúci live cenu, ktorý ťa mimoriadne zavolá znova AK sa
-  podmienka splní, namiesto čakania na ďalší pravidelný cyklus.
-  NENASTAVUJ tieto polia, ak je skutočný blokujúci dôvod ČASOVÁ UDALOSŤ (napr. čakáš na FOMC/CPI/
-  PPI/NFP/PMI report, earnings, alebo iný naplánovaný event) - v tom prípade žiadny cenový pohyb
-  pred touto udalosťou tvoju neistotu nevyrieši, takže watch na cenu by bol zavádzajúci (spustil by
-  sa pri bežnom trhovom šume/drifte, nie pri skutočnom potvrdení, a viedol by k zbytočným opakovaným
-  mimoriadnym cyklom bez toho, aby sa čokoľvek reálne zmenilo). V takom prípade oba polia vynechaj
-  úplne - počkaj na ďalší pravidelný cyklus alebo priamo na výsledok danej udalosti.
-  Rovnako vynechaj oba polia, ak je direction="long"/"short" (pozícia sa už otvára).
-  VŽDY, keď tieto polia nastavíš, MUSÍ `reasoning` explicitne a konkrétne uviesť, čo presne
-  sledovaná podmienka znamená a čo by jej potvrdenie spustilo - napr. "sledujem breakdown pod
-  0.1614, čo by potvrdilo pokračovanie downtrendu a otvorilo priestor pre short" alebo "čakám na
-  retest 0.166 zospodu ako potvrdenie support-held pred long vstupom". Nestačí len skonštatovať,
-  že rozsah/hladina "zostáva v platnosti" - vysvetli VZŤAH medzi watch_price/watch_direction a tým,
-  čo by si pri jeho splnení urobil, zakaždým, nie len príležitostne.
+  vyriešiť. NENASTAVUJ v tomto prípade, ak je skutočný blokujúci dôvod ČASOVÁ UDALOSŤ (napr. čakáš
+  na FOMC/CPI/PPI/NFP/PMI report, earnings, alebo iný naplánovaný event) - v tom prípade žiadny
+  cenový pohyb pred touto udalosťou tvoju neistotu nevyrieši, takže watch na cenu by bol zavádzajúci
+  (spustil by sa pri bežnom trhovom šume/drifte, nie pri skutočnom potvrdení, a viedol by k
+  zbytočným opakovaným mimoriadnym cyklom bez toho, aby sa čokoľvek reálne zmenilo). V takom prípade
+  oba polia vynechaj úplne - počkaj na ďalší pravidelný cyklus alebo priamo na výsledok danej
+  udalosti.
+  (2) direction="long"/"short" A vypĺňaš aj confidence_threshold_note nižšie (viz jeho popis) - sem
+  daj presne tú istú cenu, ktorú si tam opísal.
+  Toto spustí lacný poller sledujúci live cenu, ktorý ťa mimoriadne zavolá znova AK sa podmienka
+  splní, namiesto čakania na ďalší pravidelný cyklus.
+  VŽDY, keď tieto polia nastavíš, MUSÍ `reasoning` (v prípade (1)) alebo `confidence_threshold_note`
+  (v prípade (2)) explicitne a konkrétne uviesť, čo presne sledovaná podmienka znamená a čo by jej
+  potvrdenie spustilo - napr. "sledujem breakdown pod 0.1614, čo by potvrdilo pokračovanie
+  downtrendu a otvorilo priestor pre short" alebo "čakám na retest 0.166 zospodu ako potvrdenie
+  support-held pred long vstupom". Nestačí len skonštatovať, že rozsah/hladina "zostáva v platnosti"
+  - vysvetli VZŤAH medzi watch_price/watch_direction a tým, čo by si pri jeho splnení urobil,
+  zakaždým, nie len príležitostne.
+- confidence_threshold_note (VYPĹŇAJ VŽDY, keď je relevantné): ak zvolíš direction="long" alebo
+  "short" a tvoja confidence vyjde v pásme tesne pod prahom na otvorenie pozície (presné číselné
+  pásmo pre tento cyklus dostaneš v user správe), VŽDY sa k tomu explicitne vyjadri - napíš, PRI
+  AKEJ CENE by tvoja confidence z ČISTO TECHNICKÉHO hľadiska (potvrdený breakout, úspešný retest,
+  prekonanie konkrétnej úrovne) prekročila prah, a tú istú cenu zapíš aj do watch_price/
+  watch_direction (above pre potvrdenie LONG, below pre potvrdenie SHORT - podľa toho, čo by
+  reálne posilnilo tvoj navrhovaný smer). PLYNUTIE ČASU SAMO OSEBE NIKDY nie je dôvod na zvýšenie
+  confidence (rovnaké pravidlo ako pri "Opakovane rovnaký smer tesne pod prahom" nižšie) - len
+  skutočný cenový pohyb. Je ÚPLNE V PORIADKU napísať, že v danej situácii takú cenu nevieš odhadnúť
+  (napr. blokujúci dôvod nie je cenová úroveň, ale čakanie na konkrétnu správu/event) - vtedy
+  watch_price/watch_direction nechaj prázdne, to je legitímna odpoveď. Mimo tohto pásma (confidence
+  bezpečne nad, alebo zjavne pod prahom) toto pole úplne vynechaj.
 - watch_price_2/watch_direction_2 (VOLITEĽNÉ, vždy spolu, len ak direction="none"): DRUHÁ (opačná)
   sledovaná úroveň - použi LEN pre genuinne obojstranne neistý/range-bound setup, kde by ROVNAKO
   relevantne potvrdil AJ breakout hore AJ breakdown dole (napr. "nad X by potvrdilo long, pod Y by
@@ -1038,13 +1078,23 @@ pokračujúcu v rovnakom smere (ak trend drží) alebo opačnú (ak sa obraz oto
 
 """
 
+    threshold_low = asset["min_confidence"] - config.WATCH_CONFIDENCE_MARGIN
+    threshold_high = asset["min_confidence"] - 1
+    threshold_block = f"""
+## Prah na otvorenie pozície
+Minimálna confidence na otvorenie pozície pre {instrument} je aktuálne {asset['min_confidence']}.
+Ak tento cyklus zvolíš direction=long alebo short a tvoja confidence vyjde v rozmedzí
+{threshold_low:.0f}-{threshold_high:.0f} (tesne pod prahom), VŽDY vyplň confidence_threshold_note
+(presné pravidlo, čo tam napísať, je v system prompte).
+"""
+
     return f"""{header}
 {macro_event_block}{closed_trade_block}## Cielove SL/TP vzdialenosti
 Stop-loss cca {asset['sl_pct']}% od aktuálnej ceny, take-profit cca {asset['tp_pct']}%
 (pri LONG: stop_loss_price = last_price * (1 - {asset['sl_pct']}/100), take_profit_price =
 last_price * (1 + {asset['tp_pct']}/100); pri SHORT opačne). Môžeš sa mierne odchýliť podľa
 ATR/kontextu, ale nie výrazne mimo tento rozsah.
-
+{threshold_block}
 Ak je to relevantné, over si cez web_search aktuálne správy k {instrument}/súvisiacim témam a
 nadchádzajúce makro eventy (CPI/FOMC/NFP/earnings) za posledných ~{interval_h}h / najbližších 24h -
 nezabudni do query zahrnúť aktuálny dátum. Potom vyhodnoť situáciu a vráť rozhodnutie podľa
@@ -1273,9 +1323,10 @@ def _validate_decision(decision: dict) -> None:
     if not (0 <= decision["confidence"] <= 100):
         raise ValueError(f"Neplatná confidence: {decision['confidence']}")
 
-    # watch_price/watch_direction su volitelne (len pri direction="none") - ak
-    # ich model vratil, over aspon zakladny tvar, ale nechyb, ak chybaju uplne
-    # (staré/nechcene cykly ich nemusia mat).
+    # watch_price/watch_direction su volitelne (direction="none", ALEBO
+    # direction=long/short + confidence_threshold_note - viz DECISION_TOOL) -
+    # ak ich model vratil, over aspon zakladny tvar, ale nechyb, ak chybaju
+    # uplne (staré/nechcene cykly ich nemusia mat).
     watch_direction = decision.get("watch_direction")
     if watch_direction is not None and watch_direction not in ("above", "below"):
         raise ValueError(f"Neplatny watch_direction: {watch_direction!r}")
@@ -1289,6 +1340,10 @@ def _validate_decision(decision: dict) -> None:
     watch_price_2 = decision.get("watch_price_2")
     if watch_price_2 is not None and not isinstance(watch_price_2, (int, float)):
         raise ValueError(f"Neplatny watch_price_2: {watch_price_2!r}")
+
+    confidence_threshold_note = decision.get("confidence_threshold_note")
+    if confidence_threshold_note is not None and not isinstance(confidence_threshold_note, str):
+        raise ValueError(f"Neplatny confidence_threshold_note: {confidence_threshold_note!r}")
 
 
 def _validate_health_decision(decision: dict) -> None:

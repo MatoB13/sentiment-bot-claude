@@ -101,6 +101,15 @@ class CycleLog(Base):
     watch_price = Column(Float, nullable=True)
     watch_direction = Column(String, nullable=True)  # "above" | "below"
 
+    # Pridane 2026-08-15 - ak direction=long/short A confidence padla do pasma
+    # tesne pod prahom na otvorenie (config.WATCH_CONFIDENCE_MARGIN), Claude
+    # sem VZDY explicitne napise, pri akej cene by (cisto technicky) confidence
+    # prekrocila prah, alebo ze takú cenu nevie odhadnut. Skutocna sledovana
+    # uroven ide do watch_price/watch_direction vyssie - rovnaky trigger
+    # mechanizmus ako pri direction=none, watch_monitor.py nerozlisuje odkial
+    # watch_price pochadza (viz claude_analyst.py DECISION_TOOL).
+    confidence_threshold_note = Column(String, nullable=True)
+
     # Volitelny DRUHY (opacny) watch par - pre genuinne obojstranne
     # neisty/range-bound setup, kde by ROVNAKO relevantne potvrdil aj breakout
     # hore aj breakdown dole (napr. "nad X = long, pod Y = short"). Rovnaka
