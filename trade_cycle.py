@@ -125,6 +125,7 @@ def _config_snapshot(asset: dict) -> dict:
         "watch_interval_minutes": config.WATCH_INTERVAL_MINUTES,
         "position_max_hours": config.POSITION_MAX_HOURS,
         "macro_event_max_triggers_per_hour": config.MACRO_EVENT_MAX_TRIGGERS_PER_HOUR,
+        "health_check_loss_trigger_fraction": config.HEALTH_CHECK_LOSS_TRIGGER_FRACTION,
         "min_confidence": asset["min_confidence"],
         "margin_usd": asset["margin_usd"],
         # POZOR (2026-08-08): "leverage" uz NIE JE skutocne pouzita paka -
@@ -287,6 +288,32 @@ def _save_flagged_macro_event(event: dict | None, symbol: str, session) -> None:
     print(f"[trade_cycle] Nova makro udalost zaznacena Claudom: {key} ({dt.isoformat()}, scope={scope_label})")
 
 
+_ADVERSE_TREND = {
+    "long": {"strong_downtrend", "mild_downtrend"},
+    "short": {"strong_uptrend", "mild_uptrend"},
+}
+
+
+def _mechanical_health_escalation(asset: dict, ta: dict, open_position: dict) -> str | None:
+    """Bez Claude volania (zdarma) rozhodne, ci ma tento health check eskalovat
+    na plny Claude cyklus (viz config.HEALTH_CHECK_LOSS_TRIGGER_FRACTION) - vrati
+    dovod (str) ak ano, inak None. Pouziva UZ VYPOCITANE TA (market_data.
+    get_market_snapshot - trend classification je jej sucastou zdarma) a
+    open_position (uz vypocitany unrealized_pnl_pct) - ziadny extra fetch."""
+    direction = (open_position["direction"] or "").lower()
+    trend = ta.get("trend")
+    if trend in _ADVERSE_TREND.get(direction, set()):
+        return f"TA trend sa obratil proti pozicii (trend={trend})"
+
+    loss_trigger_pct = -asset["sl_pct"] * config.HEALTH_CHECK_LOSS_TRIGGER_FRACTION
+    pnl_pct = open_position["unrealized_pnl_pct"]
+    if pnl_pct <= loss_trigger_pct:
+        return (f"Nerealizovana strata {pnl_pct:.2f}% dosiahla "
+                f"{config.HEALTH_CHECK_LOSS_TRIGGER_FRACTION * 100:.0f}% SL vzdialenosti "
+                f"({asset['sl_pct']}%)")
+    return None
+
+
 def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dict, market_session: dict,
                                 btc_proxy: dict | None, fred_macro: dict | None, session,
                                 macro_event: str | None = None) -> None:
@@ -307,7 +334,6 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         live_price = float(market_meta["mark_price"])
         ta = market_data.get_market_snapshot(asset, session)
         _check_ta_scale(ta, live_price, name)
-        social = social_sentiment.fetch_recent_posts(name)
     except Exception as e:
         print(f"[{name}] Position health check: zber trhovych dat zlyhal, preskakujem: {e}")
         session.add(CycleLog(
@@ -338,6 +364,25 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         "unrealized_pnl_usd": open_trade.margin_usd * open_trade.leverage * pnl_pct,
         "unrealized_pnl_pct": pnl_pct * 100,
     }
+
+    escalation_reason = _mechanical_health_escalation(asset, ta, open_position)
+    if escalation_reason is None:
+        print(f"[{name}] Mechanicka kontrola: ziadny trigger (trend={ta.get('trend')}, "
+              f"P&L={pnl_pct * 100:.2f}%) - preskakujem plny Claude cyklus.")
+        session.add(CycleLog(
+            symbol=symbol, live_price=live_price, ta=ta, cross_market=cross_market,
+            session_data=market_session, config_snapshot=_config_snapshot(asset),
+            direction=open_trade.direction, outcome="position_check",
+            reasoning=(f"Mechanicka kontrola (bez Claude volania): trend={ta.get('trend')}, "
+                       f"nerealizovany P&L={pnl_pct * 100:.2f}%, ziadny trigger na eskalaciu."),
+            health_recommendation="hold",
+            trade_id=open_trade.id,
+        ))
+        session.commit()
+        return
+
+    print(f"[{name}] Mechanicka kontrola eskaluje na plny Claude cyklus: {escalation_reason}")
+    social = social_sentiment.fetch_recent_posts(name)
 
     prev_log = (
         session.query(CycleLog)
@@ -376,7 +421,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
             print(f"[{name}] Marketaux fetch zlyhal (pokracujem bez neho): {e}")
 
     try:
-        health, web_search_log = claude_analyst.analyze_position_health(
+        health, web_search_log, usage = claude_analyst.analyze_position_health(
             asset, open_position, ta, cross_market, market_session, social, btc_proxy,
             prev_assumptions, prev_cycle_time, retrospective_reflection,
             fred_macro, eia_data, marketaux_news, macro_event,
@@ -407,6 +452,11 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         health_expected_direction=health.get("expected_direction"),
         trade_id=open_trade.id,
         triggered_by_macro_event=macro_event,
+        usage_input_tokens=usage.get("input_tokens"),
+        usage_cache_write_tokens=usage.get("cache_write_tokens"),
+        usage_cache_read_tokens=usage.get("cache_read_tokens"),
+        usage_output_tokens=usage.get("output_tokens"),
+        effort=usage.get("effort"),
     ))
     session.commit()
 
@@ -527,7 +577,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 print(f"[{name}] Marketaux fetch zlyhal (pokracujem bez neho): {e}")
 
         try:
-            decision, web_search_log = claude_analyst.analyze(
+            decision, web_search_log, usage = claude_analyst.analyze(
                 asset, ta, cross_market, market_session, social, btc_proxy,
                 prev_assumptions, prev_cycle_time,
                 retrospective_reflection, new_stats_text,
@@ -600,6 +650,11 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             reviewed_trade_id=closed_trade["trade_id"] if closed_trade else None,
             closed_trade_reflection=decision.get("closed_trade_reflection"),
             triggered_by_macro_event=macro_event,
+            usage_input_tokens=usage.get("input_tokens"),
+            usage_cache_write_tokens=usage.get("cache_write_tokens"),
+            usage_cache_read_tokens=usage.get("cache_read_tokens"),
+            usage_output_tokens=usage.get("output_tokens"),
+            effort=usage.get("effort"),
         )
 
         try:

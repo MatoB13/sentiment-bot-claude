@@ -113,6 +113,16 @@ WATCH_TRIGGER_MAX_PER_HOUR = _int("WATCH_TRIGGER_MAX_PER_HOUR", 3)
 # jednoduchy relativny offset od min_confidence, ktory zostava spravny aj ak
 # sa {TICKER}_MIN_CONFIDENCE niekedy zmeni.
 WATCH_CONFIDENCE_MARGIN = _float("WATCH_CONFIDENCE_MARGIN", 5)
+
+# Pridane 2026-08-15 - position health check (uz otvorena pozicia) je teraz
+# defaultne MECHANICKY (bez Claude volania, zdarma) - viz trade_cycle.
+# _mechanical_health_escalation. Plny Claude cyklus (s web_search, per-asset
+# efortom) sa spusti LEN ked nerealizovana strata dosiahne tuto CAST
+# konfigurovanej SL vzdialenosti danneho assetu (napr. 0.6 * sl_pct), alebo
+# ked sa TA trend obrati proti pozicii. Dovod: predtym kazdy hodinovy health
+# check bezal ako plny cyklus nezavisle od toho, ci sa vobec nieco zmenilo -
+# pri viachodinovom drzani pozicie to bol hlavny naklad, nie samotne otvorenie.
+HEALTH_CHECK_LOSS_TRIGGER_FRACTION = _float("HEALTH_CHECK_LOSS_TRIGGER_FRACTION", 0.6)
 # Preventivna poistka proti scale-mismatch dat (2026-08-09, po SKHYNIX
 # incidente - viz market_data.get_price_history/assets.py yf_volume_only) -
 # porovnava TA last_price (z akehokolvek zdroja - vlastne price_bars alebo

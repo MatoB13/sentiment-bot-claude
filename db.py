@@ -146,6 +146,19 @@ class CycleLog(Base):
 
     trade_id = Column(Integer, nullable=True)  # ak outcome=opened, id v `trades`
 
+    # Pridane 2026-08-15 - token usage tohto Claude volania (viz claude_analyst.
+    # _call_claude), TRVALO ulozene namiesto len vypisania do Railway logu -
+    # dovod: logy maju retenciu len ~2h, takze porovnanie nakladov naprieč dnami
+    # (napr. efekt ADA_EFFORT=xhigh testu) sa z nich spatne nedalo zrekonstruovat.
+    # Ukladá sa PRE KAZDY cyklus vratane position_check (health check bezi
+    # rovnaky plny cyklus ako otvaracie rozhodnutie - rovnaky system prompt,
+    # web_search, aj effort).
+    usage_input_tokens = Column(Integer, nullable=True)
+    usage_cache_write_tokens = Column(Integer, nullable=True)
+    usage_cache_read_tokens = Column(Integer, nullable=True)
+    usage_output_tokens = Column(Integer, nullable=True)
+    effort = Column(String, nullable=True)  # "" (default)/"high"/"xhigh"/"max" - viz assets.py
+
 
 class DailyRetrospective(Base):
     """Denny AUDIT zaznam - vygenerovany RAZ za den (pri prvom cykle po polnoci

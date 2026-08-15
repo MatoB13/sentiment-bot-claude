@@ -1113,8 +1113,8 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
             marketaux_news: list[dict] | None = None,
             confidence_streak: dict | None = None,
             closed_trade: dict | None = None,
-            macro_event: str | None = None) -> tuple[dict, list[dict]]:
-    """Vrati (decision, web_search_log). web_search_log je zoznam
+            macro_event: str | None = None) -> tuple[dict, list[dict], dict]:
+    """Vrati (decision, web_search_log, usage). web_search_log je zoznam
     {"query": str, "sources": [{"title", "url", "page_age"}]} pre kazde
     vyhladavanie, ktore Claude spravil - sluzi na audit (co realne citas,
     aby sa dalo neskor rozhodnut o whitelist/blacklist domen).
@@ -1143,10 +1143,10 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
                                       fred_macro, eia_data, marketaux_news,
                                       confidence_streak, open_position=None,
                                       closed_trade=closed_trade, macro_event=macro_event)
-    decision, web_search_log = _call_claude(asset, system_blocks, user_prompt,
-                                             DECISION_TOOL, "submit_trade_decision")
+    decision, web_search_log, usage = _call_claude(asset, system_blocks, user_prompt,
+                                                     DECISION_TOOL, "submit_trade_decision")
     _validate_decision(decision)
-    return decision, web_search_log
+    return decision, web_search_log, usage
 
 
 def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_market: dict,
@@ -1158,7 +1158,7 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                              fred_macro: dict | None = None,
                              eia_data: dict | None = None,
                              marketaux_news: list[dict] | None = None,
-                             macro_event: str | None = None) -> tuple[dict, list[dict]]:
+                             macro_event: str | None = None) -> tuple[dict, list[dict], dict]:
     """Ako analyze(), ale pre UZ OTVORENU poziciu (viz
     trade_cycle._run_position_health_check) - namiesto rozhodnutia o novom
     obchode (direction/SL/TP) sa Claude vyjadri, ci povodne predpoklady este
@@ -1176,17 +1176,19 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                                       fred_macro, eia_data, marketaux_news,
                                       confidence_streak=None, open_position=open_position,
                                       macro_event=macro_event)
-    decision, web_search_log = _call_claude(asset, system_blocks, user_prompt,
-                                             POSITION_HEALTH_TOOL, "submit_position_health_check")
+    decision, web_search_log, usage = _call_claude(asset, system_blocks, user_prompt,
+                                                     POSITION_HEALTH_TOOL, "submit_position_health_check")
     _validate_health_decision(decision)
-    return decision, web_search_log
+    return decision, web_search_log, usage
 
 
 def _call_claude(asset: dict, system_blocks: list[dict], user_prompt: str,
-                  tool: dict, tool_name: str) -> tuple[dict, list[dict]]:
+                  tool: dict, tool_name: str) -> tuple[dict, list[dict], dict]:
     """Spolocna request/retry/pause_turn loop pre analyze() aj analyze_position_health()
     - lisia sa len v tom, ktory nastroj (DECISION_TOOL vs POSITION_HEALTH_TOOL) Claude
-    dostane a ako znie user prompt (viz volajuci)."""
+    dostane a ako znie user prompt (viz volajuci). Vracia (decision, web_search_log, usage) -
+    usage je súčet tokenov cez VŠETKY volania v tomto cykle (aj pri pause_turn
+    pokračovaní nižšie), na trvalé uloženie do CycleLog (viz db.py, 2026-08-15)."""
     # cache_control na systemovom prompte aj user sprave: ak Claude narazi na
     # pause_turn (casto sa stava pri viacerych web_search volaniach), musime
     # poslat celu doterajsiu konverzaciu znova - bez cachovania by sa system
@@ -1198,6 +1200,8 @@ def _call_claude(asset: dict, system_blocks: list[dict], user_prompt: str,
                  "content": [{"type": "text", "text": user_prompt,
                                "cache_control": {"type": "ephemeral"}}]}]
     web_search_log: list[dict] = []
+    total_usage = {"input_tokens": 0, "cache_creation_input_tokens": 0,
+                   "cache_read_input_tokens": 0, "output_tokens": 0}
 
     # Volitelny per-asset effort test (viz config.ADA_EFFORT/assets.py) - "" (default)
     # = output_config sa neposle vobec (API default "high"). Pri xhigh/max sa thinking
@@ -1248,6 +1252,8 @@ def _call_claude(asset: dict, system_blocks: list[dict], user_prompt: str,
         content_blocks = data.get("content", [])
         web_search_log.extend(_extract_web_search_log(content_blocks))
         usage = data.get("usage", {})
+        for key in total_usage:
+            total_usage[key] += usage.get(key) or 0
         print(f"[claude_analyst] [{asset['name']}] usage: input={usage.get('input_tokens')} "
               f"cache_write={usage.get('cache_creation_input_tokens')} "
               f"cache_read={usage.get('cache_read_input_tokens')} output={usage.get('output_tokens')} "
@@ -1272,7 +1278,14 @@ def _call_claude(asset: dict, system_blocks: list[dict], user_prompt: str,
                 f"Claude nezavolal {tool_name} (stop_reason={data.get('stop_reason')}, "
                 f"content_types={[b.get('type') for b in content_blocks]})"
             )
-        return decision_block["input"], web_search_log
+        usage_record = {
+            "input_tokens": total_usage["input_tokens"],
+            "cache_write_tokens": total_usage["cache_creation_input_tokens"],
+            "cache_read_tokens": total_usage["cache_read_input_tokens"],
+            "output_tokens": total_usage["output_tokens"],
+            "effort": effort or None,
+        }
+        return decision_block["input"], web_search_log, usage_record
 
     raise RuntimeError("Claude neposkytol finalnu odpoved po pause_turn pokracovani")
 
