@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 import assets
 import claude_analyst
 import config
+import discord_client
 import eia_client
 import fred_client
 import market_data
@@ -780,6 +781,12 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
         cycle_log.trade_id = trade.id
         session.add(cycle_log)
         session.commit()
+
+        # Notifikacia AZ PO uspesnom commite - len pre skutocne otvorenu pozicii
+        # (nie dry_run, nie closed_by_safety z nudzoveho zatvorenia vyssie).
+        # Zlyhanie sa nikdy nesmie prejavit navonok (viz discord_client.py).
+        if trade.status == "open":
+            discord_client.notify_trade_opened(asset, sized)
     finally:
         session.close()
 

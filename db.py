@@ -59,6 +59,13 @@ class Trade(Base):
     # close_reason raz vyrieseny uz zostava v DB navzdy.
     post_close_review_triggered_at = Column(DateTime, nullable=True)
 
+    # Nastavene, ked bola pre toto zatvorenie uz odoslana Discord notifikacia
+    # (viz position_monitor._check_and_queue_close_notification) - rovnaky
+    # dedup vzor ako post_close_review_triggered_at vyssie, nezavisly od neho
+    # (iny filter dovodov - viz _NOTIFY_CLOSE_REASONS, manual_kill_switch je
+    # tu ZAMERNE vynechany, na rozdiel od review-triggeru).
+    close_notified_at = Column(DateTime, nullable=True)
+
 
 class CycleLog(Base):
     """Zaznam KAZDEHO analytickeho cyklu - aj tych, kde sa neotvorila pozicia

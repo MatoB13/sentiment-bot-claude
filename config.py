@@ -62,6 +62,10 @@ FRED_API_KEY = os.getenv("FRED_API_KEY", "")
 # Marketaux - free tier (100 req/den) news+sentiment API, per-asset (viz
 # assets.py marketaux_query). Registracia: https://www.marketaux.com
 MARKETAUX_API_KEY = os.getenv("MARKETAUX_API_KEY", "")
+# Discord webhook (viz discord_client.py) - notifikacia pri kazdom otvoreni
+# pozicie. Prazdne = vypnute (ticho no-op). Vytvorenie: Discord kanal ->
+# Channel Settings -> Integrations -> Webhooks -> New Webhook -> skopirovat URL.
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 # Vsetkych 9 tickerov ma teraz marketaux_query a vola sa 1x za KAZDY dokonceny
 # cyklus - pri realnych produkcnych intervaloch to vychadzalo ~147 volani/den
 # (overene naozivo 2026-08-08), teda uz nad volnym limitom aj bez HYPE/SKHYNIX

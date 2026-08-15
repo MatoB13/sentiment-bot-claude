@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 import assets
 import config
+import discord_client
 import strike_client
 import trade_cycle
 from db import Trade, get_session
@@ -23,6 +24,13 @@ _CLOSE_REASON_BY_TYPE = {"stop": "stop_loss", "take_profit_limit": "take_profit"
 # re-entry hned po stop-oute je nachylny na revenge-trading, tam sa pocka na
 # bezny interval namiesto okamzitej reakcie).
 _TRIGGER_REVIEW_REASONS = {"take_profit", "force_closed_by_bot", "manual_kill_switch"}
+
+# Discord notifikacia o zatvoreni (2026-08-15, na ziadost pouzivatela) - TP/SL/
+# likvidacia/timeout, ale ZAMERNE NIE manual_kill_switch (to uz pouzivatel
+# vyvolal sam, netreba mu to pripominat). Nezavisle od _TRIGGER_REVIEW_REASONS
+# vyssie - iny ucel, iny filter (SL/likvidacia tu SU zahrnute, hoci review ich
+# vedome vynechava).
+_NOTIFY_CLOSE_REASONS = {"take_profit", "stop_loss", "liquidation", "force_closed_by_bot"}
 
 
 def _sum_fills(fills: list[dict], order_id) -> dict | None:
@@ -189,7 +197,30 @@ def _fire_post_close_reviews(pending_reviews: list) -> None:
             print(f"[position_monitor] [{asset['name']}] post-close review zlyhal: {e}")
 
 
-def _backfill_missing_exact_data(session, pending_reviews: list) -> None:
+def _check_and_queue_close_notification(trade: Trade, pending_notifications: list) -> None:
+    """Rovnaky vzor ako _check_and_queue_review vyssie, len iny filter dovodov
+    (_NOTIFY_CLOSE_REASONS) a vlastny dedup stlpec (close_notified_at) -
+    nezavisle od review-triggeru, aby sa dali nezavisle zapinat/vypinat."""
+    if trade.pnl_usd is None or trade.close_notified_at is not None:
+        return
+    if trade.close_reason not in _NOTIFY_CLOSE_REASONS:
+        return
+    trade.close_notified_at = datetime.now(timezone.utc)
+    pending_notifications.append((trade.symbol, _build_closed_trade_context(trade)))
+
+
+def _fire_close_notifications(pending_notifications: list) -> None:
+    """Bezi AZ PO session.close(), rovnaky dovod ako _fire_post_close_reviews -
+    hoci Discord notifikacia sama o sebe DB nepotrebuje, drzime rovnaky vzor
+    pre konzistentnost a aby sa nikdy necitalo z uz odpojeneho ORM objektu."""
+    for symbol, closed_trade in pending_notifications:
+        try:
+            discord_client.notify_trade_closed(symbol, closed_trade)
+        except Exception as e:
+            print(f"[position_monitor] [{symbol}] Discord notifikacia o zatvoreni zlyhala: {e}")
+
+
+def _backfill_missing_exact_data(session, pending_reviews: list, pending_notifications: list) -> None:
     """Self-healing retry: obchody, ktore sa uz zatvorili, ale minule
     _lookup_exact_close nenasiel data (burza este neindexovala fill) - skusi
     znova. Nedotyka sa hlavnej trading logiky, len doplna historicke udaje."""
@@ -204,14 +235,16 @@ def _backfill_missing_exact_data(session, pending_reviews: list) -> None:
         _apply_exact_close(trade, trade.close_reason)
         session.add(trade)
         _check_and_queue_review(trade, pending_reviews)
+        _check_and_queue_close_notification(trade, pending_notifications)
 
 
 def check_open_trades():
     print(f"\n=== [position_monitor] {datetime.now(timezone.utc).isoformat()} ===")
     session = get_session()
     pending_reviews: list = []
+    pending_notifications: list = []
     try:
-        _backfill_missing_exact_data(session, pending_reviews)
+        _backfill_missing_exact_data(session, pending_reviews, pending_notifications)
 
         open_trades = session.query(Trade).filter(Trade.status == "open").all()
         if not open_trades:
@@ -219,6 +252,7 @@ def check_open_trades():
             session.commit()
             session.close()
             _fire_post_close_reviews(pending_reviews)
+            _fire_close_notifications(pending_notifications)
             return
 
         # Bez symbol filtra - vsetky otvorene pozicie na ucte v JEDNOM volani,
@@ -240,6 +274,7 @@ def check_open_trades():
                 _apply_exact_close(trade, "not_found_in_open_positions (TP/SL/liquidation)")
                 session.add(trade)
                 _check_and_queue_review(trade, pending_reviews)
+                _check_and_queue_close_notification(trade, pending_notifications)
                 continue
 
             expires_at = trade.expires_at
@@ -259,6 +294,7 @@ def check_open_trades():
                 _apply_exact_close(trade, f"max_hold_{config.POSITION_MAX_HOURS}h_reached")
                 session.add(trade)
                 _check_and_queue_review(trade, pending_reviews)
+                _check_and_queue_close_notification(trade, pending_notifications)
             else:
                 print(f"[position_monitor] Trade {trade.id} stale otvoreny "
                       f"(expiruje {expires_at.isoformat()}).")
@@ -269,6 +305,7 @@ def check_open_trades():
 
     # AZ PO session.close() - viz _fire_post_close_reviews docstring.
     _fire_post_close_reviews(pending_reviews)
+    _fire_close_notifications(pending_notifications)
 
 
 if __name__ == "__main__":
