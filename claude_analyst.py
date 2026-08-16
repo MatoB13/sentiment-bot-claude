@@ -867,6 +867,23 @@ skutočne nameraný nulový objem. Takéto sviečky z objemovej analýzy jednodu
 vynechaj, neinterpretuj `null` ako "nikto neobchodoval"."""
 
 
+_FUNDING_NOTE = """
+TA obsahuje aj `funding` (ak už máme aspoň jeden zaznamenaný údaj) - AKTUÁLNU trhovú
+funding rate {instrument} zo Strike (`current_rate_pct_per_hour`) a jej krátky nedávny
+priemer (`avg_rate_pct_per_hour_recent`, z `hours_available` posledných hodín). DÔLEŽITÉ:
+Strike pripisuje/strháva funding KAŽDÚ HODINU (nie každých 8h ako je bežné na iných
+burzách) - za max. 24h držania pozície sa teda táto sadzba môže uplatniť až ~24-krát, čo
+pri opakovanom držaní blízko plnej doby (napr. force-close timeoutom) dokáže spraviť
+citeľný rozdiel v celkovom výsledku, porovnateľný s bežným cenovým pohybom. Znamienko:
+KLADNÁ sadzba = LONG pozície PLATIA, SHORT pozície DOSTÁVAJÚ; ZÁPORNÁ sadzba = SHORT
+pozície PLATIA, LONG pozície DOSTÁVAJÚ. Zváž túto (pravdepodobnú, nie garantovanú -
+sadzba sa môže počas držania zmeniť) kumulovanú sumu ako DOPLNKOVÝ, nie hlavný faktor pri
+confidence: perzistentný silný protivietor pre navrhovaný smer je mierny mínus, priaznivý
+vietor v chrbát mierny plus - cenový/technický signál a fundamenty z web_search zostávajú
+rozhodujúce. Ak `hours_available` je nízke (napr. pod 6), ber `avg_rate_pct_per_hour_recent`
+len orientačne."""
+
+
 _PER_ASSET_SYSTEM_APPENDIX_TEMPLATE = """Si skúsený intradenný analytik pre {label}.
 Dostaneš technickú analýzu (TA) {instrument} - vrátane `recent_candles`, surových posledných
 {candle_bars} hodinových sviečok {candle_format} - cross-market kontext, session
@@ -874,6 +891,7 @@ alignment{btc_proxy_note} a prípadne social-media sentiment. Máš k dispozíci
 použi ho na vyhľadanie čerstvých {news_focus}, ktoré by mohli hýbať cenou v najbližších 24
 hodinách. Vyhľadávaj len ak to dáva zmysel (max. niekoľko vyhľadávaní).
 {volume_note}
+{funding_note}
 
 Ako syntetizovať viacero signálov pre {instrument} (nepočítaj váhy mechanicky, posúď to ako
 skúsený analytik):
@@ -890,6 +908,7 @@ def _system_prompt_blocks(asset: dict) -> list[dict]:
     include_volume = asset.get("include_volume", False)
     candle_format = "[open,high,low,close,volume]" if include_volume else "[open,high,low,close]"
     volume_note = _VOLUME_NOTE.format(instrument=asset["name"]) if include_volume else ""
+    funding_note = _FUNDING_NOTE.format(instrument=asset["name"])
     per_asset_text = _PER_ASSET_SYSTEM_APPENDIX_TEMPLATE.format(
         label=text["label"],
         instrument=asset["name"],
@@ -899,6 +918,7 @@ def _system_prompt_blocks(asset: dict) -> list[dict]:
         candle_bars=market_data.RECENT_CANDLES_BARS,
         candle_format=candle_format,
         volume_note=volume_note,
+        funding_note=funding_note,
     )
     return [
         {"type": "text", "text": SYSTEM_PROMPT_SHARED,

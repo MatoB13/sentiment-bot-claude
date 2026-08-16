@@ -11,14 +11,19 @@ from datetime import datetime, timezone
 import assets
 import market_data
 import strike_client
-from db import PriceBar, get_session
+from db import FundingRateBar, PriceBar, get_session
 
 
 def poll_prices() -> None:
     """Zavola sa kazdu minutu (viz main.py) - vytvori/aktualizuje PriceBar
     riadok pre AKTUALNU hodinu KAZDEHO assetu v registri (nie len enabled_assets()
     - viz nizsie), open pri prvom tiku danej hodiny, high/low priebezne,
-    close = najnovsia cena.
+    close = najnovsia cena, updated_at = presny cas tohto tiku (2026-08-15,
+    viz PriceBar.updated_at - na rozdiel od hour_start, ktory je vzdy
+    zaokruhleny na zaciatok hodiny, toto monitor-web pouziva na zobrazenie
+    skutocne aktualneho casu pri nerealizovanom PnL). Rovnaky tik navyse
+    zbiera aj aktualnu funding rate do FundingRateBar (viz nizsie) - ROVNAKA
+    /v2/markets odpoved uz obsahuje 'funding_rate' pole, ziadny extra naklad.
 
     ZAMERNE ALL_ASSETS, nie enabled_assets() (2026-08-14, viz AAOI/MINIMAX
     pridanie): pozastavene/este-nezapnute tickery (NVDA, AAOI, MINIMAX) takto
@@ -33,7 +38,9 @@ def poll_prices() -> None:
         return
 
     prices = {m.get("symbol"): m.get("mark_price") for m in markets}
-    hour_start = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0, tzinfo=None)
+    funding_rates = {m.get("symbol"): m.get("funding_rate") for m in markets}
+    now = datetime.now(timezone.utc)
+    hour_start = now.replace(minute=0, second=0, microsecond=0, tzinfo=None)
 
     session = get_session()
     try:
@@ -53,12 +60,27 @@ def poll_prices() -> None:
             )
             if bar is None:
                 session.add(PriceBar(symbol=symbol, hour_start=hour_start,
-                                      open=price, high=price, low=price, close=price))
+                                      open=price, high=price, low=price, close=price,
+                                      updated_at=now.replace(tzinfo=None)))
             else:
                 bar.high = max(bar.high, price)
                 bar.low = min(bar.low, price)
                 bar.close = price
+                bar.updated_at = now.replace(tzinfo=None)
             updated += 1
+
+            raw_funding = funding_rates.get(symbol)
+            if raw_funding is not None:
+                frate = float(raw_funding)
+                fbar = (
+                    session.query(FundingRateBar)
+                    .filter(FundingRateBar.symbol == symbol, FundingRateBar.hour_start == hour_start)
+                    .first()
+                )
+                if fbar is None:
+                    session.add(FundingRateBar(symbol=symbol, hour_start=hour_start, funding_rate=frate))
+                else:
+                    fbar.funding_rate = frate
         session.commit()
         print(f"[price_poller] {updated}/{len(assets.ALL_ASSETS)} tickerov "
               f"aktualizovanych (hodina {hour_start.isoformat()}).")

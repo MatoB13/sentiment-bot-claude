@@ -229,6 +229,30 @@ class PriceBar(Base):
     high = Column(Float, nullable=False)
     low = Column(Float, nullable=False)
     close = Column(Float, nullable=False)
+    # Kedy bol tento riadok naposledy dotknuty pollerom (2026-08-15) - NA ROZDIEL
+    # od hour_start (vzdy zaokruhlene na zaciatok hodiny) toto je skutocny cas
+    # posledneho 1-min tiku. Pridane po tom, co monitor-web zobrazoval "live"
+    # nerealizovane PnL s casovkou hour_start, co posobilo (mylne) ako hodinu
+    # stare data, hoci close sa priebezne aktualizuje kazdu minutu - viz
+    # nas100-monitor-web computeUnrealizedPnl.
+    updated_at = Column(DateTime, nullable=True)
+
+
+class FundingRateBar(Base):
+    """Vlastna hodinova historia AKTUALNEJ trhovej funding rate (2026-08-15) -
+    NEZAVISLA od FundingPayment nizsie (ktora zaznamenava len REALIZOVANE platby
+    za skutocne drzane pozicie, teda nic pre tickery/obdobia bez otvorenej
+    pozicie). Zdroj: /v2/markets['funding_rate'] - ROVNAKY bulk GET call, aky uz
+    price_poller.poll_prices() robi kvoli cene, takze zber je bez dodatocneho
+    nakladu. Pouziva sa ako TA vstup do promptu (viz market_data.get_market_snapshot
+    -> claude_analyst _FUNDING_NOTE) aj pre graf v monitor-web Konfiguracia tabe."""
+    __tablename__ = "funding_rate_bars"
+    __table_args__ = (UniqueConstraint("symbol", "hour_start", name="uq_funding_rate_bars_symbol_hour"),)
+
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False, index=True)
+    hour_start = Column(DateTime, nullable=False, index=True)  # UTC, zaokruhlene na celu hodinu
+    funding_rate = Column(Float, nullable=False)
 
 
 class FundingPayment(Base):

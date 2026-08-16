@@ -19,7 +19,7 @@ import yfinance as yf
 
 import binance_client
 import coingecko_client
-from db import PriceBar
+from db import FundingRateBar, PriceBar
 
 # Kolko poslednych hodinovych sviecok posielame Claude ako surovy podklad na
 # posudenie strukturu (support/resistance, breakout, swing high/low) - viz
@@ -279,9 +279,48 @@ def get_price_history(asset: dict, session) -> pd.DataFrame:
     return fetch_ohlcv(asset["yf_symbol"], asset.get("yf_fallback"))
 
 
+# Kolko poslednych hodinovych FundingRateBar zaznamov pouzivame na "priemernu"
+# hodnotu v get_funding_snapshot - 24 = posledny den, rozumny kompromis medzi
+# aktualnostou a vyhladenim jednorazoveho vykyvu.
+FUNDING_RECENT_HOURS = 24
+
+
+def get_funding_snapshot(symbol: str, session, recent_hours: int = FUNDING_RECENT_HOURS) -> dict | None:
+    """Aktualna trhova funding rate + kratky nedavny priemer (viz FundingRateBar,
+    zbierana v price_poller.poll_prices() z /v2/markets['funding_rate'] - ZIADNY
+    extra naklad, ten istý bulk call uz beztak beží kvoli cene). None, ak este
+    nemame ziadny zaznam (napr. tesne po nasadeni tejto funkcie) - volajuci v
+    tom pripade jednoducho vynecha 'funding' kluc z TA snapshotu."""
+    latest = (
+        session.query(FundingRateBar)
+        .filter(FundingRateBar.symbol == symbol)
+        .order_by(FundingRateBar.hour_start.desc())
+        .first()
+    )
+    if latest is None:
+        return None
+    recent = (
+        session.query(FundingRateBar)
+        .filter(FundingRateBar.symbol == symbol)
+        .order_by(FundingRateBar.hour_start.desc())
+        .limit(recent_hours)
+        .all()
+    )
+    avg_rate = sum(r.funding_rate for r in recent) / len(recent)
+    return {
+        "current_rate_pct_per_hour": round(latest.funding_rate * 100, 5),
+        "avg_rate_pct_per_hour_recent": round(avg_rate * 100, 5),
+        "hours_available": len(recent),
+    }
+
+
 def get_market_snapshot(asset: dict, session) -> dict:
     df = get_price_history(asset, session)
-    return compute_indicators(df, include_volume=asset.get("include_volume", False))
+    snapshot = compute_indicators(df, include_volume=asset.get("include_volume", False))
+    funding = get_funding_snapshot(asset["strike_symbol"], session)
+    if funding is not None:
+        snapshot["funding"] = funding
+    return snapshot
 
 
 # Cross-market konfirmacia + VIX regime + bond market (viz Market State & Sentiment
