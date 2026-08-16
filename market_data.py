@@ -153,15 +153,41 @@ def _recent_candles(df: pd.DataFrame, bars: int, include_volume: bool = False) -
     ]
 
 
+# RSI pasmo povazovane za "neutralne" (ziadne potvrdene momentum ani jednym
+# smerom) - pouzite v _trend_label nizsie na odlisenie skutocne SILNEHO trendu
+# od EMA struktury, ktora len este "dobieha" po skorsom prudkom pohybe (2026-08-16,
+# viz nizsie).
+_NEUTRAL_RSI_LOW, _NEUTRAL_RSI_HIGH = 40, 60
+
+
 def _trend_label(last_row) -> str:
+    """POZOR (2026-08-16): toto je CISTO STRUKTURALNY signal (poradie
+    EMA20/50/200 voci cene) - NIKDY sa nepozera na RSI/MACD momentum samo o
+    sebe. EMA su spomalene priemery, takze po prudkom pohybe zostanu
+    "zoradene" v smere povodneho pohybu ESTE DLHO potom, co sa cena realne
+    upokoji/momentum vyprchá (RSI sa vrati do neutralu) - Claude to opakovane
+    spravne postrehol v reasoning texte ("label neodpoveda momentum
+    indikatorom"), co viedlo k tejto oprave. "strong_*" preto teraz navyse
+    vyzaduje, aby RSI NEBOL v neutralnom pasme (potvrdenie, ze ide o skutocne
+    aktivny pohyb, nie len zotrvacnost EMA structury) - inak sa vrati
+    "*_stalling" (struktura este bear/bull-formacia, ale momentum vyprchalo).
+    DOLEZITE pre trade_cycle._ADVERSE_TREND: "*_stalling" zamerne NIE JE v tej
+    mnozine (na rozdiel od strong_*/mild_*), takze uz samo o sebe nespusti
+    plateny health-check eskalaciu otvorenej pozicie - len skutocne
+    potvrdeny/momentum-backed obrat trendu (alebo dosiahnutie stratoveho
+    prahu, nezavisle) to sposobi."""
     price = last_row["close"]
     ema20, ema50, ema200 = last_row.get("ema20"), last_row.get("ema50"), last_row.get("ema200")
+    rsi = last_row.get("rsi14")
     if pd.isna(ema200):
         return "insufficient_data"
+
+    rsi_neutral = pd.notna(rsi) and _NEUTRAL_RSI_LOW <= rsi <= _NEUTRAL_RSI_HIGH
+
     if price > ema20 > ema50 > ema200:
-        return "strong_uptrend"
+        return "uptrend_stalling" if rsi_neutral else "strong_uptrend"
     if price < ema20 < ema50 < ema200:
-        return "strong_downtrend"
+        return "downtrend_stalling" if rsi_neutral else "strong_downtrend"
     if price > ema200:
         return "mild_uptrend"
     return "mild_downtrend"

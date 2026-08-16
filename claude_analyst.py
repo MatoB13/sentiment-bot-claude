@@ -884,6 +884,20 @@ rozhodujúce. Ak `hours_available` je nízke (napr. pod 6), ber `avg_rate_pct_pe
 len orientačne."""
 
 
+_TREND_LABEL_NOTE = """
+`trend` je ŠTRUKTURÁLNY signál (poradie EMA20/EMA50/EMA200 voči cene), NIE priama miera
+momentum - RSI/MACD, ktoré dostávaš samostatne, sú na aktuálne momentum spoľahlivejšie.
+EMA sú spomalené priemery, takže po prudkom pohybe zostanú "zoradené" v pôvodnom smere ešte
+dlho aj potom, čo cena reálne stagnuje/RSI sa vráti do neutrálu - preto majú hodnoty tento
+význam: `strong_uptrend`/`strong_downtrend` = EMA plne zoradené A RSI mimo neutrálneho pásma
+40-60 (štruktúra aj momentum sa zhodujú - toto ber ako skutočne najsilnejší signál).
+`uptrend_stalling`/`downtrend_stalling` = EMA štruktúra rovnaká, ale RSI je v neutráli 40-60 -
+pôvodný pohyb štrukturálne pretrváva, ale momentum vyprchalo, ber to opatrnejšie než "strong_*",
+nie ako čerstvé potvrdenie. `mild_uptrend`/`mild_downtrend` = cena len nad/pod EMA200, EMA
+nie sú plne zoradené - najslabší z týchto signálov. `insufficient_data` = ešte nemáme dosť
+histórie na EMA200."""
+
+
 _PER_ASSET_SYSTEM_APPENDIX_TEMPLATE = """Si skúsený intradenný analytik pre {label}.
 Dostaneš technickú analýzu (TA) {instrument} - vrátane `recent_candles`, surových posledných
 {candle_bars} hodinových sviečok {candle_format} - cross-market kontext, session
@@ -892,6 +906,7 @@ použi ho na vyhľadanie čerstvých {news_focus}, ktoré by mohli hýbať cenou
 hodinách. Vyhľadávaj len ak to dáva zmysel (max. niekoľko vyhľadávaní).
 {volume_note}
 {funding_note}
+{trend_label_note}
 
 Ako syntetizovať viacero signálov pre {instrument} (nepočítaj váhy mechanicky, posúď to ako
 skúsený analytik):
@@ -919,6 +934,7 @@ def _system_prompt_blocks(asset: dict) -> list[dict]:
         candle_format=candle_format,
         volume_note=volume_note,
         funding_note=funding_note,
+        trend_label_note=_TREND_LABEL_NOTE,
     )
     return [
         {"type": "text", "text": SYSTEM_PROMPT_SHARED,

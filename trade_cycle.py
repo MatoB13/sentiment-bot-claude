@@ -292,6 +292,13 @@ def _save_flagged_macro_event(event: dict | None, symbol: str, session) -> None:
     print(f"[trade_cycle] Nova makro udalost zaznacena Claudom: {key} ({dt.isoformat()}, scope={scope_label})")
 
 
+# ZAMERNE NEOBSAHUJE "*_stalling" (viz market_data._trend_label, 2026-08-16) -
+# ta kategoria znamena EMA struktura este v smere povodneho pohybu, ALE RSI
+# uz je neutralny (momentum vyprchalo) - teda prave TEN pripad, ked by
+# eskalacia na plny (plateny) health-check bola najcastejsie zbytocna
+# (zastarany/lagujuci signal, nie skutocny cerstvy obrat proti pozicii).
+# Skutocne potvrdeny obrat (strong_*/mild_* s momentum) tu ostava presne ako
+# predtym.
 _ADVERSE_TREND = {
     "long": {"strong_downtrend", "mild_downtrend"},
     "short": {"strong_uptrend", "mild_uptrend"},
