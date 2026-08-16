@@ -79,12 +79,31 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///trades.db")
 
 # Trading / risk - skutocne zdielane pre VSETKY assety (nie per-ticker).
 DRY_RUN = _bool("DRY_RUN", "true")
+# POZOR (2026-08-16): pouziva uz LEN funding_tracker.poll_new (1 API volanie
+# PER symbol - zdielanie tesnejsieho WATCH_INTERVAL_MINUTES by ho 10x zatazilo
+# zbytocne, funding sa akumuluje priebezne a nepotrebuje rovnaku reaktivitu).
+# position_monitor.check_open_trades uz od tejto zmeny zdiela WATCH_INTERVAL_MINUTES
+# nizsie namiesto tejto premennej (viz main.py) - detekcia zatvorenia pozicie
+# (a teda presny PnL/notifikacia/post-close review) predtym meskala az 10 min
+# za skutocnym zatvorenim, kriticke pri prudkom pohybe.
 MONITOR_INTERVAL_MINUTES = _float("MONITOR_INTERVAL_MINUTES", 10)
-# Samostatny (tesnejsi) interval len pre watch_monitor.py - cenova podmienka sa
-# oplati kontrolovat castejsie ako otvorene pozicie (tie uz chrani Strike-ov
-# vlastny SL/TP bracket order v realnom case, nas position_monitor len
-# dodatocne synchronizuje DB zaznam).
+# Tesnejsi zdielany interval pre watch_monitor.py AJ position_monitor.py (viz
+# main.py) - oba su lacne polly (1 bulk API volanie + DB, ziadne Claude/web_search
+# v hlavnej ceste, eskaluje sa len pri realnej udalosti), takze castejsi tik nic
+# nestoji navyse. Financna ochrana pozicie na tomto intervale NIKDY nezavisela
+# (Strike vykonava SL/TP/likvidaciu sam v realnom case ako bracket objednavku) -
+# ide tu o REAKTIVITU (detekcia watch-ceny / zatvorenia pozicie), nie o samotnu
+# ochranu.
 WATCH_INTERVAL_MINUTES = _float("WATCH_INTERVAL_MINUTES", 1)
+# "Hot watch" okno (2026-08-16, na ziadost pouzivatela) - po zatvoreni pozicie
+# (TP/SL/likvidacia/timeout, viz position_monitor.py) sa DANY symbol docasne
+# sleduje omnoho castejsie (POST_CLOSE_HOT_WATCH_SECONDS) nez bezny
+# WATCH_INTERVAL_MINUTES, po dobu POST_CLOSE_HOT_WATCH_MINUTES - zachyti
+# rychlo pokracujuci pohyb/odraz ("mela") hned po zatvoreni, bez potreby drzat
+# CELY system natrvalo na tesnom intervale. Ked nie je ziaden symbol "hot"
+# (bezny stav), tento tik nestoji vobec nic (viz watch_monitor.check_hot_watch_triggers).
+POST_CLOSE_HOT_WATCH_SECONDS = _int("POST_CLOSE_HOT_WATCH_SECONDS", 10)
+POST_CLOSE_HOT_WATCH_MINUTES = _float("POST_CLOSE_HOT_WATCH_MINUTES", 5)
 POSITION_MAX_HOURS = _float("POSITION_MAX_HOURS", 24)
 # Bezpecnostna poistka pri zhluku makro udalosti (viz macro_calendar.py +
 # watch_monitor._check_macro_events) - max. kolko mimoriadnych "vsetky assety"

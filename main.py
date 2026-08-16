@@ -60,26 +60,51 @@ def main():
                        hours=base_tick_hours,
                        next_run_time=now + timedelta(hours=base_tick_hours),
                        id="trade_cycle")
+    # 2026-08-16 (produkcny nalez pouzivatela): predtym bezalo na MONITOR_INTERVAL_MINUTES
+    # (10 min) - financna ochrana pozicie tym netrpela (TP/SL/likvidaciu vzdy
+    # vykonava Strike sam v realnom case ako bracket objednavku, nezavisle od
+    # tohto pollera), ale DETEKCIA zatvorenia (a teda presny PnL lookup, Discord
+    # notifikacia, a hned nasledujuci post-close review Claude cyklus - viz
+    # position_monitor._fire_post_close_reviews/_fire_close_notifications) mohla
+    # meskat az 10 min za skutocnym zatvorenim - kriticke prave pri prudkom
+    # pohybe, kedy pouzivatel chce vediet OKAMZITE. check_open_trades() je
+    # rovnako lacna ako watch_monitor (1 bulk GET /v2/positions + DB, ziadne
+    # Claude/web_search v hlavnej ceste - eskaluje na platene volanie len ked sa
+    # NAOZAJ nieco zatvorilo), preto teraz zdiela WATCH_INTERVAL_MINUTES namiesto
+    # vlastneho pomalsieho intervalu. Vedlajsi bonus: aj POSITION_MAX_HOURS
+    # force-close je teraz presnejsi (do ~1 min od expiracie, nie do 10 min).
     scheduler.add_job(position_monitor.check_open_trades, "interval",
-                       minutes=config.MONITOR_INTERVAL_MINUTES,
-                       next_run_time=now + timedelta(minutes=config.MONITOR_INTERVAL_MINUTES),
+                       minutes=config.WATCH_INTERVAL_MINUTES,
+                       next_run_time=now + timedelta(minutes=config.WATCH_INTERVAL_MINUTES),
                        id="position_monitor")
-    # Rovnaky interval ako position_monitor - funding sa akumuluje priebezne
-    # pocas drzania pozicie, netreba na to samostatny (tesnejsi) tik.
+    # Ostava na pomalsom MONITOR_INTERVAL_MINUTES (na rozdiel od position_monitor
+    # vyssie) - funding sa akumuluje priebezne pocas drzania pozicie a nepotrebuje
+    # rovnaku reaktivitu ako detekcia zatvorenia; navyse robi 1 API volanie PER
+    # symbol (nie 1 bulk volanie ako position_monitor/watch_monitor), takze
+    # zdielanie tesnejsieho intervalu by zbytocne 10x zvysilo zatazenie Strike API.
     scheduler.add_job(funding_tracker.poll_new, "interval",
                        minutes=config.MONITOR_INTERVAL_MINUTES,
                        next_run_time=now + timedelta(minutes=config.MONITOR_INTERVAL_MINUTES),
                        id="funding_tracker")
-    # Samostatny (tesnejsi) interval nez position_monitor - watch_monitor nerobi
-    # ziadne Claude/web_search volanie, kym sa sledovana cenova podmienka reálne
-    # nesplni (viz watch_monitor.py), takze castejsi tik je lacny. Na rozdiel od
-    # position_monitor (kde SL/TP uz chrani Strike sam v realnom case) tu
-    # castejsia kontrola realne znizuje sancu, ze prehliadneme kratky
-    # dotyk/odraz od sledovanej hladiny.
+    # Samostatny (tesnejsi) interval nez povodny MONITOR_INTERVAL_MINUTES -
+    # watch_monitor nerobi ziadne Claude/web_search volanie, kym sa sledovana
+    # cenova podmienka reálne nesplni (viz watch_monitor.py), takze castejsi tik
+    # je lacny - castejsia kontrola realne znizuje sancu, ze prehliadneme kratky
+    # dotyk/odraz od sledovanej hladiny. Teraz zdielany aj s position_monitor
+    # vyssie (rovnaky lacny-poll-so-vzacnou-eskalaciou profil).
     scheduler.add_job(watch_monitor.check_watch_triggers, "interval",
                        minutes=config.WATCH_INTERVAL_MINUTES,
                        next_run_time=now + timedelta(minutes=config.WATCH_INTERVAL_MINUTES),
                        id="watch_monitor")
+    # "Hot watch" (2026-08-16, viz watch_monitor.mark_hot docstring) - beh kazdu
+    # POST_CLOSE_HOT_WATCH_SECONDS, ale skoro vzdy je NOOP (ziaden "hot" symbol =
+    # okamzity return bez DB/API volania). Aktivuje sa len na kratke okno hned po
+    # zatvoreni pozicie, aby sa rychly pokracujuci pohyb zachytil skor nez za
+    # WATCH_INTERVAL_MINUTES.
+    scheduler.add_job(watch_monitor.check_hot_watch_triggers, "interval",
+                       seconds=config.POST_CLOSE_HOT_WATCH_SECONDS,
+                       next_run_time=now + timedelta(seconds=config.POST_CLOSE_HOT_WATCH_SECONDS),
+                       id="hot_watch_monitor")
     # Kazdu minutu - primarny zdroj TA dat (viz market_data.get_price_history),
     # ziadne Claude/web_search volanie, len 1 lahky GET /v2/markets.
     scheduler.add_job(price_poller.poll_prices, "interval",

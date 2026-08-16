@@ -27,6 +27,7 @@ poslednu hodinu, POCITANE OSOBITNE PRE KAZDY ASSET (na rozdiel od
 MACRO_EVENT_MAX_TRIGGERS_PER_HOUR nizsie, ktory je jeden zdielany rozpocet
 naprieč vsetkymi assetmi, kedze makro udalosti su casto "vsetky assety" burst).
 """
+import threading
 from datetime import datetime, timedelta, timezone
 
 import assets
@@ -173,98 +174,158 @@ def _check_macro_events(session) -> None:
             trade_cycle.dispatch_triggered_check(asset, macro_event=event["name"])
 
 
+def _check_price_watch_for_assets(session, assets_to_check: list[dict]) -> None:
+    """Jadro cenoveho watch mechanizmu (watch_price/watch_direction, viz
+    claude_analyst.py) - vytiahnute z check_watch_triggers() (2026-08-16), aby
+    ho vedel volat aj check_hot_watch_triggers() nizsie pre uzsiu (a castejsiu)
+    podmnozinu tickerov po zatvoreni pozicie."""
+    if not assets_to_check:
+        return
+
+    # Jeden zdielany /v2/markets request pre vsetky assety v tomto behu naraz
+    # (rovnaky vzor ako position_monitor.check_open_trades() pre /v2/positions) -
+    # get_market(symbol) by inak interne volal cely get_markets() znova pre
+    # kazdy sledovany ticker samostatne (zbytocne opakovane rovnake bulk volanie,
+    # len s inym lokalnym filtrom).
+    try:
+        markets_by_symbol = {m.get("symbol"): m for m in strike_client.get_markets()}
+    except Exception as e:
+        print(f"[watch_monitor] nepodarilo sa nacitat /v2/markets: {e}")
+        return
+
+    for asset in assets_to_check:
+        symbol = asset["strike_symbol"]
+        name = asset["name"]
+
+        open_trade = session.query(Trade).filter(
+            Trade.symbol == symbol, Trade.status == "open",
+        ).first()
+        if open_trade:
+            continue  # uz je otvorena pozicia - watch uz nie je relevantny
+
+        last_log = (
+            session.query(CycleLog)
+            .filter(CycleLog.symbol == symbol)
+            .order_by(CycleLog.created_at.desc())
+            .first()
+        )
+        has_pair_1 = last_log and last_log.watch_price is not None and last_log.watch_direction
+        has_pair_2 = last_log and last_log.watch_price_2 is not None and last_log.watch_direction_2
+        if not has_pair_1 and not has_pair_2:
+            continue
+
+        market = markets_by_symbol.get(symbol)
+        if market is None:
+            print(f"[watch_monitor] [{name}] symbol {symbol} sa nenasiel v /v2/markets.")
+            continue
+        live_price = float(market["mark_price"])
+
+        # Obojstranny watch (viz claude_analyst.py watch_price_2/watch_direction_2) -
+        # ktorykolvek z dvoch nezavislych parov staci na spustenie; Claude si
+        # situaciu aj tak prehodnoti nanovo v mimoriadnom cykle, nemechanicky
+        # nevykonava vopred urceny smer.
+        triggered_pair = None
+        if has_pair_1 and _is_triggered(live_price, last_log.watch_price, last_log.watch_direction):
+            triggered_pair = (last_log.watch_price, last_log.watch_direction)
+        elif has_pair_2 and _is_triggered(live_price, last_log.watch_price_2, last_log.watch_direction_2):
+            triggered_pair = (last_log.watch_price_2, last_log.watch_direction_2)
+
+        if triggered_pair is None:
+            continue
+        watch_price, watch_direction = triggered_pair
+
+        # 2026-08-16 produkcny nalez: ak pre tento symbol uz mimoriadny beh
+        # bezi (predchadzajuci tik ho este nestihol dokoncit), dispatch_triggered_check
+        # nizsie by ho aj tak len tichy zahodil (viz jej in-flight guard) -
+        # kontrola TU, PRED pripisanim do TriggeredWatch, zabrani zbytocnemu
+        # spotrebovaniu hodinoveho rozpoctu na beh, ktory sa vobec nespusti.
+        # Bez tohto by rychly sled tikov pocas prudkeho pohybu (kazdy dalsi
+        # tik vidi rovnaku stalu watch uroven, kym prvy beh este nedobehol)
+        # vedel vycerpat cely WATCH_TRIGGER_MAX_PER_HOUR na duplicity.
+        if trade_cycle.is_triggered_check_in_flight(symbol):
+            print(f"[watch_monitor] [{name}] watch podmienka splnena, ale mimoriadny beh "
+                  "uz prebieha - nespotrebuvam hodinovy rozpocet, skusim dalsi tik.")
+            continue
+
+        hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+        triggered_this_hour = session.query(TriggeredWatch).filter(
+            TriggeredWatch.symbol == symbol, TriggeredWatch.triggered_at >= hour_ago,
+        ).count()
+        if triggered_this_hour >= config.WATCH_TRIGGER_MAX_PER_HOUR:
+            print(f"[watch_monitor] [{name}] watch podmienka splnena, ale hodinovy limit "
+                  f"({config.WATCH_TRIGGER_MAX_PER_HOUR}) je pre tento asset vycerpany - "
+                  "skusim dalsi tik.")
+            continue
+
+        print(
+            f"[watch_monitor] [{name}] watch podmienka splnena "
+            f"(live={live_price}, watch={watch_direction} {watch_price}) "
+            "- spustam mimoriadny cyklus."
+        )
+        # Zapisane HNED (pred behom cyklu), aby padnuty proces uprostred
+        # Claude volania nizsie nespotreboval rozpocet bez ozajstneho zapisu.
+        session.add(TriggeredWatch(symbol=symbol))
+        session.commit()
+        trade_cycle.dispatch_triggered_check(asset)
+
+
 def check_watch_triggers() -> None:
     print(f"\n=== [watch_monitor] {datetime.now(timezone.utc).isoformat()} ===")
     session = get_session()
     try:
         _check_manual_close_requests(session)
         _check_macro_events(session)
+        _check_price_watch_for_assets(session, assets.enabled_assets())
+    finally:
+        session.close()
 
-        # Jeden zdielany /v2/markets request pre vsetky assety naraz (rovnaky
-        # vzor ako position_monitor.check_open_trades() pre /v2/positions) -
-        # get_market(symbol) by inak interne volal cely get_markets() znova
-        # pre kazdy sledovany ticker samostatne (zbytocne opakovane rovnake
-        # bulk volanie, len s inym lokalnym filtrom).
-        try:
-            markets_by_symbol = {m.get("symbol"): m for m in strike_client.get_markets()}
-        except Exception as e:
-            print(f"[watch_monitor] nepodarilo sa nacitat /v2/markets: {e}")
-            return
 
-        for asset in assets.enabled_assets():
-            symbol = asset["strike_symbol"]
-            name = asset["name"]
+# Symboly s docasne tesnejsim (POST_CLOSE_HOT_WATCH_SECONDS) sledovanim po
+# zatvoreni pozicie - viz mark_hot()/check_hot_watch_triggers() nizsie.
+_hot_lock = threading.Lock()
+_hot_until: dict[str, datetime] = {}
 
-            open_trade = session.query(Trade).filter(
-                Trade.symbol == symbol, Trade.status == "open",
-            ).first()
-            if open_trade:
-                continue  # uz je otvorena pozicia - watch uz nie je relevantny
 
-            last_log = (
-                session.query(CycleLog)
-                .filter(CycleLog.symbol == symbol)
-                .order_by(CycleLog.created_at.desc())
-                .first()
-            )
-            has_pair_1 = last_log and last_log.watch_price is not None and last_log.watch_direction
-            has_pair_2 = last_log and last_log.watch_price_2 is not None and last_log.watch_direction_2
-            if not has_pair_1 and not has_pair_2:
-                continue
+def mark_hot(symbol: str) -> None:
+    """Zavola position_monitor.py hned po zaregistrovani zatvorenia pozicie
+    (TP/SL/likvidacia/timeout - VSETKY dovody, nie len niektore, kedze prave SL
+    pocas prudkeho pohybu je scenar, kde je zvysena bdelost najviac zelana) -
+    2026-08-16, na ziadost pouzivatela ("mela" po zatvoreni). Bezny
+    check_watch_triggers() beh (WATCH_INTERVAL_MINUTES=1) uz aj tak kontroluje
+    VSETKY symboly bez otvorenej pozicie vratane tohto - hot okno len docasne
+    zhusti kontrolu KONKRETNE preň, aby sme rychly pokracujuci pohyb/odraz
+    zachytili skor. Netrvala zmena stavu (len in-memory, nie DB) - restart
+    workera ju jednoducho vynuluje, nic to nerozbije."""
+    with _hot_lock:
+        _hot_until[symbol] = datetime.now(timezone.utc) + timedelta(
+            minutes=config.POST_CLOSE_HOT_WATCH_MINUTES,
+        )
+    print(f"[watch_monitor] {symbol}: hot-watch okno aktivovane na "
+          f"{config.POST_CLOSE_HOT_WATCH_MINUTES} min (kontrola kazdych "
+          f"{config.POST_CLOSE_HOT_WATCH_SECONDS}s namiesto beznych "
+          f"{config.WATCH_INTERVAL_MINUTES} min).")
 
-            market = markets_by_symbol.get(symbol)
-            if market is None:
-                print(f"[watch_monitor] [{name}] symbol {symbol} sa nenasiel v /v2/markets.")
-                continue
-            live_price = float(market["mark_price"])
 
-            # Obojstranny watch (viz claude_analyst.py watch_price_2/watch_direction_2) -
-            # ktorykolvek z dvoch nezavislych parov staci na spustenie; Claude si
-            # situaciu aj tak prehodnoti nanovo v mimoriadnom cykle, nemechanicky
-            # nevykonava vopred urceny smer.
-            triggered_pair = None
-            if has_pair_1 and _is_triggered(live_price, last_log.watch_price, last_log.watch_direction):
-                triggered_pair = (last_log.watch_price, last_log.watch_direction)
-            elif has_pair_2 and _is_triggered(live_price, last_log.watch_price_2, last_log.watch_direction_2):
-                triggered_pair = (last_log.watch_price_2, last_log.watch_direction_2)
+def check_hot_watch_triggers() -> None:
+    """Bezi kazdych POST_CLOSE_HOT_WATCH_SECONDS (viz main.py) - ak nie je
+    ziaden symbol momentalne "hot" (bezny stav), vrati sa OKAMZITE bez
+    akehokolvek DB/API volania (len lookup v pamati), takze tento tesny
+    interval prakticky nic nestoji navyse mimo okna po zatvoreni pozicie."""
+    now = datetime.now(timezone.utc)
+    with _hot_lock:
+        hot_symbols = [sym for sym, until in _hot_until.items() if until > now]
+        expired = [sym for sym, until in _hot_until.items() if until <= now]
+        for sym in expired:
+            del _hot_until[sym]
 
-            if triggered_pair is None:
-                continue
-            watch_price, watch_direction = triggered_pair
+    if not hot_symbols:
+        return
 
-            # 2026-08-16 produkcny nalez: ak pre tento symbol uz mimoriadny beh
-            # bezi (predchadzajuci tik ho este nestihol dokoncit), dispatch_triggered_check
-            # nizsie by ho aj tak len tichy zahodil (viz jej in-flight guard) -
-            # kontrola TU, PRED pripisanim do TriggeredWatch, zabrani zbytocnemu
-            # spotrebovaniu hodinoveho rozpoctu na beh, ktory sa vobec nespusti.
-            # Bez tohto by rychly sled tikov pocas prudkeho pohybu (kazdy dalsi
-            # tik vidi rovnaku stalu watch uroven, kym prvy beh este nedobehol)
-            # vedel vycerpat cely WATCH_TRIGGER_MAX_PER_HOUR na duplicity.
-            if trade_cycle.is_triggered_check_in_flight(symbol):
-                print(f"[watch_monitor] [{name}] watch podmienka splnena, ale mimoriadny beh "
-                      "uz prebieha - nespotrebuvam hodinovy rozpocet, skusim dalsi tik.")
-                continue
-
-            hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
-            triggered_this_hour = session.query(TriggeredWatch).filter(
-                TriggeredWatch.symbol == symbol, TriggeredWatch.triggered_at >= hour_ago,
-            ).count()
-            if triggered_this_hour >= config.WATCH_TRIGGER_MAX_PER_HOUR:
-                print(f"[watch_monitor] [{name}] watch podmienka splnena, ale hodinovy limit "
-                      f"({config.WATCH_TRIGGER_MAX_PER_HOUR}) je pre tento asset vycerpany - "
-                      "skusim dalsi tik.")
-                continue
-
-            print(
-                f"[watch_monitor] [{name}] watch podmienka splnena "
-                f"(live={live_price}, watch={watch_direction} {watch_price}) "
-                "- spustam mimoriadny cyklus."
-            )
-            # Zapisane HNED (pred behom cyklu), aby padnuty proces uprostred
-            # Claude volania nizsie nespotreboval rozpocet bez ozajstneho zapisu.
-            session.add(TriggeredWatch(symbol=symbol))
-            session.commit()
-            trade_cycle.dispatch_triggered_check(asset)
+    print(f"[watch_monitor] hot-watch tik pre {hot_symbols}")
+    hot_assets = [a for a in assets.enabled_assets() if a["strike_symbol"] in hot_symbols]
+    session = get_session()
+    try:
+        _check_price_watch_for_assets(session, hot_assets)
     finally:
         session.close()
 

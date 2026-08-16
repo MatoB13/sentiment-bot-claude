@@ -114,9 +114,14 @@ jeden dlhodobo bežiaci proces na Railway (worker service). `trade_cycle` job
 tiká na `min()` z aktuálnych `*_TRADE_INTERVAL_HOURS` všetkých aktívnych
 assetov (najrýchlejšie požadovaná frekvencia) — každý asset sa reálne
 rozhoduje/obchoduje na SVOJOM vlastnom (pomalšom alebo rovnakom) intervale cez
-`trade_cycle._is_due()`. `MONITOR_INTERVAL_MINUTES` zostáva **zdieľané pre
-všetky assety** (jedno `get_positions()` volanie kontroluje všetky otvorené
-pozície naraz).
+`trade_cycle._is_due()`. `position_monitor.check_open_trades` (jedno `get_positions()`
+volanie kontroluje všetky otvorené pozície naraz) beží od 2026-08-16 na
+`WATCH_INTERVAL_MINUTES` (predtým na pomalšom `MONITOR_INTERVAL_MINUTES` -
+detekcia zatvorenia pozície tak mohla meškať až 10 min za skutočným TP/SL/
+timeoutom, kým sa presné PnL, Discord notifikácia a nadväzujúci post-close
+review cyklus vôbec spustili - kritické práve pri prudkom pohybe).
+`MONITOR_INTERVAL_MINUTES` teraz už používa len `funding_tracker.poll_new`
+(1 API volanie PER symbol, netreba preň rovnakú reaktivitu).
 
 Assety možno jednotlivo vypnúť cez `ENABLE_NVDA`/`ENABLE_ADA`/`ENABLE_GOLD`/`ENABLE_WTI`/`ENABLE_NIGHT`/`ENABLE_BTC`/`ENABLE_HYPE`/`ENABLE_SKHYNIX`/`ENABLE_AAOI`/`ENABLE_MINIMAX`/`ENABLE_ZEC` (NAS100 beží vždy; NVDA/AAOI/MINIMAX sú momentálne default `false`).
 
@@ -190,12 +195,25 @@ Pozri `.env.example` — najdôležitejšie:
 - `DATABASE_URL` — pre trvalé uloženie histórie obchodov použi Railway Postgres plugin
   (SQLite súbor na Railway sa stratí pri každom redeployi!)
 - `DRY_RUN` — `true`/`false` — **zdieľané pre všetky assety**
-- `MONITOR_INTERVAL_MINUTES` — ako často sa kontrolujú otvorené pozície (napr. `10`) — zdieľané.
-  Nemusí byť tesný, SL/TP na otvorenej pozícii chráni Strike sám (bracket order v reálnom čase) -
-  toto len dodatočne synchronizuje náš DB záznam
-- `WATCH_INTERVAL_MINUTES` — ako často sa kontroluje watch cenová podmienka (default `1`) —
-  samostatný, tesnejší interval nez `MONITOR_INTERVAL_MINUTES` (viz `watch_monitor.py`) - tu
-  častejšia kontrola reálne znižuje šancu prehliadnuť krátky dotyk/odraz od sledovanej hladiny
+- `MONITOR_INTERVAL_MINUTES` — ako často sa dopĺňajú funding platby (`funding_tracker.poll_new`,
+  napr. `10`) — zdieľané. Nemusí byť tesný, funding sa akumuluje priebežne počas držania pozície.
+  **Od 2026-08-16 už NEriadi `position_monitor` (viz `WATCH_INTERVAL_MINUTES` nižšie)** - predtým
+  áno, ale detekcia zatvorenia pozície tak mohla meškať až 10 min za skutočným TP/SL/timeoutom
+- `WATCH_INTERVAL_MINUTES` — ako často sa kontroluje watch cenová podmienka AJ otvorené pozície
+  (default `1`, zdieľané `watch_monitor.py` + od 2026-08-16 aj `position_monitor.py`) - oba sú lacné
+  polly (1 bulk API volanie + DB, žiadne Claude/web_search volanie kým sa niečo reálne nestane),
+  takže častejší tik nič nestojí navyše. SL/TP na otvorenej pozícii síce vždy chráni Strike sám
+  (bracket order v reálnom čase) nezávisle od tohto intervalu, ale presné PnL, Discord notifikácia
+  o zatvorení a nadväzujúci post-close review cyklus predtým čakali na pomalší poll - kritické práve
+  pri prudkom pohybe, keď chceš vedieť okamžite
+- `POST_CLOSE_HOT_WATCH_SECONDS`/`POST_CLOSE_HOT_WATCH_MINUTES` (default `10`/`5`, 2026-08-16) —
+  "hot watch" okno po zatvorení pozície (TP/SL/likvidácia/timeout - VŠETKY dôvody). Konkrétny symbol
+  sa po zatvorení sleduje ešte tesnejšie (`POST_CLOSE_HOT_WATCH_SECONDS`) po dobu
+  `POST_CLOSE_HOT_WATCH_MINUTES`, aby sa rýchlo pokračujúci pohyb/odraz ("mela") zachytil skôr než na
+  bežnom `WATCH_INTERVAL_MINUTES`. Beží ako samostatný scheduler job (`watch_monitor.check_hot_watch_triggers`),
+  ktorý je ale takmer vždy no-op - pokiaľ nie je žiadny symbol práve "hot" (bežný stav), vráti sa
+  okamžite bez DB/API volania, takže tento tesný interval nič nestojí navyše mimo tohto krátkeho okna.
+  Stav je len v pamäti (nie DB) - reštart workera ho jednoducho vynuluje.
 - `POSITION_MAX_HOURS` — max. držanie pozície pred force-close — zdieľané
 - `WATCH_TRIGGER_MAX_PER_HOUR` (default `5`, 2026-08-08, zdvihnuté z `3` na `5` 2026-08-16) — rovnaká bezpečnostná poistka ako
   `MACRO_EVENT_MAX_TRIGGERS_PER_HOUR` nižšie, ale pre cenový watch mechanizmus - **PER ASSET** (na

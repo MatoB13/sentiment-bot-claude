@@ -7,6 +7,7 @@ import config
 import discord_client
 import strike_client
 import trade_cycle
+import watch_monitor
 from db import Trade, get_session
 
 # /v2/closedPositions (povodny zdroj) nema ZIADNE price/PnL/fee polia - viz
@@ -274,6 +275,10 @@ def check_open_trades():
                     session.add(trade)
                     _check_and_queue_review(trade, pending_reviews)
                     _check_and_queue_close_notification(trade, pending_notifications)
+                    # 2026-08-16 na ziadost pouzivatela ("mela" po zatvoreni pri
+                    # prudkom pohybe) - VSETKY dovody zatvorenia, SL/likvidacia
+                    # najviac zo vsetkych (viz watch_monitor.mark_hot docstring).
+                    watch_monitor.mark_hot(trade.symbol)
                     continue
 
                 expires_at = trade.expires_at
@@ -294,6 +299,7 @@ def check_open_trades():
                     session.add(trade)
                     _check_and_queue_review(trade, pending_reviews)
                     _check_and_queue_close_notification(trade, pending_notifications)
+                    watch_monitor.mark_hot(trade.symbol)
                 else:
                     print(f"[position_monitor] Trade {trade.id} stale otvoreny "
                           f"(expiruje {expires_at.isoformat()}).")
