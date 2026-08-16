@@ -197,7 +197,7 @@ Pozri `.env.example` — najdôležitejšie:
   samostatný, tesnejší interval nez `MONITOR_INTERVAL_MINUTES` (viz `watch_monitor.py`) - tu
   častejšia kontrola reálne znižuje šancu prehliadnuť krátky dotyk/odraz od sledovanej hladiny
 - `POSITION_MAX_HOURS` — max. držanie pozície pred force-close — zdieľané
-- `WATCH_TRIGGER_MAX_PER_HOUR` (default `3`, 2026-08-08) — rovnaká bezpečnostná poistka ako
+- `WATCH_TRIGGER_MAX_PER_HOUR` (default `5`, 2026-08-08, zdvihnuté z `3` na `5` 2026-08-16) — rovnaká bezpečnostná poistka ako
   `MACRO_EVENT_MAX_TRIGGERS_PER_HOUR` nižšie, ale pre cenový watch mechanizmus - **PER ASSET** (na
   rozdiel od makro poistky, ktorá je jeden zdieľaný rozpočet naprieč všetkými assetmi naraz, keďže
   makro udalosti sú často "všetky assety" burst - cenový watch je vždy nezávislý per-symbol, preto
@@ -265,9 +265,10 @@ dvojicu (KRX seansa 00:00-06:30 UTC).
   `risk_manager.py`). `ADA`/`NIGHT`/`HYPE`/`SKHYNIX`/`ZEC_MARGIN_USD` sú `$50`
   (ostatné `$100`) - viac tickerov teraz zdiela jednu peňaženku bez koordinácie (viz preflight
   kontrola zostatku nižšie).
-- **`LEVERAGE` vs. `LIQUIDATION_CUSHION_MULTIPLE`** (2026-08-08): `{TICKER}_LEVERAGE` už
-  NEOVPLYVŇUJE skutočný position sizing - ostáva len ako historický/referenčný údaj (dashboard,
-  `retrospective.py` fallback pre staré záznamy). Skutočná páka sa teraz DOPOČÍTAVA per-obchod z
+- **`LEVERAGE` vs. `LIQUIDATION_CUSHION_MULTIPLE`** (2026-08-08): ⚠️ `{TICKER}_LEVERAGE` už
+  NEOVPLYVŇUJE skutočný position sizing - **zmena tejto hodnoty na Railway sa na živých obchodoch
+  vôbec neprejaví.** Ostáva len ako historický/referenčný údaj (dashboard, `retrospective.py`
+  fallback pre staré záznamy). Skutočná páka sa teraz DOPOČÍTAVA per-obchod z
   `{TICKER}_LIQUIDATION_CUSHION_MULTIPLE` (default `1.5`) a aktuálnej SL vzdialenosti tak, aby
   vzdialenosť do teoretickej likvidačnej ceny bola presne tento násobok SL vzdialenosti (napr. `1.5`
   = likvidácia je o 50% ďalej od vstupu než SL) - vždy orezané zhora na skutočný Strike-om povolený
@@ -275,6 +276,11 @@ dvojicu (KRX seansa 00:00-06:30 UTC).
   zvolený používateľom) je maximalizovať expozíciu pri zachovaní bezpečného odstupu od likvidácie -
   užší SL teda dnes znamená VYŠŠIU páku/notional pri rovnakej marži, širší SL nižšiu. Nastaviteľné
   per-ticker, keby niektorý ticker potreboval iný vankuš (napr. volatilnejší ticker vyšší multiple).
+  **Ak chceš skutočne zmeniť reálnu páku, uprav `{TICKER}_LIQUIDATION_CUSHION_MULTIPLE`, nie
+  `{TICKER}_LEVERAGE`.** Bezpredponová `LIQUIDATION_CUSHION_MULTIPLE` (bez `{TICKER}_` prefixu) je
+  len interný fallback-cascade default (rovnaký status ako `MIN_CONFIDENCE`/`MARGIN_USD` nižšie) -
+  keďže všetkých 12 tickerov už má vlastnú explicitnú hodnotu, tento zdieľaný default sa v praxi už
+  nikdy nepoužije; bola omylom nastavená priamo na Railway (bez efektu) - 2026-08-16 odstránená.
 - `TRADE_INTERVAL_HOURS`/`OFF_HOURS_INTERVAL_HOURS`/`WEEKEND_INTERVAL_HOURS` — frekvencia cyklu
   počas trading hours / mimo nich / cez víkend. Pre 24/7 krypto (ADA/NIGHT/BTC/HYPE/ZEC) sú
   `off_hours`/`weekend` defaultne rovnaké ako `trade_interval` (žiadne skutočné "off hours" preň

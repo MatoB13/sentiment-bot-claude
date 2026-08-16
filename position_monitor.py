@@ -261,41 +261,55 @@ def check_open_trades():
 
         now = datetime.now(timezone.utc)
         for trade in open_trades:
-            # Bot drzi vzdy najviac 1 poziciu naraz (viz has_open_position v trade_cycle.py),
-            # takze zhoda podla symbolu je jednoznacna.
-            live = live_by_symbol.get(trade.symbol)
+            try:
+                # Bot drzi vzdy najviac 1 poziciu naraz (viz has_open_position v trade_cycle.py),
+                # takze zhoda podla symbolu je jednoznacna.
+                live = live_by_symbol.get(trade.symbol)
 
-            if live is None:
-                # uz nie je medzi otvorenymi poziciami na burze -> zatvorena (TP/SL/likvidacia)
-                trade.status = "closed_by_exchange"
-                trade.closed_at = now
-                _apply_exact_close(trade, "not_found_in_open_positions (TP/SL/liquidation)")
-                session.add(trade)
-                _check_and_queue_review(trade, pending_reviews)
-                _check_and_queue_close_notification(trade, pending_notifications)
-                continue
-
-            expires_at = trade.expires_at
-            if expires_at.tzinfo is None:
-                expires_at = expires_at.replace(tzinfo=timezone.utc)
-
-            if now >= expires_at:
-                print(f"[position_monitor] Trade {trade.id} presiahol {config.POSITION_MAX_HOURS}h, zatvaram.")
-                try:
-                    strike_client.cancel_all_orders(trade.symbol)  # zrusi visiace TP/SL objednavky
-                    strike_client.close_position_market(trade.direction, float(live["size"]), trade.symbol)
-                except Exception as e:
-                    print(f"[position_monitor] Chyba pri force-close: {e}")
+                if live is None:
+                    # uz nie je medzi otvorenymi poziciami na burze -> zatvorena (TP/SL/likvidacia)
+                    trade.status = "closed_by_exchange"
+                    trade.closed_at = now
+                    _apply_exact_close(trade, "not_found_in_open_positions (TP/SL/liquidation)")
+                    session.add(trade)
+                    _check_and_queue_review(trade, pending_reviews)
+                    _check_and_queue_close_notification(trade, pending_notifications)
                     continue
-                trade.status = "closed_by_timeout"
-                trade.closed_at = now
-                _apply_exact_close(trade, f"max_hold_{config.POSITION_MAX_HOURS}h_reached")
-                session.add(trade)
-                _check_and_queue_review(trade, pending_reviews)
-                _check_and_queue_close_notification(trade, pending_notifications)
-            else:
-                print(f"[position_monitor] Trade {trade.id} stale otvoreny "
-                      f"(expiruje {expires_at.isoformat()}).")
+
+                expires_at = trade.expires_at
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+                if now >= expires_at:
+                    print(f"[position_monitor] Trade {trade.id} presiahol {config.POSITION_MAX_HOURS}h, zatvaram.")
+                    try:
+                        strike_client.cancel_all_orders(trade.symbol)  # zrusi visiace TP/SL objednavky
+                        strike_client.close_position_market(trade.direction, float(live["size"]), trade.symbol)
+                    except Exception as e:
+                        print(f"[position_monitor] Chyba pri force-close: {e}")
+                        continue
+                    trade.status = "closed_by_timeout"
+                    trade.closed_at = now
+                    _apply_exact_close(trade, f"max_hold_{config.POSITION_MAX_HOURS}h_reached")
+                    session.add(trade)
+                    _check_and_queue_review(trade, pending_reviews)
+                    _check_and_queue_close_notification(trade, pending_notifications)
+                else:
+                    print(f"[position_monitor] Trade {trade.id} stale otvoreny "
+                          f"(expiruje {expires_at.isoformat()}).")
+            except Exception as e:
+                # 2026-08-16 stress-test nalez: bez tejto izolacie by neocakavana
+                # vynimka pri SPRACOVANI JEDNEHO obchodu (napr. nezvycajny tvar
+                # odpovede z burzy pocas prudkeho pohybu trhu) preskocila kontrolu
+                # VSETKYCH dalsich otvorenych pozicii v tomto tiku (najblizsi pokus
+                # az o MONITOR_INTERVAL_MINUTES neskor) - rovnaky princip izolacie
+                # "jeden asset nesmie blokovat ostatne" ako inde v tomto module
+                # (viz run_cycle_for_asset vlastna DB session, dispatch_triggered_check).
+                # Realne SL/TP ochranu tejto pozicie to neovplyvni - tá zije na
+                # burze ako samostatna objednavka nezavisla od tohto monitoringu.
+                print(f"[position_monitor] Trade {trade.id} [{trade.symbol}]: neocakavana chyba "
+                      f"pri spracovani, preskakujem na dalsi obchod: {e}")
+                continue
 
         session.commit()
     finally:

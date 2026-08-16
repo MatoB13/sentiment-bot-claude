@@ -1382,9 +1382,11 @@ def _extract_web_search_log(content_blocks: list) -> list[dict]:
     zapiseme aj "error" pole a vypiseme to do konzoly, aby sa to dalo diagnostikovat."""
     log = []
     pending_query = None
+    pending_raw_input = None
     for block in content_blocks:
         if block.get("type") == "server_tool_use" and block.get("name") == "web_search":
-            pending_query = block.get("input", {}).get("query")
+            pending_raw_input = block.get("input", {})
+            pending_query = pending_raw_input.get("query")
         elif block.get("type") == "web_search_tool_result":
             content = block.get("content")
             entry = {"query": pending_query}
@@ -1399,9 +1401,17 @@ def _extract_web_search_log(content_blocks: list) -> list[dict]:
                     content.get("error_code") if isinstance(content, dict)
                     else f"unexpected_content_shape:{type(content).__name__}"
                 )
-                print(f"[claude_analyst] web_search zlyhalo: {entry['error']} (query={pending_query!r})")
+                # Surovy input celeho server_tool_use bloku (nie len "query") -
+                # 2026-08-16 nalez: BTC cyklus mal 7x error_code=invalid_tool_input
+                # so VSETKYMI query=None, co znamena, ze uz samotny input od Claudeho
+                # bol nejakym sposobom nekompletny/zly - bez tohto surloveho zaznamu
+                # sa nedalo zistit CO presne bolo v tom vstupe zle.
+                entry["raw_input"] = pending_raw_input
+                print(f"[claude_analyst] web_search zlyhalo: {entry['error']} "
+                      f"(query={pending_query!r}, raw_input={pending_raw_input!r})")
             log.append(entry)
             pending_query = None
+            pending_raw_input = None
     return log
 
 

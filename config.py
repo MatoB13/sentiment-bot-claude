@@ -100,7 +100,7 @@ MACRO_EVENT_MAX_TRIGGERS_PER_HOUR = _int("MACRO_EVENT_MAX_TRIGGERS_PER_HOUR", 3)
 # preto kazdy asset ma VLASTNY rozpocet). Bez tejto poistky by sa mohol
 # watch-trigger opakovat neobmedzene casto, ak by kazdy dalsi mimoriadny
 # cyklus znova nastavil (aj mierne inu) blizku watch uroven.
-WATCH_TRIGGER_MAX_PER_HOUR = _int("WATCH_TRIGGER_MAX_PER_HOUR", 3)
+WATCH_TRIGGER_MAX_PER_HOUR = _int("WATCH_TRIGGER_MAX_PER_HOUR", 5)
 # Pridane 2026-08-15 - rozsirenie watch mechanizmu z direction="none" aj na
 # direction=long/short, ktore risk_manager zamietol CISTO kvoli confidence
 # (viz claude_analyst.py confidence_threshold_note + DECISION_TOOL). Ak
@@ -147,29 +147,39 @@ HEALTH_CHECK_LOSS_TRIGGER_FRACTION = _float("HEALTH_CHECK_LOSS_TRIGGER_FRACTION"
 # GOLD/GLD 10.9x - obe daleko nad 3x).
 TA_LIVE_PRICE_MISMATCH_RATIO = _float("TA_LIVE_PRICE_MISMATCH_RATIO", 3.0)
 
-# Paka uz NIE JE fixna per-asset hodnota (viz {TICKER}_LEVERAGE nizsie - tie su
-# od 2026-08-08 len referencny/historicky udaj, uz NEOVPLYVNUJU skutocny
-# sizing) - namiesto toho sa DOPOCITAVA z (Claudom navrhnutej) SL vzdialenosti
-# tak, aby vzdialenost do teoretickej likvidacnej ceny bola PRESNE tento
-# nasobok SL vzdialenosti (napr. 1.5 = likvidacia je o 50% dalej nez SL) -
-# viz risk_manager._leverage_from_cushion. Cielom (explicitne pouzivatelom
+# POZOR (2026-08-08): {TICKER}_LEVERAGE nizsie pri kazdom tickeri uz NIE JE
+# skutocna pouzita paka a UZ NEOVPLYVNUJE ziaden realny obchod - zmena tejto
+# hodnoty na Railway sa na zivych pozicach vobec neprejavi. Ostava zapisana
+# LEN ako historicky/referencny udaj (dashboard "Konfiguracia" karta,
+# retrospective.py hypoteticky PnL prepocet pre stare zaznamy spred tejto
+# zmeny - viz asset["leverage"] pouzitie tam). Skutocna paka sa DOPOCITAVA z
+# (Claudom navrhnutej) SL vzdialenosti tak, aby vzdialenost do teoretickej
+# likvidacnej ceny bola PRESNE {TICKER}_LIQUIDATION_CUSHION_MULTIPLE-nasobkom
+# SL vzdialenosti (napr. 1.5 = likvidacia je o 50% dalej nez SL) - viz
+# risk_manager._leverage_from_cushion. Cielom (explicitne pouzivatelom
 # 2026-08-08) je MAXIMALIZOVAT expoziciu pri zachovani bezpecneho odstupu od
 # likvidacie, nie zachovat povodnu konzervativnu fixnu paku - vzdy orezane
 # zhora na skutocny Strike-om povoleny strop pre danu marzu/tier (nikdy
 # nepozadovat viac, nez burza vobec dovoli), nikdy dolu na povodnu {TICKER}_LEVERAGE.
-# Toto je zdielany DEFAULT - kazdy ticker ma navyse VLASTNY
-# {TICKER}_LIQUIDATION_CUSHION_MULTIPLE (viz nizsie pri kazdom tickeri), ktory
-# ho pri potrebe prebije nezavisle od ostatnych (rovnaky cascade vzor ako
-# {TICKER}_SL_PCT a pod.).
+# Ak chces skutocne zmenit realnu paku, uprav {TICKER}_LIQUIDATION_CUSHION_MULTIPLE
+# (uzsi cushion = vyssia paka, sirsi = nizsia), NIE {TICKER}_LEVERAGE.
+#
+# LIQUIDATION_CUSHION_MULTIPLE nizsie (bezpredponova) je LEN interny
+# fallback-cascade default (viz blok MIN_CONFIDENCE/MARGIN_USD/... nizsie) -
+# VSETKYCH 12 tickerov uz ma svoju vlastnu explicitnu {TICKER}_LIQUIDATION_CUSHION_MULTIPLE,
+# takze tento zdielany default sa v skutocnosti UZ NIKDY nepouzije. Rovnaky
+# status ako MIN_CONFIDENCE a pod. nizsie - nenastavuj priamo na Railway
+# (2026-08-16 zistene, ze tam bola nastavena bez akehokolvek efektu - odstranene).
 LIQUIDATION_CUSHION_MULTIPLE = _float("LIQUIDATION_CUSHION_MULTIPLE", 1.5)
 
-# --- NIZSIE (MIN_CONFIDENCE/MARGIN_USD/LEVERAGE/DEFAULT_SL_PCT/DEFAULT_TP_PCT/
-# TRADE_INTERVAL_HOURS/OFF_HOURS_INTERVAL_HOURS/WEEKEND_INTERVAL_HOURS) su od
-# 2026-07-31 LEN interne fallback-cascade konstanty pre vypocet per-ticker
-# defaultov nizsie (NAS100_MIN_CONFIDENCE a pod.) - VSETKYCH 9 tickerov uz ma
-# svoju vlastnu explicitne nastavenu premennu na Railway, takze tieto uz
-# NEOVPLYVNUJU ziadne skutocne rozhodnutie za behu. Nenastavuj ich uz priamo
-# na Railway - uprav rovno konkretny {TICKER}_* ekvivalent nizsie.
+# --- NIZSIE (MIN_CONFIDENCE/MARGIN_USD/LEVERAGE/LIQUIDATION_CUSHION_MULTIPLE/
+# DEFAULT_SL_PCT/DEFAULT_TP_PCT/TRADE_INTERVAL_HOURS/OFF_HOURS_INTERVAL_HOURS/
+# WEEKEND_INTERVAL_HOURS) su od 2026-07-31 LEN interne fallback-cascade
+# konstanty pre vypocet per-ticker defaultov nizsie (NAS100_MIN_CONFIDENCE a
+# pod.) - VSETKYCH 12 tickerov uz ma svoju vlastnu explicitne nastavenu
+# premennu na Railway, takze tieto uz NEOVPLYVNUJU ziadne skutocne
+# rozhodnutie za behu. Nenastavuj ich uz priamo na Railway - uprav rovno
+# konkretny {TICKER}_* ekvivalent nizsie.
 MIN_CONFIDENCE = _int("MIN_CONFIDENCE", 65)
 MARGIN_USD = _float("MARGIN_USD", 100)
 LEVERAGE = _int("LEVERAGE", 40)

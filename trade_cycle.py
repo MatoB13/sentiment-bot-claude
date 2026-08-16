@@ -852,6 +852,18 @@ _triggered_check_lock = threading.Lock()
 _triggered_check_in_flight: set[str] = set()
 
 
+def is_triggered_check_in_flight(symbol: str) -> bool:
+    """Umoznuje volajucemu (watch_monitor.py) zistit vopred, ci by dispatch_triggered_check()
+    pre tento symbol aj tak len tichy zahodil beh (viz jej docstring nizsie) -
+    2026-08-16 produkcny nalez: watch_monitor predtym pripisal TriggeredWatch
+    (spotreboval hodinovy rozpocet WATCH_TRIGGER_MAX_PER_HOUR) EST PRED volanim
+    dispatch_triggered_check, takze rychly sled tikov pocas prudkeho pohybu
+    (kedy in-flight guard nizsie vzdy zahodi 2. a 3. pokus) vedel vycerpat cely
+    hodinovy rozpocet na duplicity namiesto skutocnych novych analyz."""
+    with _triggered_check_lock:
+        return symbol in _triggered_check_in_flight
+
+
 def dispatch_triggered_check(asset: dict, **kwargs) -> None:
     """Ako run_triggered_check() vyssie, ale NA POZADI (samostatny thread) -
     pouzivaju watch_monitor.py a position_monitor.py namiesto priameho volania.

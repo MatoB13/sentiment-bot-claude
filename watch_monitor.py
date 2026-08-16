@@ -232,6 +232,19 @@ def check_watch_triggers() -> None:
                 continue
             watch_price, watch_direction = triggered_pair
 
+            # 2026-08-16 produkcny nalez: ak pre tento symbol uz mimoriadny beh
+            # bezi (predchadzajuci tik ho este nestihol dokoncit), dispatch_triggered_check
+            # nizsie by ho aj tak len tichy zahodil (viz jej in-flight guard) -
+            # kontrola TU, PRED pripisanim do TriggeredWatch, zabrani zbytocnemu
+            # spotrebovaniu hodinoveho rozpoctu na beh, ktory sa vobec nespusti.
+            # Bez tohto by rychly sled tikov pocas prudkeho pohybu (kazdy dalsi
+            # tik vidi rovnaku stalu watch uroven, kym prvy beh este nedobehol)
+            # vedel vycerpat cely WATCH_TRIGGER_MAX_PER_HOUR na duplicity.
+            if trade_cycle.is_triggered_check_in_flight(symbol):
+                print(f"[watch_monitor] [{name}] watch podmienka splnena, ale mimoriadny beh "
+                      "uz prebieha - nespotrebuvam hodinovy rozpocet, skusim dalsi tik.")
+                continue
+
             hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
             triggered_this_hour = session.query(TriggeredWatch).filter(
                 TriggeredWatch.symbol == symbol, TriggeredWatch.triggered_at >= hour_ago,
