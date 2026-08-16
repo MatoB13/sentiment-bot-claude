@@ -846,6 +846,12 @@ def run_triggered_check(asset: dict, closed_trade: dict | None = None,
                          skip_due_check=True, closed_trade=closed_trade, macro_event=macro_event)
 
 
+# Symboly s momentalne beziacim mimoriadnym (background-thread) behom - viz
+# dispatch_triggered_check() nizsie.
+_triggered_check_lock = threading.Lock()
+_triggered_check_in_flight: set[str] = set()
+
+
 def dispatch_triggered_check(asset: dict, **kwargs) -> None:
     """Ako run_triggered_check() vyssie, ale NA POZADI (samostatny thread) -
     pouzivaju watch_monitor.py a position_monitor.py namiesto priameho volania.
@@ -861,14 +867,36 @@ def dispatch_triggered_check(asset: dict, **kwargs) -> None:
     nielen ta jedna, co trigger vyvolala. Dispatch na pozadie drzi kazdy
     scheduler tik kratky (len lahke DB/HTTP volania), takze sa uz nikdy
     nepreskakuje. run_triggered_check() otvara VLASTNU nezavislu DB session
-    (viz jej docstring), takze je bezpecne volat z ineho threadu."""
+    (viz jej docstring), takze je bezpecne volat z ineho threadu.
+
+    Per-symbol "in-flight" poistka (2026-08-16, produkcny nalez - ZEC dva
+    mimoriadne cykly 38s od seba s protichodnym zaverom): kedze beh je na
+    pozadi, watch_monitor.check_watch_triggers() (kazdu WATCH_INTERVAL_MINUTES=1
+    min) sa moze spustit znova skor, nez sa predchadzajuci beh PRE TEN ISTY
+    SYMBOL vobec zapise do DB (Claude+web_search bezne trva dlhsie nez 1 min) -
+    poller vtedy este stale vidi STARU watch uroven a spusti duplicitny beh
+    nad prakticky rovnakymi datami. _triggered_check_in_flight nizsie preto
+    zabrani druhemu (paralelnemu) triggeru pre rovnaky symbol, kym prvy este
+    nedobehol - hodinovy strop (WATCH_TRIGGER_MAX_PER_HOUR) tento pripad rieši
+    len castocne (obmedzi pocet, nezabrani subehu)."""
     name = asset["name"]
+    symbol = asset["strike_symbol"]
+
+    with _triggered_check_lock:
+        if symbol in _triggered_check_in_flight:
+            print(f"[trade_cycle] [{name}] mimoriadny beh uz prebieha (predchadzajuci "
+                  "trigger este nedobehol) - preskakujem duplicitny beh.")
+            return
+        _triggered_check_in_flight.add(symbol)
 
     def _run():
         try:
             run_triggered_check(asset, **kwargs)
         except Exception as e:
             print(f"[trade_cycle] [{name}] mimoriadny beh na pozadi zlyhal: {e}")
+        finally:
+            with _triggered_check_lock:
+                _triggered_check_in_flight.discard(symbol)
 
     threading.Thread(target=_run, daemon=True, name=f"triggered-{name}").start()
 
