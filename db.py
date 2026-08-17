@@ -343,6 +343,26 @@ class FlaggedMacroEvent(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
+class AccountSnapshot(Base):
+    """Zivy stav Strike uctu (2026-08-17, na ziadost pouzivatela - sledovanie
+    volnej likvidity v Prehlad tabe monitor-web). JEDEN riadok (id=1),
+    PREPISOVANY (nie pripajany) kazdu minutu rovnakym pollerom ako ceny
+    (viz price_poller.poll_prices - jeden dalsi lahky GET /v2/account
+    navyse). available_balance = volny (nepouzity v ziadnej otvorenej
+    pozicii) zostatok, ktory pouzivatel realne chce sledovat kvoli
+    likvidite. wallet_balance = celkovy zostatok VRATANE nerealizovaneho
+    PnL a pouzitej marze - viz strike_client.get_account()."""
+    __tablename__ = "account_snapshot"
+
+    id = Column(Integer, primary_key=True)
+    wallet_balance = Column(Float, nullable=True)
+    available_balance = Column(Float, nullable=True)
+    margin_balance = Column(Float, nullable=True)
+    unrealized_pnl = Column(Float, nullable=True)
+    total_margin = Column(Float, nullable=True)
+    updated_at = Column(DateTime, nullable=True)
+
+
 def _ensure_columns(engine) -> None:
     """create_all() vytvori len chybajuce TABULKY, nikdy nepridá stlpec do uz
     existujucej tabulky. Toto je poor-man's migration: pri kazdom starte

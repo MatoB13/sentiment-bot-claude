@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 import assets
 import market_data
 import strike_client
-from db import FundingRateBar, PriceBar, get_session
+from db import AccountSnapshot, FundingRateBar, PriceBar, get_session
 
 
 def poll_prices() -> None:
@@ -36,6 +36,15 @@ def poll_prices() -> None:
     except Exception as e:
         print(f"[price_poller] Strike /v2/markets zlyhalo, preskakujem tento tik: {e}")
         return
+
+    # Ziva zostava uctu (2026-08-17, na ziadost pouzivatela - sledovanie volnej
+    # likvidity) - samostatny GET, nezavisly od /v2/markets vyssie, preto
+    # oddelene osetreny: jeho zlyhanie nesmie zablokovat cenove sviecky nizsie.
+    account = None
+    try:
+        account = strike_client.get_account()
+    except Exception as e:
+        print(f"[price_poller] Strike /v2/account zlyhalo, preskakujem tento tik: {e}")
 
     prices = {m.get("symbol"): m.get("mark_price") for m in markets}
     funding_rates = {m.get("symbol"): m.get("funding_rate") for m in markets}
@@ -81,6 +90,19 @@ def poll_prices() -> None:
                     session.add(FundingRateBar(symbol=symbol, hour_start=hour_start, funding_rate=frate))
                 else:
                     fbar.funding_rate = frate
+
+        if account is not None:
+            snapshot = session.query(AccountSnapshot).filter(AccountSnapshot.id == 1).first()
+            if snapshot is None:
+                snapshot = AccountSnapshot(id=1)
+                session.add(snapshot)
+            snapshot.wallet_balance = float(account["wallet_balance"])
+            snapshot.available_balance = float(account["available_balance"])
+            snapshot.margin_balance = float(account["margin_balance"])
+            snapshot.unrealized_pnl = float(account["unrealized_pnl"])
+            snapshot.total_margin = float(account["total_margin"])
+            snapshot.updated_at = now.replace(tzinfo=None)
+
         session.commit()
         print(f"[price_poller] {updated}/{len(assets.ALL_ASSETS)} tickerov "
               f"aktualizovanych (hodina {hour_start.isoformat()}).")
