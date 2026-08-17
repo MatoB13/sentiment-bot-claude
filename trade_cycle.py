@@ -377,15 +377,33 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
     }
 
     escalation_reason = _mechanical_health_escalation(asset, ta, open_position)
-    if escalation_reason is None:
-        print(f"[{name}] Mechanicka kontrola: ziadny trigger (trend={ta.get('trend')}, "
-              f"P&L={pnl_pct * 100:.2f}%) - preskakujem plny Claude cyklus.")
+
+    cooldown_active = False
+    if escalation_reason is not None and open_trade.last_health_escalation_at is not None:
+        last_esc = open_trade.last_health_escalation_at
+        if last_esc.tzinfo is None:
+            last_esc = last_esc.replace(tzinfo=timezone.utc)
+        hours_since = (datetime.now(timezone.utc) - last_esc).total_seconds() / 3600
+        cooldown_active = hours_since < config.HEALTH_CHECK_ESCALATION_COOLDOWN_HOURS
+
+    if escalation_reason is None or cooldown_active:
+        if escalation_reason is None:
+            print(f"[{name}] Mechanicka kontrola: ziadny trigger (trend={ta.get('trend')}, "
+                  f"P&L={pnl_pct * 100:.2f}%) - preskakujem plny Claude cyklus.")
+            reasoning = (f"Mechanicka kontrola (bez Claude volania): trend={ta.get('trend')}, "
+                         f"nerealizovany P&L={pnl_pct * 100:.2f}%, ziadny trigger na eskalaciu.")
+        else:
+            print(f"[{name}] Trigger na eskalaciu bol splneny ({escalation_reason}), ale posledna "
+                  f"plna eskalacia bola pred menej nez {config.HEALTH_CHECK_ESCALATION_COOLDOWN_HOURS}h "
+                  "- preskakujem plny Claude cyklus (cooldown).")
+            reasoning = (f"Mechanicka kontrola (bez Claude volania): trigger splneny ({escalation_reason}), "
+                         f"ale eskalacia je v cooldowne (posledna pred menej nez "
+                         f"{config.HEALTH_CHECK_ESCALATION_COOLDOWN_HOURS}h).")
         session.add(CycleLog(
             symbol=symbol, live_price=live_price, ta=ta, cross_market=cross_market,
             session_data=market_session, config_snapshot=_config_snapshot(asset),
             direction=open_trade.direction, outcome="position_check",
-            reasoning=(f"Mechanicka kontrola (bez Claude volania): trend={ta.get('trend')}, "
-                       f"nerealizovany P&L={pnl_pct * 100:.2f}%, ziadny trigger na eskalaciu."),
+            reasoning=reasoning,
             health_recommendation="hold",
             trade_id=open_trade.id,
         ))
@@ -393,6 +411,9 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         return
 
     print(f"[{name}] Mechanicka kontrola eskaluje na plny Claude cyklus: {escalation_reason}")
+    open_trade.last_health_escalation_at = datetime.now(timezone.utc)
+    session.add(open_trade)
+    session.commit()
     social = social_sentiment.fetch_recent_posts(name)
 
     prev_log = (

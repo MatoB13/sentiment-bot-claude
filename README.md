@@ -234,6 +234,20 @@ Pozri `.env.example` — najdôležitejšie:
   stranu Strike, stále chránené `WATCH_TRIGGER_MAX_PER_HOUR` vyššie, a spustený mimoriadny cyklus je
   VŽDY kompletne čerstvá analýza (nie mechanické vykonanie pôvodného návrhu). Je v poriadku, ak Claude
   napíše, že cenu nevie odhadnúť - watch sa vtedy jednoducho nenastaví.
+- `HEALTH_CHECK_LOSS_TRIGGER_FRACTION` (default `0.6`, 2026-08-15) — position health check (už
+  otvorená pozícia) je defaultne MECHANICKÝ (bez Claude volania, zdarma) - plný Claude cyklus
+  (web_search, per-asset effort) sa spustí len keď nerealizovaná strata dosiahne túto ČASŤ
+  konfigurovanej SL vzdialenosti (`{TICKER}_SL_PCT`), alebo keď sa TA trend obráti proti pozícii
+  (`trade_cycle._mechanical_health_escalation`).
+- `HEALTH_CHECK_ESCALATION_COOLDOWN_HOURS` (default `3`, 2026-08-17) — cooldown medzi dvoma PLNÝMI
+  (platenými) eskaláciami PRE TÚ ISTÚ otvorenú pozíciu. Produkčný nález: ADA pozícia eskalovala 4×
+  za sebou v priebehu 4 hodín, lebo cena celý ten čas ostala tesne pod SL bez toho, aby sa odrazila
+  alebo ho zasiahla - každý trigger bol legitímny (skutočne prekročená strata/obrátený trend), len
+  sa opakoval bez časového odstupu. Ak escalation trigger nastane skôr než toľkoto hodín od
+  poslednej PLNEJ eskalácie tejto konkrétnej pozície, zapíše sa len mechanický (bezplatný) záznam s
+  poznámkou o cooldowne namiesto ďalšieho plateného volania. NEOVPLYVŇUJE skutočnú ochranu (SL/TP na
+  burze beží nezávisle), len frekvenciu platených Claude "opinion" volaní. Perzistované v DB
+  (`Trade.last_health_escalation_at`), prežije aj reštart workera počas držania pozície.
 - `TA_LIVE_PRICE_MISMATCH_RATIO` (default `3.0`, 2026-08-09 — pôvodne navrhované `2.0`, zdvihnuté po
   backteste na reálnom 10.10.2025 krypto flash-crashi: ADA mala v jednej hodine skutočný intra-hour
   knôt 2.62x pod otváracou cenou, čo by pri `2.0` bol falošný poplach na genuinnom trhovom pohybe,

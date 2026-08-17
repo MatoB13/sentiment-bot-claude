@@ -146,6 +146,16 @@ WATCH_CONFIDENCE_MARGIN = _float("WATCH_CONFIDENCE_MARGIN", 5)
 # check bezal ako plny cyklus nezavisle od toho, ci sa vobec nieco zmenilo -
 # pri viachodinovom drzani pozicie to bol hlavny naklad, nie samotne otvorenie.
 HEALTH_CHECK_LOSS_TRIGGER_FRACTION = _float("HEALTH_CHECK_LOSS_TRIGGER_FRACTION", 0.6)
+# Cooldown medzi dvoma PLNYMI (platenymi) eskalaciami PRE TU ISTU otvorenu
+# poziciu (2026-08-17, produkcny nalez pouzivatela - ADA pozicia eskalovala 4x
+# za sebou kazdu hodinu, lebo cena 5h ostala tesne pod SL bez toho, aby sa
+# odrazila alebo ho zasiahla - kazdy trigger bol legitimny/spravny, len sa
+# opakoval bez casoveho odstupu). Ak escalation trigger nastane skor nez
+# tolkoto hodin od poslednej PLNEJ eskalacie TEJTO pozicie, zapise sa len
+# mechanicky (bezplatny) zaznam s poznamkou o preskoceni - viz trade_cycle.
+# _run_position_health_check. NEOVPLYVNUJE skutocnu ochranu (SL/TP na burze
+# bezi nezavisle), len frekvenciu placenych Claude "opinion" volani.
+HEALTH_CHECK_ESCALATION_COOLDOWN_HOURS = _float("HEALTH_CHECK_ESCALATION_COOLDOWN_HOURS", 3)
 # Preventivna poistka proti scale-mismatch dat (2026-08-09, po SKHYNIX
 # incidente - viz market_data.get_price_history/assets.py yf_volume_only) -
 # porovnava TA last_price (z akehokolvek zdroja - vlastne price_bars alebo

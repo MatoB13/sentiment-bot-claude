@@ -66,6 +66,13 @@ class Trade(Base):
     # tu ZAMERNE vynechany, na rozdiel od review-triggeru).
     close_notified_at = Column(DateTime, nullable=True)
 
+    # Kedy naposledy plny (plateny) Claude position-health-check cyklus pre
+    # TUTO otvorenu poziciu naozaj prebehol (nie len mechanicka kontrola) - viz
+    # trade_cycle._run_position_health_check cooldown, 2026-08-17. Perzistovane
+    # v DB (nie len v pamati) zamerne - na rozdiel od watch_monitor "hot" okna
+    # tu chceme, aby cooldown prezil aj restart workera pocas drzania pozicie.
+    last_health_escalation_at = Column(DateTime, nullable=True)
+
 
 class CycleLog(Base):
     """Zaznam KAZDEHO analytickeho cyklu - aj tych, kde sa neotvorila pozicia
