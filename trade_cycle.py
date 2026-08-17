@@ -159,6 +159,44 @@ def _upsert_rolling(session, symbol: str, summary: str | None, based_through_dat
         rolling.updated_at = datetime.now(timezone.utc)
 
 
+def _save_pending_retrospective(name: str, symbol: str, pending_stats: dict, decision: dict, session) -> None:
+    """Zdielana ulozit-ak-je-co logika pre pending_stats z _get_retrospective_context
+    - vola sa z run_cycle_for_asset (bezny cyklus) AJ z _run_position_health_check
+    (2026-08-17, ked je 'pending retrospektiva' sama osebe dovodom na eskalaciu
+    na plny Claude cyklus aj pri otvorenej pozicii - viz volajuci)."""
+    for_date = pending_stats["for_date"]
+    # Dve NEZAVISLE izolovane transakcie - zlyhanie jednej nesmie zobrat so
+    # sebou druhu ani nizsie cycle_log/trade zapisy. Duplicity osetrene
+    # explicitne (existence check), lebo based_through_date (gate v
+    # _get_retrospective_context) sa posunie az pri uspesnom summary_reflection
+    # - ak ten chyba/zlyha, tento cyklus sa moze na dalsom tiku zopakovat a bez
+    # tejto kontroly by vznikol duplicitny DailyRetrospective riadok za rovnaky den.
+    if decision.get("daily_reflection"):
+        try:
+            already = session.query(DailyRetrospective.id).filter(
+                DailyRetrospective.symbol == symbol, DailyRetrospective.for_date == for_date,
+            ).first()
+            if not already:
+                session.add(DailyRetrospective(
+                    symbol=symbol, for_date=for_date,
+                    stats=pending_stats, reflection=decision["daily_reflection"],
+                ))
+                session.commit()
+                print(f"[{name}] Ulozena denna retrospektiva za {for_date}.")
+        except Exception as e:
+            print(f"[{name}] Ulozenie dennej retrospektivy zlyhalo, pokracujem: {e}")
+            session.rollback()
+
+    if decision.get("summary_reflection"):
+        try:
+            _upsert_rolling(session, symbol, decision["summary_reflection"], for_date)
+            session.commit()
+            print(f"[{name}] Aktualizovane priebezne zhrnutie (based_through={for_date}).")
+        except Exception as e:
+            print(f"[{name}] Ulozenie priebezneho zhrnutia zlyhalo, pokracujem: {e}")
+            session.rollback()
+
+
 def _get_confidence_streak(symbol: str, min_confidence: int, session) -> dict | None:
     """Zisti, kolko POSLEDNYCH cyklov za sebou Claude navrhol ROVNAKY smer
     (long/short) s confidence POD prahom (teda kazdy z nich by bol zamietnuty)
@@ -386,7 +424,25 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         hours_since = (datetime.now(timezone.utc) - last_esc).total_seconds() / 3600
         cooldown_active = hours_since < config.HEALTH_CHECK_ESCALATION_COOLDOWN_HOURS
 
-    if escalation_reason is None or cooldown_active:
+    real_escalation = escalation_reason is not None and not cooldown_active
+
+    try:
+        # 2026-08-17: "vcerajsok este nespracovany" (new_stats_text) je TERAZ
+        # samostatny dovod na eskalaciu na plny Claude cyklus, nezavisly od
+        # mechanickeho triggeru - inak (health check je mechanicky-default,
+        # Claude sa vola len pri eskalacii) mohla retrospektiva pri dlho
+        # drzanej pozicii ostat nespracovana aj viac dni, co viedlo k velmi
+        # nekonzistentnym casom v dashboarde (spatna vazba pouzivatela).
+        # Nepocita sa do last_health_escalation_at cooldownu nizsie - ten je
+        # urceny pre opakovane danger-eskalacie, nie pre tento nezavisly
+        # denny trigger.
+        retrospective_reflection, new_stats_text, pending_stats = _get_retrospective_context(asset, session)
+    except Exception as e:
+        print(f"[{name}] Vypocet retrospektivy zlyhal (pokracujem bez nej): {e}")
+        session.rollback()
+        retrospective_reflection, new_stats_text, pending_stats = None, None, None
+
+    if not real_escalation and new_stats_text is None:
         if escalation_reason is None:
             print(f"[{name}] Mechanicka kontrola: ziadny trigger (trend={ta.get('trend')}, "
                   f"P&L={pnl_pct * 100:.2f}%) - preskakujem plny Claude cyklus.")
@@ -410,10 +466,15 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         session.commit()
         return
 
-    print(f"[{name}] Mechanicka kontrola eskaluje na plny Claude cyklus: {escalation_reason}")
-    open_trade.last_health_escalation_at = datetime.now(timezone.utc)
-    session.add(open_trade)
-    session.commit()
+    if real_escalation:
+        print(f"[{name}] Mechanicka kontrola eskaluje na plny Claude cyklus: {escalation_reason}")
+        open_trade.last_health_escalation_at = datetime.now(timezone.utc)
+        session.add(open_trade)
+        session.commit()
+    else:
+        print(f"[{name}] Ziadny mechanicky trigger (alebo je v cooldowne), ale vcerajsok este "
+              "nie je spracovany v retrospektive - volam Claude len kvoli tomu.")
+
     social = social_sentiment.fetch_recent_posts(name)
 
     prev_log = (
@@ -424,19 +485,6 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
     )
     prev_assumptions = prev_log.key_assumptions if prev_log else None
     prev_cycle_time = prev_log.created_at if prev_log else None
-
-    try:
-        # Len aktualne priebezne zhrnutie (nie generovanie noveho denneho
-        # zaznamu) - daily_reflection/summary_reflection su polia specificke
-        # pre DECISION_TOOL, position health tool ich nema. Ak vcerajsok
-        # este nebol zapracovany, spracuje sa az na buducom BEZNOM cykle
-        # (rovnako ako predtym, ked sa pri otvorenej pozicii vobec nic
-        # nefetchovalo) - nie regresia, len nerozsirujeme scope tejto zmeny.
-        retrospective_reflection, _, _ = _get_retrospective_context(asset, session)
-    except Exception as e:
-        print(f"[{name}] Vypocet retrospektivy zlyhal (pokracujem bez nej): {e}")
-        session.rollback()
-        retrospective_reflection = None
 
     eia_data = None
     if asset.get("needs_eia_data"):
@@ -457,6 +505,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
             asset, open_position, ta, cross_market, market_session, social, btc_proxy,
             prev_assumptions, prev_cycle_time, retrospective_reflection,
             fred_macro, eia_data, marketaux_news, macro_event,
+            new_stats_text=new_stats_text,
         )
     except Exception as e:
         print(f"[{name}] Position health check zlyhal: {e}")
@@ -492,6 +541,9 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         effort=usage.get("effort"),
     ))
     session.commit()
+
+    if pending_stats:
+        _save_pending_retrospective(name, symbol, pending_stats, health, session)
 
 
 def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
@@ -632,38 +684,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
         _save_flagged_macro_event(decision.get("upcoming_macro_event"), symbol, session)
 
         if pending_stats:
-            for_date = pending_stats["for_date"]
-            # Dve NEZAVISLE izolovane transakcie - zlyhanie jednej nesmie
-            # zobrat so sebou druhu ani nizsie cycle_log/trade zapisy. Duplicity
-            # osetrene explicitne (existence check), lebo based_through_date
-            # (gate v _get_retrospective_context) sa posunie az pri uspesnom
-            # summary_reflection - ak ten chyba/zlyha, tento cyklus sa moze na
-            # dalsom tiku zopakovat a bez tejto kontroly by vznikol duplicitny
-            # DailyRetrospective riadok za rovnaky den.
-            if decision.get("daily_reflection"):
-                try:
-                    already = session.query(DailyRetrospective.id).filter(
-                        DailyRetrospective.symbol == symbol, DailyRetrospective.for_date == for_date,
-                    ).first()
-                    if not already:
-                        session.add(DailyRetrospective(
-                            symbol=symbol, for_date=for_date,
-                            stats=pending_stats, reflection=decision["daily_reflection"],
-                        ))
-                        session.commit()
-                        print(f"[{name}] Ulozena denna retrospektiva za {for_date}.")
-                except Exception as e:
-                    print(f"[{name}] Ulozenie dennej retrospektivy zlyhalo, pokracujem: {e}")
-                    session.rollback()
-
-            if decision.get("summary_reflection"):
-                try:
-                    _upsert_rolling(session, symbol, decision["summary_reflection"], for_date)
-                    session.commit()
-                    print(f"[{name}] Aktualizovane priebezne zhrnutie (based_through={for_date}).")
-                except Exception as e:
-                    print(f"[{name}] Ulozenie priebezneho zhrnutia zlyhalo, pokracujem: {e}")
-                    session.rollback()
+            _save_pending_retrospective(name, symbol, pending_stats, decision, session)
 
         cycle_log = CycleLog(
             symbol=symbol, live_price=live_price, ta=ta, cross_market=cross_market,

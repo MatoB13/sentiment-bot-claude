@@ -294,6 +294,50 @@ POSITION_HEALTH_TOOL = {
                 ),
             },
             "upcoming_macro_event": _UPCOMING_MACRO_EVENT_PROPERTY,
+            # Pridane 2026-08-17 - retrospektiva sa doteraz generovala LEN
+            # v beznom obchodnom cykle (submit_trade_decision), ktory sa vsak
+            # vobec nevola, kym je pozicia otvorena a mechanicka kontrola
+            # neeskaluje (viz trade_cycle._run_position_health_check - health
+            # check je mechanicky-default, Claude sa vola len pri eskalacii).
+            # Pri dlho drzanej pozicii tak vcerajsok mohol ostat nespracovany
+            # aj viac dni. Rovnaky trigger/vyznam ako v DECISION_TOOL nizsie -
+            # ak je pozicia otvorena cez polnoc, "pending retrospektiva" sama
+            # osebe eskaluje na plny Claude cyklus (viz trade_cycle.py), aby sa
+            # toto pole malo kedy vyplnit.
+            "daily_reflection": {
+                "type": "string",
+                "description": (
+                    "VYPLN LEN ak user sprava obsahuje sekciu 'Nove statistiky za vcerajsok' "
+                    "(deje sa raz denne, pri prvom cykle po polnoci - aj ked je pozicia otvorena). "
+                    "IZOLOVANA poznamka LEN k VCERAJSKU (nie priebezne zhrnutie - to je samostatne "
+                    "pole summary_reflection nizsie). Strucne (2-4 vety) zhodnot dve veci: (1) ci "
+                    "bola tvoja confidence kalibracia vcera primerana - najma ci signaly "
+                    "zamietnute LEN kvoli confidence boli vacsinou spravne zamietnute (boli by "
+                    "stratove) alebo naopak prilis prisne zamietnute (boli by ziskove); (2) ci "
+                    "tvoje 'none' rozhodnutia boli opodstatnene, alebo ci si bol niekedy zbytocne "
+                    "opatrny a v spatnom pohlade malo byt LONG/SHORT. Ak nemas take udaje k "
+                    "dispozicii v tomto cykle, toto pole VYNECHAJ."
+                ),
+            },
+            "summary_reflection": {
+                "type": "string",
+                "description": (
+                    "VYPLN LEN ak user sprava obsahuje sekciu 'Nove statistiky za vcerajsok' "
+                    "(rovnaky trigger ako daily_reflection, raz denne). Na rozdiel od "
+                    "daily_reflection (izolovana poznamka LEN k vcerajsku) je toto "
+                    "AKTUALIZOVANE PRIEBEZNE ZHRNUTIE, ktore sa realne prenasa do VSETKYCH "
+                    "tvojich buducich cyklov (nahradza predchadzajucu verziu, nie je to denny "
+                    "dennik). Dostanes v sekcii 'Priebezne zhrnutie doterajsich skusenosti' "
+                    "existujucu verziu (ak uz existuje) - tvoja uloha je NAPISAT JEJ AKTUALIZOVANU "
+                    "VERZIU zapracovanim vcerajsich novych udajov: potvrd vzory, ktore sa opakuju "
+                    "cez viac dni (tie su dolezitejsie nez jednorazovy vysledok jedneho dna), "
+                    "over/uprav zavery, ktore nove data vyvracaju, a zahod uz nepodstatne detaily. "
+                    "DOLEZITE: drz to STRUCNE (cielovo 5-8 viet, max ~150 slov) - je to trvala "
+                    "prevadzkova poznamka sebe samemu, nie narastajuci log. Ak zhrnutie este "
+                    "neexistuje, napis prve len z vcerajsich udajov. Ak nemas udaje k dispozicii "
+                    "v tomto cykle, toto pole VYNECHAJ."
+                ),
+            },
         },
         "required": ["recommendation", "expected_direction", "reasoning", "key_assumptions"],
     },
@@ -1256,21 +1300,25 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                              fred_macro: dict | None = None,
                              eia_data: dict | None = None,
                              marketaux_news: list[dict] | None = None,
-                             macro_event: str | None = None) -> tuple[dict, list[dict], dict]:
+                             macro_event: str | None = None,
+                             new_stats_text: str | None = None) -> tuple[dict, list[dict], dict]:
     """Ako analyze(), ale pre UZ OTVORENU poziciu (viz
     trade_cycle._run_position_health_check) - namiesto rozhodnutia o novom
     obchode (direction/SL/TP) sa Claude vyjadri, ci povodne predpoklady este
     platia a ci by mal pouzivatel zvazit rucne zatvorenie (submit_position_health_check,
     nie submit_trade_decision). open_position: dict s direction/entry_price/
     live_price/stop_loss_price/take_profit_price/leverage/opened_at_str/
-    hours_held/unrealized_pnl_usd/unrealized_pnl_pct - viz volajuci."""
+    hours_held/unrealized_pnl_usd/unrealized_pnl_pct - viz volajuci.
+    new_stats_text: ako v analyze() - ak je vcerajsok (UTC) este nespracovany,
+    trade_cycle.py to sem vlozi aj ked je pozicia otvorena (viz 2026-08-17 -
+    predtym sa retrospektiva pri otvorenej pozicii nikdy negenerovala)."""
     if not config.ANTHROPIC_API_KEY:
         raise RuntimeError("ANTHROPIC_API_KEY nie je nastavený")
 
     system_blocks = _system_prompt_blocks(asset)
     user_prompt = _build_user_prompt(asset, ta, cross_market, session, social,
                                       btc_proxy, prev_assumptions, prev_cycle_time,
-                                      retrospective_reflection, None,
+                                      retrospective_reflection, new_stats_text,
                                       fred_macro, eia_data, marketaux_news,
                                       confidence_streak=None, open_position=open_position,
                                       macro_event=macro_event)
