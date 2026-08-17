@@ -274,6 +274,25 @@ POSITION_HEALTH_TOOL = {
                     "obchodnom rozhodnutí)."
                 ),
             },
+            # Pridane 2026-08-17 (na ziadost pouzivatela) - EXPERIMENTALNE, LEN
+            # LOGOVANIE, ZATIAL BEZ AKEJKOLVEK AKCIE. Ciel: nazbierat data na
+            # kalibraciu ("ked je toto skore 80+, naozaj sa v spatnom pohlade
+            # ukazalo zatvorenie ako spravne?"), skor nez sa tomuto skore
+            # niekedy v buducnosti zveri skutocna moznost poziciu zatvorit.
+            "close_confidence": {
+                "type": "integer",
+                "description": (
+                    "LEN ak recommendation=consider_closing. Ako VELMI si istý (0-100), že "
+                    "ZATVORENIE PRÁVE TERAZ je správne rozhodnutie - NIE to isté ako všeobecná "
+                    "obchodná istota, ale konkrétne: keby si mal exekučnú právomoc, urobil by si "
+                    "to hneď? 0-40 = skôr len opatrnosť/varovanie, sleduj ďalej. 40-70 = reálne "
+                    "znepokojujúce, ale ešte nie jednoznačné. 70-100 = pôvodná téza je podľa teba "
+                    "prakticky vyvrátená, čakanie na mechanický SL/TP už nedáva zmysel. Buď "
+                    "úprimný a kalibrovaný - toto číslo sa teraz LEN zaznamenáva na spätné "
+                    "vyhodnotenie, nespúšťa žiadnu akciu, takže nemá zmysel ho umelo tlačiť "
+                    "hore ani dole."
+                ),
+            },
             "upcoming_macro_event": _UPCOMING_MACRO_EVENT_PROPERTY,
         },
         "required": ["recommendation", "expected_direction", "reasoning", "key_assumptions"],

@@ -140,6 +140,13 @@ class CycleLog(Base):
     # "favorable" | "unfavorable" | "uncertain" - ci Claude ocakava, ze sa cena
     # bude dalej hybat V PROSPECH otvorenej pozicie alebo PROTI nej.
     health_expected_direction = Column(String, nullable=True)
+    # EXPERIMENTALNE (2026-08-17, na ziadost pouzivatela) - 0-100, LEN ked
+    # health_recommendation="consider_closing": ako velmi si je Claude isty,
+    # ze zatvorenie PRAVE TERAZ by bolo spravne rozhodnutie (nie vseobecna
+    # obchodna istota). ZATIAL sa LEN loguje, nespusta ziadnu akciu - cielom
+    # je nazbierat data na buducu kalibraciu, kym sa tomuto skore niekedy v
+    # buducnosti prizna skutocna moznost poziciu (cez novy watcher) zatvorit.
+    close_confidence = Column(Integer, nullable=True)
 
     # Ak tento cyklus je "post-close review" (mimoriadny beh spusteny hned po
     # TP/timeout/manual zatvoreni - viz position_monitor + trade_cycle.

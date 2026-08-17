@@ -482,6 +482,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         key_assumptions=health.get("key_assumptions") or prev_assumptions,
         web_search_log=web_search_log, health_recommendation=health.get("recommendation"),
         health_expected_direction=health.get("expected_direction"),
+        close_confidence=health.get("close_confidence"),
         trade_id=open_trade.id,
         triggered_by_macro_event=macro_event,
         usage_input_tokens=usage.get("input_tokens"),
