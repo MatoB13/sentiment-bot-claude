@@ -8,6 +8,7 @@ import requests
 import config
 
 _DIRECTION_COLOR = {"long": 3066993, "short": 15158332}  # Discord embed color (decimal), zelena/cervena
+_PNL_COLOR = {"win": 3066993, "loss": 15158332}  # rovnake farby, ale podla vysledku (viz notify_trade_closed)
 
 
 def notify_trade_opened(asset: dict, sized: dict) -> None:
@@ -16,12 +17,17 @@ def notify_trade_opened(asset: dict, sized: dict) -> None:
     ostatne volitelne doplnky - EIA/FRED/Marketaux)."""
     if not config.DISCORD_WEBHOOK_URL:
         return
+    # POZOR (2026-08-17 oprava): risk_manager.validate_and_size vracia
+    # "Long"/"Short" (velke pismeno), nie "long"/"short" - povodne porovnanie
+    # direction == "long" preto NIKDY nebolo True a farba/emoji padali vzdy
+    # na default/cervenu bez ohladu na skutocny smer. .lower() to zjednoti.
     direction = sized["direction"]
-    emoji = "\U0001F7E2" if direction == "long" else "\U0001F534"
+    direction_key = direction.lower()
+    emoji = "\U0001F7E2" if direction_key == "long" else "\U0001F534"
     payload = {
         "embeds": [{
             "title": f"{emoji} Otvorena pozicia: {asset['name']} {direction.upper()}",
-            "color": _DIRECTION_COLOR.get(direction, 3447003),
+            "color": _DIRECTION_COLOR.get(direction_key, 3447003),
             "fields": [
                 {"name": "Confidence", "value": str(sized["confidence"]), "inline": True},
                 {"name": "Entry", "value": str(sized["entry_price"]), "inline": True},
@@ -54,12 +60,16 @@ def notify_trade_closed(symbol: str, closed_trade: dict) -> None:
     if not config.DISCORD_WEBHOOK_URL:
         return
     pnl = closed_trade.get("pnl_usd")
-    emoji = "\U0001F7E2" if (pnl or 0) >= 0 else "\U0001F534"
+    # 2026-08-17 oprava: farba pri ZATVORENI ma vyjadrovat VYSLEDOK (zisk/strata),
+    # nie smer pozicie - predtym sa farba (na rozdiel od uz spravneho emoji nizsie)
+    # riadila direction, takze napr. zisková SHORT pozicia mala cervenu farbu.
+    is_win = (pnl or 0) >= 0
+    emoji = "\U0001F7E2" if is_win else "\U0001F534"
     reason_label = _CLOSE_REASON_LABELS.get(closed_trade.get("close_reason"), closed_trade.get("close_reason"))
     payload = {
         "embeds": [{
             "title": f"{emoji} Zatvorena pozicia: {symbol} ({reason_label})",
-            "color": _DIRECTION_COLOR.get((closed_trade.get("direction") or "").lower(), 3447003),
+            "color": _PNL_COLOR["win"] if is_win else _PNL_COLOR["loss"],
             "fields": [
                 {"name": "PnL", "value": f"${pnl:.2f}" if pnl is not None else "-", "inline": True},
                 {"name": "Vstup", "value": str(closed_trade.get("entry_price")), "inline": True},
