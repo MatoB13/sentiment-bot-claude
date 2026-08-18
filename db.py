@@ -363,6 +363,59 @@ class AccountSnapshot(Base):
     updated_at = Column(DateTime, nullable=True)
 
 
+class AtrCalibration(Base):
+    """Append-only historia SL/TP kalibracie zalozenej na ATR (2026-08-19,
+    nahradza starú klient-side "35% z 24h range" kalibraciu v monitor-web) -
+    viz sl_calibration.py. Jeden riadok = jeden prepocet pre JEDEN symbol,
+    NIKDY sa neprepisuje (na rozdiel od AccountSnapshot) - takto sa da sledovat
+    vyvoj navrhovanej hodnoty v case, nie len posledny stav.
+
+    Nic tu NIKDY automaticky nemeni RiskOverride nizsie - je to len navrh.
+    Pouzivatel si v nas100-monitor-web (Kalibracia SL/TP tab) pozrie najnovsi
+    riadok pre dany symbol a rucne (tlacidlom) sa rozhodne, ci ho chce
+    aplikovat - viz nas100-monitor-web api/apply-calibration.js."""
+    __tablename__ = "atr_calibrations"
+
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False, index=True)
+    computed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    lookback_days = Column(Integer, nullable=True)
+    bars_used = Column(Integer, nullable=True)
+    source = Column(String, nullable=True)  # "own_bars" | "yfinance" | ...
+
+    atr_pct = Column(Float, nullable=True)      # najnovsi hodinovy ATR14 ako % z ceny
+    k_multiple = Column(Float, nullable=True)   # vybrany multiplikator (sl_pct = atr_pct * k)
+    ratio = Column(Float, nullable=True)        # efektivny tp_pct/sl_pct tohto tickera v case prepoctu
+
+    configured_sl_pct = Column(Float, nullable=True)  # co bolo EFEKTIVNE nastavene v case prepoctu
+    configured_tp_pct = Column(Float, nullable=True)
+    suggested_sl_pct = Column(Float, nullable=True)
+    suggested_tp_pct = Column(Float, nullable=True)
+
+
+class RiskOverride(Base):
+    """Live-updatovatelny SL/TP override PER TICKER (2026-08-19) - ak pre
+    symbol existuje riadok tu, MA PREDNOST pred config.py {TICKER}_SL_PCT/
+    {TICKER}_TP_PCT defaultom (viz risk_overrides.get_effective_sl_tp(),
+    volane z trade_cycle.py). Zamerne v DB, nie v Railway ENV - zmena sa
+    prejavi OKAMZITE na dalsom cykle, ziadny redeploy netreba.
+
+    Jediny sposob zapisu je nas100-monitor-web tlacidlo "Nastavit ako default"
+    (api/apply-calibration.js) - ten si VZDY sam dohlada najnovsi
+    AtrCalibration.suggested_sl_pct/suggested_tp_pct pre dany symbol priamo v
+    DB, NIKDY neveri cislam poslanym z prehliadaca (rovnaky bezpecnostny vzor
+    ako Trade.manual_close_requested_at kill-switch - citlive zapisy idu cez
+    DB flag, nie priamo z verejne dostupneho Vercelu)."""
+    __tablename__ = "risk_overrides"
+
+    symbol = Column(String, primary_key=True)
+    sl_pct = Column(Float, nullable=False)
+    tp_pct = Column(Float, nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    source = Column(String, nullable=True)  # napr. "dashboard_apply"
+
+
 def _ensure_columns(engine) -> None:
     """create_all() vytvori len chybajuce TABULKY, nikdy nepridá stlpec do uz
     existujucej tabulky. Toto je poor-man's migration: pri kazdom starte

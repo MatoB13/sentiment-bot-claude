@@ -9,6 +9,7 @@ import config
 import funding_tracker
 import position_monitor
 import price_poller
+import sl_calibration
 import trade_cycle
 import watch_monitor
 
@@ -111,6 +112,13 @@ def main():
                        minutes=1,
                        next_run_time=now + timedelta(minutes=1),
                        id="price_poller")
+    # Denne (2026-08-19) - ATR-zalozena SL/TP kalibracia (viz sl_calibration.py).
+    # Ziadne Claude volanie, len OHLC + aritmetika - lacne ako funding_tracker.
+    # Vysledok je LEN navrh (db.AtrCalibration), nic sa tu automaticky nemeni.
+    scheduler.add_job(sl_calibration.compute_all, "interval",
+                       hours=24,
+                       next_run_time=now + timedelta(hours=24),
+                       id="sl_calibration")
     scheduler.start()
 
     # spusti oba joby hned na starte, potom uz podla intervalu. Na rozdiel od

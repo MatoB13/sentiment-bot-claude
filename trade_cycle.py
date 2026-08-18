@@ -18,6 +18,7 @@ import market_data
 import marketaux_client
 import retrospective
 import risk_manager
+import risk_overrides
 import social_sentiment
 import strike_client
 from db import CycleLog, DailyRetrospective, FlaggedMacroEvent, RollingRetrospective, Trade, get_session
@@ -586,6 +587,17 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
     print(f"\n--- [{name}] ---")
     session = get_session()
     try:
+        # SL/TP override (2026-08-19, viz risk_overrides.py + db.RiskOverride) -
+        # ak pouzivatel cez nas100-monitor-web "Nastavit ako default" tlacidlo
+        # aplikoval novu ATR-kalibrovanu hodnotu, MA PREDNOST pred config.py
+        # defaultom. Resolvuje sa RAZ tu a dalej sa pouziva LOKALNA kopia asset
+        # dictu (nemutuje zdielany assets.ALL_ASSETS) - vsetko nizsie (risk
+        # sizing aj _config_snapshot pre dashboard) tak automaticky vidi
+        # efektivnu hodnotu bez dalsich zmien.
+        effective_sl, effective_tp = risk_overrides.get_effective_sl_tp(session, asset)
+        if effective_sl != asset["sl_pct"] or effective_tp != asset["tp_pct"]:
+            asset = {**asset, "sl_pct": effective_sl, "tp_pct": effective_tp}
+
         if not skip_due_check and not _is_due(asset, session):
             # Ziadny CycleLog zaznam - toto sa deje bezne (kazdy druhy/dalsi tick
             # mimo trading hours/cez vikend) a nema analyticku hodnotu, len by to
