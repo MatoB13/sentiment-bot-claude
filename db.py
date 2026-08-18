@@ -422,6 +422,31 @@ class RiskOverride(Base):
     source = Column(String, nullable=True)  # napr. "dashboard_apply"
 
 
+class RiskOverrideHistory(Base):
+    """Append-only log KAZDEJ zmeny RiskOverride (2026-08-19, na ziadost
+    pouzivatela) - RiskOverride vyssie je len JEDEN aktualny riadok na symbol
+    (upsert pri kazdom apply, ziadna historia predoslych hodnot), takze bez
+    tejto tabulky by nebolo vidno, ODKEDY-DOKEDY aky SL/TP naozaj platil.
+    Dolezite pri interpretacii baseline PnL/win-rate v kalibracnom tabe -
+    ten agreguje VSETKY uzavrete obchody tickera bez ohladu na to, pod akym
+    SL/TP rezimom boli otvorene, takze cislo moze byt mix viacerych rezimov.
+
+    Zapisuje sa automaticky pri kazdom buducom apply (api/apply-calibration.js,
+    hned po upsert-e RiskOverride) - `note` je volitelne volny text, ktory
+    pouzivatel moze pridat pri kliknuti na tlacidlo. Riadky spred zavedenia
+    tejto tabulky (2026-08-19) treba dopisat rucne (jednorazovo, viz
+    memory/komentar pri prvom pouziti)."""
+    __tablename__ = "risk_override_history"
+
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False)
+    sl_pct = Column(Float, nullable=False)
+    tp_pct = Column(Float, nullable=False)
+    source = Column(String, nullable=True)
+    note = Column(String, nullable=True)
+    applied_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class SlTpBacktestCandidate(Base):
     """"Ziva" TOP-5 tabulka SL/TP kandidatov PER TICKER (2026-08-19, viz
     sl_grid_backtest.py) - NA ROZDIEL od AtrCalibration (jednoduchy ATR-
