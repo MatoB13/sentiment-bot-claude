@@ -439,6 +439,31 @@ class SlTpBacktestCandidate(Base):
     trade_count = Column(Integer, nullable=False)
     computed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
+    # S/R-upravena verzia TOHO ISTEHO (sl_k, tp_k) kandidata (2026-08-19, na
+    # ziadost pouzivatela) - namiesto cisteho k*ATR sa SL/TP prichyti na
+    # najblizsiu support/resistance uroven (+ buffer) - viz sl_grid_backtest.
+    # _simulate_sr. Nullable - ak S/R backtest pre dany kandidat zlyha
+    # (napr. nedostatok swingov v historii), cisty ATR vysledok vyssie
+    # zostava vzdy dostupny.
+    sr_total_pnl = Column(Float, nullable=True)
+    sr_win_rate = Column(Float, nullable=True)
+
+
+class SrCalibration(Base):
+    """Aktualna (dnesna) S/R-prichytena SL%/TP% PRE KAZDY ticker x KAZDY z
+    TOP 5 poolovanych kandidatov (2026-08-19, viz sl_grid_backtest.
+    compute_sr_calibration) - feeduje druhu tabulku v per-ticker "Kalibracia
+    SL/TP" tabe (nas100-monitor-web), vedla existujucej cistej ATR-nasobkovej
+    tabulky (AtrCalibration/SlTpBacktestCandidate). Vzdy PREPISOVANA (rovnaky
+    vzor ako SlTpBacktestCandidate) - kombinovany kluc (symbol, rank)."""
+    __tablename__ = "sr_calibrations"
+
+    symbol = Column(String, primary_key=True)
+    rank = Column(Integer, primary_key=True)  # 1-5, zodpoveda SlTpBacktestCandidate.rank
+    sl_pct = Column(Float, nullable=False)
+    tp_pct = Column(Float, nullable=False)
+    computed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
 
 def _ensure_columns(engine) -> None:
     """create_all() vytvori len chybajuce TABULKY, nikdy nepridá stlpec do uz
