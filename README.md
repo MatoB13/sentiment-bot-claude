@@ -17,14 +17,18 @@ zdroj je výnimočne CoinGecko namiesto Binance/yfinance, ktoré HYPE
 nepokrývajú), **SKHYNIX** (akcia SK Hynix na Korea Exchange, hlavný dodávateľ
 HBM pamätí pre Nvidia AI GPU — jediný asset s vlastnou KRX seansou 00:00-06:30
 UTC namiesto zdieľanej NYSE session), **AAOI** a **MINIMAX** (obe pridané
-2026-08-14, **NEAKTÍVNE** — `ENABLE_AAOI`/`ENABLE_MINIMAX=false`, rovnaký
-"pozastavený" vzor ako NVDA. AAOI je reálna NASDAQ akcia — Applied
-Optoelectronics, optické komponenty pre AI datacentrá, small-cap s historicky
-vysokou volatilitou. MINIMAX je **syntetický Strike tracker súkromnej**
-(pre-IPO) čínskej AI firmy MiniMax Group — rovnaká kategória ako CXMT/SPCX na
-Strike, žiadny reálny burzový trh za sebou. Obe zatiaľ LEN zbierajú cenovú
-históriu cez `price_poller.py` — pripravené na aktivovanie bez ďalšieho
-kódovania, keď sa nazbiera dosť dát), **ZEC** (krypto Zcash, privacy coin s
+2026-08-14 v "pozastavenom" vzore ako NVDA — `price_poller.py` zbiera cenovú
+históriu aj tak, Claude analýza sa nespúšťa, kým nie je nazbieraných aspoň
+`MIN_OWN_BARS`=210 vlastných hodinových sviečok. **AAOI zapnutá 2026-08-18**
+po prekročení tohto prahu (`ENABLE_AAOI=true`) — reálna NASDAQ akcia,
+Applied Optoelectronics, optické komponenty pre AI datacentrá, small-cap s
+historicky vyššou volatilitou; margin zámerne len $50 (opatrnosť po skúsenosti
+so SKHYNIX debutom). **MINIMAX zostáva NEAKTÍVNA** (`ENABLE_MINIMAX=false`) —
+**syntetický Strike tracker súkromnej** (pre-IPO) čínskej AI firmy MiniMax
+Group, rovnaká kategória ako CXMT/SPCX na Strike, žiadny reálny burzový trh
+za sebou, zatiaľ nedosiahla 210-sviečkový prah — pripravená na aktivovanie
+bez ďalšieho kódovania, len zapnúť `ENABLE_MINIMAX=true`), **ZEC** (krypto
+Zcash, privacy coin s
 voliteľnými "shielded" transakciami, pridaná 2026-08-15 na žiadosť
 používateľa — rizikový profil vedome nastavený rovnako ako ADA, ale vlastný
 Claude system prompt: shielded pool adopcia, regulačné/delisting riziko
@@ -50,7 +54,7 @@ referenciu nevyžaduje) makro fetch, takže sa tie isté dáta nesťahujú 9x (v
    `fred_client.get_macro_snapshot()` (CPI/Core CPI/Fed funds rate priamo z Fedu,
    voliteľné - viz nižšie).
 1. Pre každý aktívny asset z `assets.py` (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC/HYPE/SKHYNIX/AAOI/MINIMAX/ZEC/GOOGL
-   — NVDA/AAOI/MINIMAX sú momentálne `enabled=False`, viz vyššie), KTORÝ je práve "na rade" (viz
+   — NVDA/MINIMAX sú momentálne `enabled=False`, viz vyššie), KTORÝ je práve "na rade" (viz
    `trade_cycle._is_due` — každý asset má vlastnú frekvenciu, viz nižšie):
    - `market_data.py` zostaví hodinové OHLC sviečky a spočíta TA indikátory (RSI,
      MACD, EMA20/50/200, Bollinger Bands, ATR, trend). Primárny zdroj je **vlastná**
@@ -128,14 +132,14 @@ review cyklus vôbec spustili - kritické práve pri prudkom pohybe).
 `MONITOR_INTERVAL_MINUTES` teraz už používa len `funding_tracker.poll_new`
 (1 API volanie PER symbol, netreba preň rovnakú reaktivitu).
 
-Assety možno jednotlivo vypnúť cez `ENABLE_NVDA`/`ENABLE_ADA`/`ENABLE_GOLD`/`ENABLE_WTI`/`ENABLE_NIGHT`/`ENABLE_BTC`/`ENABLE_HYPE`/`ENABLE_SKHYNIX`/`ENABLE_AAOI`/`ENABLE_MINIMAX`/`ENABLE_ZEC`/`ENABLE_GOOGL` (NAS100 beží vždy; NVDA/AAOI/MINIMAX sú momentálne default `false`).
+Assety možno jednotlivo vypnúť cez `ENABLE_NVDA`/`ENABLE_ADA`/`ENABLE_GOLD`/`ENABLE_WTI`/`ENABLE_NIGHT`/`ENABLE_BTC`/`ENABLE_HYPE`/`ENABLE_SKHYNIX`/`ENABLE_AAOI`/`ENABLE_MINIMAX`/`ENABLE_ZEC`/`ENABLE_GOOGL` (NAS100 beží vždy; NVDA/MINIMAX sú momentálne default `false`).
 
 ## ⚠️ Dôležité upozornenia
 
-- **Toto obchoduje s reálnymi peniazmi na pákový produkt — momentálne na ÔSMICH
-  nezávislých assetoch naraz (plus NAS100 = deväť celkovo aktívnych; AAOI/MINIMAX/NVDA
-  sú registrované, ale `enabled=false`, takže reálne neobchodujú, len zbierajú
-  cenovú históriu).** SL/TP sa nastavujú cez bracket
+- **Toto obchoduje s reálnymi peniazmi na pákový produkt — momentálne na JEDENÁSTICH
+  aktívnych assetoch naraz (NAS100/ADA/GOLD/WTI/NIGHT/BTC/HYPE/SKHYNIX/AAOI/ZEC/GOOGL;
+  NVDA/MINIMAX sú registrované, ale `enabled=false`, takže reálne neobchodujú, len
+  zbierajú cenovú históriu).** SL/TP sa nastavujú cez bracket
   "strategy" objednávku (`POST /v2/order/strategy`, polia `tp_order`/`sl_order`),
   leverage sa nastavuje samostatne pred otvorením pozície (`POST /v2/leverage`),
   margin mode je **isolated** (nie cross - viz `strike_client.open_bracket_position`)
@@ -300,9 +304,11 @@ dvojicu (KRX seansa 00:00-06:30 UTC).
 - `MIN_CONFIDENCE`, `MARGIN_USD`, `SL_PCT`/`TP_PCT` — risk parametre (per asset). `MARGIN_USD` je
   fixná marža na obchod; `SL_PCT`/`TP_PCT` sú cieľové SL/TP ako % od live ceny — Claude navrhuje
   presnú vzdialenosť, ktorá sa orežie do 0.1x-5x týchto hodnôt (nikdy nezablokuje vstup - viz
-  `risk_manager.py`). `ADA`/`NIGHT`/`HYPE`/`SKHYNIX`/`ZEC_MARGIN_USD` sú `$50`, `GOOGL_MARGIN_USD`
-  je `$100` (ostatné `$100`) - viac tickerov teraz zdiela jednu peňaženku bez koordinácie (viz
-  preflight kontrola zostatku nižšie).
+  `risk_manager.py`). Aktuálne (overené naživo na Railway, 2026-08-18): `AAOI`/`MINIMAX_MARGIN_USD`
+  sú `$50` (najnovšie/najmenej overené tickery), `NAS100_MARGIN_USD` je `$200`, `WTI_MARGIN_USD`
+  je `$300`, všetky ostatné (`NVDA`/`ADA`/`GOLD`/`NIGHT`/`BTC`/`HYPE`/`SKHYNIX`/`ZEC`/`GOOGL`) sú
+  `$100` - viac tickerov teraz zdiela jednu peňaženku bez koordinácie (viz preflight kontrola
+  zostatku nižšie).
 - **`LEVERAGE` vs. `LIQUIDATION_CUSHION_MULTIPLE`** (2026-08-08): ⚠️ `{TICKER}_LEVERAGE` už
   NEOVPLYVŇUJE skutočný position sizing - **zmena tejto hodnoty na Railway sa na živých obchodoch
   vôbec neprejaví.** Ostáva len ako historický/referenčný údaj (dashboard, `retrospective.py`
@@ -329,11 +335,15 @@ dvojicu (KRX seansa 00:00-06:30 UTC).
   (NAS100 beží vždy). NVDA je od 2026-07-31 pozastavené (nahradené WTI/NIGHT, cost-optimalizácia) —
   historické `cycle_logs`/`trades` ostávajú v DB a v monitor-web dashboarde, len sa nezapočítavajú do
   nového `web_search`/Claude nákladu (viz `trade_cycle._mark_disabled_assets` pre "Pozastavené"
-  označenie). AAOI/MINIMAX sú od 2026-08-14 v rovnakom stave, ale z iného dôvodu — ešte NIKDY
+  označenie). AAOI/MINIMAX boli od 2026-08-14 v rovnakom stave, ale z iného dôvodu — ešte NIKDY
   neobchodovali (nie "pozastavené", ale "zatiaľ nezapnuté"): `price_poller.py` pre ne beží (zbiera
-  históriu do `price_bars`), ale Claude analýza/`trade_cycle` cyklus sa nespúšťa, kým niekto ručne
-  `ENABLE_AAOI`/`ENABLE_MINIMAX=true` nenastaví. Všetko ostatné (systémový prompt, marketaux/Twitter
-  dotazy, risk parametre) je už pripravené, takže zapnutie nevyžaduje žiadny ďalší kód.
+  históriu do `price_bars`), ale Claude analýza/`trade_cycle` cyklus sa nespúšťa, kým aspoň
+  `market_data.MIN_OWN_BARS`=210 vlastných hodinových sviečok nie je nazbieraných A niekto ručne
+  `ENABLE_{TICKER}=true` nenastaví. **AAOI zapnutá 2026-08-18** po prekročení tohto prahu (margin
+  zámerne znížený na $50, opatrnosť po SKHYNIX debute). MINIMAX zatiaľ prah nedosiahla (pridaná
+  neskôr, 2026-08-14 popoludní), ostáva `enabled=false`. Všetko ostatné (systémový prompt,
+  marketaux/Twitter dotazy, risk parametre) je pre oba tickery už pripravené, takže zapnutie
+  MINIMAX nebude vyžadovať žiadny ďalší kód, len `ENABLE_MINIMAX=true` na Railway.
 - **Preflight kontrola zostatku** (2026-08-08, `trade_cycle.py`): pred každým skutočným otvorením
   pozície (mimo `DRY_RUN`) sa overí `/v2/account` `available_balance` voči potrebnej marži - ak
   nestačí, obchod sa čisto zamietne (`outcome="rejected"`, `reject_reason="insufficient_balance: ..."`)
