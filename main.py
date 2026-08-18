@@ -10,6 +10,7 @@ import funding_tracker
 import position_monitor
 import price_poller
 import sl_calibration
+import sl_grid_backtest
 import trade_cycle
 import watch_monitor
 
@@ -119,6 +120,15 @@ def main():
                        hours=24,
                        next_run_time=now + timedelta(hours=24),
                        id="sl_calibration")
+    # Denne (2026-08-19) - "zivy" TOP-5 SL/TP grid-search rebricek naprieč
+    # vsetkymi tickermi (viz sl_grid_backtest.py) - nezavisly od sl_calibration
+    # vyssie (ta je per-ticker navrh, toto je pooled backtest kandidatov na
+    # sledovanie, ako sa vyvija so vzorkou). Tiez len informativne, ziadny
+    # automaticky zapis do RiskOverride.
+    scheduler.add_job(sl_grid_backtest.compute_leaderboard, "interval",
+                       hours=24,
+                       next_run_time=now + timedelta(hours=24),
+                       id="sl_grid_backtest")
     scheduler.start()
 
     # spusti oba joby hned na starte, potom uz podla intervalu. Na rozdiel od

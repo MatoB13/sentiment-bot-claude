@@ -416,6 +416,30 @@ class RiskOverride(Base):
     source = Column(String, nullable=True)  # napr. "dashboard_apply"
 
 
+class SlTpBacktestCandidate(Base):
+    """"Ziva" TOP-5 tabulka SL/TP kandidatov (2026-08-19, viz sl_grid_backtest.py) -
+    NA ROZDIEL od AtrCalibration (per-ticker navrh) toto je JEDEN zdielany
+    (POOLED, ATR-normalizovany) grid-search naprieč VSETKYMI uzavretymi
+    obchodmi vsetkych tickerov naraz - per-ticker vzorka (36 obchodov na 13
+    tickerov) je prilis mala na nezavisly fit. Vzdy PREPISOVANA (rovnaky vzor
+    ako AccountSnapshot) - 5 riadkov (rank 1-5), nie historia v case.
+
+    Vznikla po tom, co jednorazovy najlepsi kandidat (SL_k=5.0/TP_k=12.0,
+    2026-08-19 grid search) bol spravne spochybneny pouzivatelom ako fit na
+    prilis malej vzorke (36 obchodov) - toto misto jedneho cisla ukazuje
+    priebezne prepocitavany rebricek + pocet obchodov vo vzorke, aby bolo
+    vidiet, kedy uz mozno vzorke viac dovervat (pouzivatel navrhol prah ~20)."""
+    __tablename__ = "sl_tp_backtest_candidates"
+
+    rank = Column(Integer, primary_key=True)  # 1-5
+    sl_k = Column(Float, nullable=False)
+    tp_k = Column(Float, nullable=False)
+    total_pnl = Column(Float, nullable=False)
+    win_rate = Column(Float, nullable=False)
+    trade_count = Column(Integer, nullable=False)
+    computed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 def _ensure_columns(engine) -> None:
     """create_all() vytvori len chybajuce TABULKY, nikdy nepridá stlpec do uz
     existujucej tabulky. Toto je poor-man's migration: pri kazdom starte
