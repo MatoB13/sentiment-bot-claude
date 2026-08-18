@@ -117,6 +117,28 @@ def _lookup_exact_close(trade: Trade) -> dict | None:
             closing = max(candidates, key=lambda o: o.get("event_timestamp") or 0)
             closing_order_id = closing.get("id")
             close_reason = "liquidation" if closing.get("auto_close_type") else "force_closed_by_bot"
+        elif entry_order is not None:
+            # 2026-08-18 produkcny nalez: /v2/history/order niekedy STALE (aj po
+            # 9+ opakovanych pokusoch cez viac minut) nevrati zatvaraciu
+            # objednavku, hoci jej FILLS uz su v /v2/history/fill indexovane
+            # (overene naozivo - XAU timeout close, fill.order_id vobec nebol
+            # medzi vratenymi orders). Bez tejto vetvy close_reason ostane
+            # navzdy na surovom fallback stringu volajuceho (napr.
+            # "max_hold_24.0h_reached"), ktory NESEDI so ziadnou hodnotou v
+            # _TRIGGER_REVIEW_REASONS/_NOTIFY_CLOSE_REASONS - review aj
+            # notifikacia by sa tak NIKDY nespustili. Rovnaka logika ako vyssie
+            # (opacna strana, najneskorsi fill), len zdroj su rovno fills, nie
+            # orders - fill.order_id je vsetko, co _sum_fills nizsie potrebuje.
+            entry_order_id = entry_order.get("id")
+            fill_candidates = [
+                f for f in fills
+                if f.get("order_id") != entry_order_id
+                and (close_side is None or f.get("side") == close_side)
+            ]
+            if fill_candidates:
+                closing_fill = max(fill_candidates, key=lambda f: f.get("timestamp") or 0)
+                closing_order_id = closing_fill.get("order_id")
+                close_reason = "liquidation" if closing_fill.get("auto_close_type") else "force_closed_by_bot"
 
     if entry_order is None or closing_order_id is None:
         return None
