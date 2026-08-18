@@ -496,11 +496,13 @@ class SlTpLocalSensitivity(Base):
     (2026-08-19, na ziadost pouzivatela) - grid search vyssie testuje len
     diskretne body mriezky (napr. SL_k skace 2->3->4), takze #1 je najlepsi
     z TESTOVANYCH bodov, nie nutne skutocne lokalne optimum. Táto tabulka
-    zoberie #1 (sl_k, tp_k) a otestuje 8 susednych bodov (kazda os osobitne,
-    +-0.25/+-0.5 SL_k pri fixnom TP_k, potom +-0.25/+-0.5 TP_k pri fixnom
-    SL_k) na TOTOZNYCH pripravenych obchodoch tickera (rovnaka _simulate()
-    funkcia ako hlavny grid - simulacia je uz generickA na lubovolny sl_k/
-    tp_k float, ziadny novy simulacny kod netreba).
+    zoberie #1 (sl_k, tp_k) a otestuje plnu 3x3 mriezku okolo neho (vsetky
+    kombinacie SL_k/TP_k delta z {-0.25, 0, +0.25}, vratane diagonalnych ako
+    SL+0.25 SUCASNE s TP-0.25 - 2026-08-19 zjednodusene z povodnej verzie,
+    ktora testovala kazdu os OSOBITNE s +-0.25/+-0.5) na TOTOZNYCH pripravenych
+    obchodoch tickera (rovnaka _simulate() funkcia ako hlavny grid - simulacia
+    je uz genericka na lubovolny sl_k/tp_k float, ziadny novy simulacny kod
+    netreba).
 
     Ucel: ukazat, ci #1 sedi v stabilnej "plosine" (susedne varianty podobny
     PnL/win-rate = dovervyhodnejsie) alebo je to osamely vrchol (susedne

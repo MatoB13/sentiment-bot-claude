@@ -55,19 +55,22 @@ _CLOSED_STATUSES = ["closed_by_exchange", "closed_by_timeout", "closed_by_safety
 
 _TOP_N = 5
 
-# Lokalna citlivostna analyza okolo #1 (2026-08-19, na ziadost pouzivatela) -
-# kazda os osobitne (SL_k pri fixnom TP_k, potom TP_k pri fixnom SL_k), aby
-# bolo hned vidno KTORA os je citlivejsia. (label, sort_order, sl_delta, tp_delta).
+# Lokalna citlivostna analyza okolo #1 (2026-08-19, na ziadost pouzivatela -
+# povodna verzia testovala kazdu os OSOBITNE s +-0.25/+-0.5, pouzivatel ju
+# zjednodusil na PLNU 3x3 mriezku (vsetky kombinacie oboch osi), ale LEN
+# +-0.25 (ziadne +-0.5) - menej "osamelych" testov, ale zato pokryva aj
+# diagonalne kombinacie (napr. SL+0.25 A ZAROVEN TP-0.25 naraz).
+# (label, sort_order, sl_delta, tp_delta).
 _LOCAL_SENSITIVITY_OFFSETS = [
-    ("base", 0, 0.0, 0.0),
-    ("SL-0.5", 1, -0.5, 0.0),
-    ("SL-0.25", 2, -0.25, 0.0),
-    ("SL+0.25", 3, 0.25, 0.0),
-    ("SL+0.5", 4, 0.5, 0.0),
-    ("TP-0.5", 5, 0.0, -0.5),
-    ("TP-0.25", 6, 0.0, -0.25),
-    ("TP+0.25", 7, 0.0, 0.25),
-    ("TP+0.5", 8, 0.0, 0.5),
+    ("SL-0.25/TP-0.25", 0, -0.25, -0.25),
+    ("SL-0.25", 1, -0.25, 0.0),
+    ("SL-0.25/TP+0.25", 2, -0.25, 0.25),
+    ("TP-0.25", 3, 0.0, -0.25),
+    ("base", 4, 0.0, 0.0),
+    ("TP+0.25", 5, 0.0, 0.25),
+    ("SL+0.25/TP-0.25", 6, 0.25, -0.25),
+    ("SL+0.25", 7, 0.25, 0.0),
+    ("SL+0.25/TP+0.25", 8, 0.25, 0.25),
 ]
 
 # S/R detekcia: fraktalovy pivot - bar je swing high/low, ak je jeho high/low
@@ -306,11 +309,12 @@ def _run_grid_for_symbol(prepared_for_symbol: list[dict]) -> list[dict]:
 
 def _run_local_sensitivity_for_symbol(prepared_for_symbol: list[dict], base_sl_k: float,
                                        base_tp_k: float) -> list[dict]:
-    """Otestuje 8 susednych bodov okolo #1 (base_sl_k, base_tp_k), kazda os
-    osobitne (viz _LOCAL_SENSITIVITY_OFFSETS) - _simulate() je uz genericka
-    na lubovolny float sl_k/tp_k, ziadny novy simulacny kod netreba. Varianty
-    s vysledym sl_k/tp_k <= 0 (napr. base SL_k=0.5 mensi o 0.5 = 0) sa
-    jednoducho preskocia."""
+    """Otestuje plnu 3x3 mriezku okolo #1 (base_sl_k, base_tp_k), vsetky
+    kombinacie delta z {-0.25, 0, +0.25} na oboch osiach (viz
+    _LOCAL_SENSITIVITY_OFFSETS) - _simulate() je uz genericka na lubovolny
+    float sl_k/tp_k, ziadny novy simulacny kod netreba. Varianty s vysledym
+    sl_k/tp_k <= 0 (napr. base SL_k=0.25 mensi o 0.25 = 0) sa jednoducho
+    preskocia."""
     results = []
     for variant, sort_order, sl_delta, tp_delta in _LOCAL_SENSITIVITY_OFFSETS:
         sl_k = base_sl_k + sl_delta
