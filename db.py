@@ -417,20 +417,31 @@ class RiskOverride(Base):
 
 
 class SlTpBacktestCandidate(Base):
-    """"Ziva" TOP-5 tabulka SL/TP kandidatov (2026-08-19, viz sl_grid_backtest.py) -
-    NA ROZDIEL od AtrCalibration (per-ticker navrh) toto je JEDEN zdielany
-    (POOLED, ATR-normalizovany) grid-search naprieč VSETKYMI uzavretymi
-    obchodmi vsetkych tickerov naraz - per-ticker vzorka (36 obchodov na 13
-    tickerov) je prilis mala na nezavisly fit. Vzdy PREPISOVANA (rovnaky vzor
-    ako AccountSnapshot) - 5 riadkov (rank 1-5), nie historia v case.
+    """"Ziva" TOP-5 tabulka SL/TP kandidatov PER TICKER (2026-08-19, viz
+    sl_grid_backtest.py) - NA ROZDIEL od AtrCalibration (jednoduchy ATR-
+    zalozeny navrh) toto je grid-search backtest, ktory pre KAZDY ticker
+    nezavisle prehla jeho VLASTNE uzavrete obchody a vyberie NAJLEPSIU
+    (sl_k, tp_k) kombinaciu (2026-08-19 prepracovane z povodnej POOLED
+    verzie naprieč vsetkymi tickermi - pouzivatel spravne poznamenal, ze
+    kazdy ticker chce vlastnu analyzu s vlastnym pocitadlom vzorky, nie
+    zdielanie s inymi tickermi). Vzdy PREPISOVANA (rovnaky vzor ako
+    AccountSnapshot) - az 5 riadkov NA TICKER (kombinovany kluc symbol+rank),
+    nie historia v case.
 
-    Vznikla po tom, co jednorazovy najlepsi kandidat (SL_k=5.0/TP_k=12.0,
-    2026-08-19 grid search) bol spravne spochybneny pouzivatelom ako fit na
-    prilis malej vzorke (36 obchodov) - toto misto jedneho cisla ukazuje
-    priebezne prepocitavany rebricek + pocet obchodov vo vzorke, aby bolo
-    vidiet, kedy uz mozno vzorke viac dovervat (pouzivatel navrhol prah ~20)."""
-    __tablename__ = "sl_tp_backtest_candidates"
+    POZOR: tabulka existovala predtym s inou schemou (LEN rank ako primary
+    key, POOLED naprieč vsetkymi tickermi) - __tablename__ je preto zamerne
+    NOVY ("_by_symbol" prípona), aby SQLAlchemy create_all() vytvorilo cerstvu
+    tabulku so spravnym kombinovanym klucom namiesto konfliktu so starym
+    schema (viac tickerov by inak porusovalo povodny rank-only PRIMARY KEY).
+    Stara tabulka `sl_tp_backtest_candidates` ostava v DB nepouzivana
+    (neskodna, da sa manualne zmazat).
 
+    trade_count = pocet UZAVRETYCH obchodov TOHTO KONKRETNEHO tickera vo
+    vzorke - pouzivatel navrhol dovervyhodny prah ~20 (per-ticker, nie
+    zdielany)."""
+    __tablename__ = "sl_tp_backtest_candidates_by_symbol"
+
+    symbol = Column(String, primary_key=True)
     rank = Column(Integer, primary_key=True)  # 1-5
     sl_k = Column(Float, nullable=False)
     tp_k = Column(Float, nullable=False)

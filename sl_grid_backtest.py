@@ -1,19 +1,19 @@
-""""Zivy" TOP-5 rebricek SL/TP kandidatov (2026-08-19) - naprieč VSETKYMI
-uzavretymi obchodmi vsetkych tickerov (POOLED, ATR-normalizovane jednotky),
-nie per-ticker ako sl_calibration.py.
+""""Zivy" TOP-5 rebricek SL/TP kandidatov PER TICKER (2026-08-19, prepracovane
+z povodnej POOLED verzie na ziadost pouzivatela) - kazdy ticker ma VLASTNY
+grid search nad VLASTNYMI uzavretymi obchodmi a VLASTNY pocitadlo vzorky,
+nie zdielany naprieč vsetkymi tickermi.
 
-Dovod POOLED pristupu: per-ticker vzorka je prilis mala (36 obchodov na 13
-tickerov) na nezavisly fit - v ATR-normalizovanych jednotkach (SL_k = SL_pct/
-ATR_pct v case vstupu) vsak vsetky tickery prispievaju do JEDNEJ zdielanej
-vzorky, kedze rovnaky SL_k = rovnaka relativna "sirka" bez ohladu na
-absolutnu volatilitu konkretneho tickera.
+POZOR (zamerne ponechane, nie chyba): pri malom pocte obchodov na ticker
+(dnes 1-8 na vela z nich) je vysledok statisticky slaby - presne preto
+kazdy kandidat nesie trade_count a frontend farebne vyznacuje, ci uz ticker
+dosiahol dovervyhodny prah (pouzivatel navrhol ~20).
 
 Metodika (na rozdiel od povodneho, chybneho sl_calibration._sweep_k, ktory
-testoval NAHODNE body v historii - viz jeho docstring/komentare a
-memory poznamka pending_sl_calibration_methodology_fix): tento grid search
-pouziva VYHRADNE SKUTOCNE vstupy bota (entry price/smer/cas z realnych
-Trade zaznamov), kedze tie nesu genuinne smerove presvedcenie Claude-a,
-ktore nahodny bod nema.
+testoval NAHODNE body v historii - viz jeho docstring/komentare a memory
+poznamka pending_sl_calibration_methodology_fix): tento grid search pouziva
+VYHRADNE SKUTOCNE vstupy bota (entry price/smer/cas z realnych Trade
+zaznamov), kedze tie nesu genuinne smerove presvedcenie Claude-a, ktore
+nahodny bod nema.
 
 Pre kazdu kombinaciu (SL_k, TP_k) z mriezky sa simuluje first-touch (SL vs
 TP, ktory sa dotkne skor) na REALNEJ nasledujucej cenovej ceste (hodinove
@@ -21,13 +21,17 @@ PriceBar, okno POSITION_MAX_HOURS - rovnaka politika ako zivy bot), s
 leverage prepocitanou cez rovnaky vzorec ako risk_manager (_leverage_from_cushion),
 aby $ PnL bolo realisticke.
 
-S/R rozsirenie (2026-08-19, na ziadost pouzivatela): pre TOP 5 uz vybranych
-(sl_k, tp_k) kandidatov sa navyse simuluje S/R-upravena verzia - namiesto
-cisteho k*ATR sa SL/TP "prichyti" na najblizsiu support/resistance uroven
-(swing high/low z historie PRED danym vstupom - ziadny look-ahead), s malym
-bufferom (SL kusok ZA najdenou urovnou, TP kusok PRED nou). compute_sr_calibration()
-potom pre kazdy ticker/rank prepocita AKTUALNU (dnesnu) S/R-prichytenu %
-hodnotu - toto feeduje druhu tabulku v per-ticker "Kalibracia SL/TP" tabe."""
+S/R rozsirenie (2026-08-19): pre TOP 5 uz vybranych (sl_k, tp_k) kandidatov
+danho tickera sa navyse simuluje S/R-upravena verzia - namiesto cisteho
+k*ATR sa SL/TP "prichyti" na najblizsiu support/resistance uroven (swing
+high/low z HISTORIE TOHTO TICKERA PRED danym vstupom - ziadny look-ahead),
+s malym bufferom (SL kusok ZA najdenou urovnou, TP kusok PRED nou).
+compute_sr_calibration() potom pre kazdy ticker/rank prepocita AKTUALNU
+(dnesnu) S/R-prichytenu % hodnotu - toto feeduje druhu (S/R) tabulku v
+per-ticker "Kalibracia SL/TP" tabe. POZOR: S/R tabulka je zatial CISTO
+INFORMATIVNA (bez tlacidla na aplikovanie) - jej realny zmysel príde az
+neskor, ked bude Claude prompt upraveny, aby sam hladal S/R pri kazdom
+cykle (viz diskusia s pouzivatelom 2026-08-19)."""
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
@@ -76,8 +80,8 @@ def _find_swings(highs: list[float], lows: list[float]) -> tuple[list[float], li
 
 
 def _nearest_level(levels: list[float], reference: float) -> float | None:
-    """Najblizsia uroven K REFERENCII (moze byt blizsie aj dalej od entry -
-    2026-08-19 zmena, predtym len 'za referenciou') - None ak ziadna uroven."""
+    """Najblizsia uroven K REFERENCII (moze byt blizsie aj dalej od entry) -
+    None ak ziadna uroven."""
     if not levels:
         return None
     return min(levels, key=lambda lv: abs(lv - reference))
@@ -117,9 +121,9 @@ def _prepare_trade(t: Trade, session, market_meta_cache: dict) -> dict | None:
     opened_at = t.opened_at
     window_end = opened_at + timedelta(hours=config.POSITION_MAX_HOURS)
 
-    # Ziadna dolna hranica na hour_start (na rozdiel od povodnej verzie s -20h) -
-    # S/R detekcia potrebuje CO NAJVIAC historie PRED vstupom (ziadny
-    # look-ahead), bot zatial bezi len ~3 tyzdne, takze objem dat ostava maly.
+    # Ziadna dolna hranica na hour_start - S/R detekcia potrebuje CO NAJVIAC
+    # historie PRED vstupom (ziadny look-ahead), bot zatial bezi len ~3
+    # tyzdne, takze objem dat ostava maly.
     all_bars = (
         session.query(PriceBar)
         .filter(PriceBar.symbol == t.symbol, PriceBar.hour_start <= window_end)
@@ -191,7 +195,8 @@ def _first_touch_pnl(p: dict, sl_price: float, tp_price: float, sl_pct: float, t
 
 def _simulate(prepared: list[dict], sl_k: float, tp_k: float) -> dict | None:
     """First-touch simulacia cisteho k*ATR (bez S/R) danej (sl_k, tp_k)
-    kombinacie naprieč VSETKYMI pripravenymi obchodmi."""
+    kombinacie naprieč VSETKYMI pripravenymi obchodmi (uz filtrovanymi na
+    jeden ticker volajucim)."""
     total_pnl = 0.0
     wins = 0
     n = 0
@@ -263,12 +268,36 @@ def _simulate_sr(prepared: list[dict], sl_k: float, tp_k: float) -> dict | None:
     return {"total_pnl": total_pnl, "win_rate": wins / n, "trade_count": n}
 
 
+def _run_grid_for_symbol(prepared_for_symbol: list[dict]) -> list[dict]:
+    """Cely (sl_k, tp_k) grid search + S/R rozsirenie pre JEDEN ticker (uz
+    filtrovane obchody) - vrati TOP N zoradenych podla total_pnl, kazdy
+    doplneny o sr_total_pnl/sr_win_rate."""
+    results = []
+    for sl_k in _SL_K_GRID:
+        for tp_k in _TP_K_GRID:
+            r = _simulate(prepared_for_symbol, sl_k, tp_k)
+            if r is not None:
+                results.append(r)
+    if not results:
+        return []
+    results.sort(key=lambda r: -r["total_pnl"])
+    top = results[:_TOP_N]
+    for r in top:
+        sr = _simulate_sr(prepared_for_symbol, r["sl_k"], r["tp_k"])
+        r["sr_total_pnl"] = sr["total_pnl"] if sr else None
+        r["sr_win_rate"] = sr["win_rate"] if sr else None
+    return top
+
+
 def compute_leaderboard() -> None:
-    """Vstupny bod scheduleru (main.py, denne) - prepocita cely grid search
-    a prepise TOP 5 v SlTpBacktestCandidate (VRATANE S/R-upravenej PnL/
-    win_rate pre tychto istych 5 kandidatov). Nic sa NIKDY automaticky
-    neaplikuje do RiskOverride - cisto informativny, priebezne sa
-    aktualizujuci rebricek (viz nas100-monitor-web Prehlad tab)."""
+    """Vstupny bod scheduleru (main.py, denne) - PRE KAZDY ticker nezavisle
+    prepocita grid search NAD VLASTNYMI obchodmi a prepise jeho TOP 5 v
+    SlTpBacktestCandidate (VRATANE S/R-upravenej PnL/win_rate). Kazdy ticker
+    ma VLASTNY pocet obchodov vo vzorke (trade_count) - ziadne pozicanie
+    statistickej sily od inych tickerov (2026-08-19 prepracovane z povodnej
+    pooled verzie, viz memory poznamka a diskusia s pouzivatelom). Nic sa
+    NIKDY automaticky neaplikuje do RiskOverride - cisto informativny,
+    priebezne sa aktualizujuci rebricek."""
     print(f"\n=== [sl_grid_backtest] {datetime.now(timezone.utc).isoformat()} ===")
     session = get_session()
     try:
@@ -283,44 +312,30 @@ def compute_leaderboard() -> None:
             return
 
         market_meta_cache: dict = {}
-        prepared = []
+        by_symbol: dict[str, list[dict]] = {}
         for t in closed:
             p = _prepare_trade(t, session, market_meta_cache)
             if p is not None:
-                prepared.append(p)
-
-        print(f"[sl_grid_backtest] Pripravenych {len(prepared)}/{len(closed)} obchodov na grid search.")
-        if not prepared:
-            return
-
-        results = []
-        for sl_k in _SL_K_GRID:
-            for tp_k in _TP_K_GRID:
-                r = _simulate(prepared, sl_k, tp_k)
-                if r is not None:
-                    results.append(r)
-
-        if not results:
-            print("[sl_grid_backtest] Ziadne pouzitelne vysledky, preskakujem zapis.")
-            return
-
-        results.sort(key=lambda r: -r["total_pnl"])
-        top = results[:_TOP_N]
+                by_symbol.setdefault(t.symbol, []).append(p)
 
         session.query(SlTpBacktestCandidate).delete()
-        for i, r in enumerate(top, start=1):
-            sr = _simulate_sr(prepared, r["sl_k"], r["tp_k"])
-            sr_pnl = sr["total_pnl"] if sr else None
-            sr_wr = sr["win_rate"] if sr else None
-            print(f"[sl_grid_backtest] #{i}: SL_k={r['sl_k']} TP_k={r['tp_k']} "
-                  f"total_pnl=${r['total_pnl']:.2f} win_rate={r['win_rate']*100:.0f}% n={r['trade_count']} | "
-                  f"S/R: total_pnl={'N/A' if sr_pnl is None else f'${sr_pnl:.2f}'} "
-                  f"win_rate={'N/A' if sr_wr is None else f'{sr_wr*100:.0f}%'}")
-            session.add(SlTpBacktestCandidate(
-                rank=i, sl_k=r["sl_k"], tp_k=r["tp_k"], total_pnl=r["total_pnl"],
-                win_rate=r["win_rate"], trade_count=r["trade_count"],
-                sr_total_pnl=sr_pnl, sr_win_rate=sr_wr,
-            ))
+        for symbol, prepared in by_symbol.items():
+            top = _run_grid_for_symbol(prepared)
+            if not top:
+                print(f"[sl_grid_backtest] [{symbol}] ziadne pouzitelne vysledky ({len(prepared)} obchodov), preskakujem.")
+                continue
+            print(f"[sl_grid_backtest] [{symbol}] ({len(prepared)} obchodov):")
+            for i, r in enumerate(top, start=1):
+                sr_pnl, sr_wr = r["sr_total_pnl"], r["sr_win_rate"]
+                print(f"  #{i}: SL_k={r['sl_k']} TP_k={r['tp_k']} total_pnl=${r['total_pnl']:.2f} "
+                      f"win_rate={r['win_rate']*100:.0f}% n={r['trade_count']} | "
+                      f"S/R: total_pnl={'N/A' if sr_pnl is None else f'${sr_pnl:.2f}'} "
+                      f"win_rate={'N/A' if sr_wr is None else f'{sr_wr*100:.0f}%'}")
+                session.add(SlTpBacktestCandidate(
+                    symbol=symbol, rank=i, sl_k=r["sl_k"], tp_k=r["tp_k"], total_pnl=r["total_pnl"],
+                    win_rate=r["win_rate"], trade_count=r["trade_count"],
+                    sr_total_pnl=sr_pnl, sr_win_rate=sr_wr,
+                ))
         session.commit()
     finally:
         session.close()
@@ -336,9 +351,9 @@ def compute_leaderboard() -> None:
 
 def compute_sr_calibration() -> None:
     """Vstupny bod scheduleru (main.py, denne) - pre KAZDY ticker (aj
-    neaktivny, rovnaky vzor ako sl_calibration.py) a KAZDY z aktualnych TOP 5
-    poolovanych kandidatov prepocita DNESNU S/R-prichytenu SL%/TP% (na
-    zaklade vlastnej cenovej historie tickera) a zapise do SrCalibration -
+    neaktivny, rovnaky vzor ako sl_calibration.py) a KAZDY z jeho VLASTNYCH
+    (uz per-ticker) TOP 5 kandidatov prepocita DNESNU S/R-prichytenu SL%/TP%
+    (na zaklade vlastnej cenovej historie tickera) a zapise do SrCalibration -
     feeduje druhu tabulku v per-ticker "Kalibracia SL/TP" tabe.
 
     Smer (long/short) sa este nevie (toto je len navrh pre buduci obchod) -
@@ -349,15 +364,20 @@ def compute_sr_calibration() -> None:
     print(f"\n=== [sl_grid_backtest] compute_sr_calibration {datetime.now(timezone.utc).isoformat()} ===")
     session = get_session()
     try:
-        candidates = session.query(SlTpBacktestCandidate).order_by(SlTpBacktestCandidate.rank).all()
-        if not candidates:
-            print("[sl_grid_backtest] Ziadni kandidati (compute_leaderboard este nebezal?), preskakujem.")
-            return
-
         session.query(SrCalibration).delete()
         for asset in assets.ALL_ASSETS:
             name = asset["name"]
             symbol = asset["strike_symbol"]
+
+            candidates = (
+                session.query(SlTpBacktestCandidate)
+                .filter(SlTpBacktestCandidate.symbol == symbol)
+                .order_by(SlTpBacktestCandidate.rank)
+                .all()
+            )
+            if not candidates:
+                continue
+
             try:
                 df = market_data.get_price_history(asset, session)
             except Exception as e:
