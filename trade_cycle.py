@@ -565,10 +565,14 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
 
     closed_trade: ak nie None, tento beh je "post-close review" (viz
     position_monitor._fire_post_close_reviews) - dict s trade_id/direction/
-    entry_price/exit_price/hours_held/pnl_usd/close_reason o PRAVE zatvorenej
-    pozicii, ktory sa vlozi do promptu (viz claude_analyst) a Claude popri
-    beznom otvaracom rozhodnuti zaroven zhodnoti, ci bolo zatvorenie spravne
-    timeovane (closed_trade_reflection).
+    entry_price/exit_price/hours_held/pnl_usd/close_reason/evaluation_only o
+    PRAVE zatvorenej pozicii, ktory sa vlozi do promptu (viz claude_analyst) a
+    Claude zhodnoti, ci bolo zatvorenie spravne timeovane (closed_trade_reflection).
+    Ak closed_trade["evaluation_only"] je True (SL/likvidacia - viz
+    position_monitor._EVALUATION_ONLY_CLOSE_REASONS), Claudeho navrhnute
+    otvaracie rozhodnutie z tohto behu sa NIKDY nevykona (viz kod nizsie tesne
+    pred risk_manager.validate_and_size) - ziskame len hodnotu do retrospektivy,
+    bez rizika revenge-tradingu okamzitym re-entry.
 
     macro_event: ak nie None, tento beh bol vyvolany PRAVE zverejnenou makro
     udalostou s pevne znamym casom (FOMC/CPI/NFP - viz macro_calendar.py +
@@ -710,6 +714,23 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             usage_output_tokens=usage.get("output_tokens"),
             effort=usage.get("effort"),
         )
+
+        if closed_trade and closed_trade.get("evaluation_only"):
+            # 2026-08-18 (na ziadost pouzivatela) - SL/likvidacia review (viz
+            # position_monitor._EVALUATION_ONLY_CLOSE_REASONS): Claude vyssie
+            # dostal plny kontext a zhodnotil zatvorenie (closed_trade_reflection
+            # + decision.reasoning ulozene v cycle_log vyssie, hodnota do
+            # retrospektivy), ale jeho navrhnuty smer/confidence z TOHTO
+            # konkretneho behu sa STRUKTURALNE (nie len promptovou instrukciou)
+            # NIKDY nepouzije na otvorenie novej pozicie - presne preto, aby
+            # okamzity re-entry po stop-oute nemohol byt revenge-trading.
+            # Bot moze znova vstupit len pri najblizsom BEZNOM cykle.
+            cycle_log.outcome = "evaluation_only"
+            session.add(cycle_log)
+            session.commit()
+            print(f"[{name}] Post-close vyhodnotenie ulozene (SL/likvidacia) - "
+                  "ziadny novy obchod sa z tohto behu neotvara.")
+            return
 
         try:
             sized = risk_manager.validate_and_size(
@@ -860,6 +881,8 @@ def run_triggered_check(asset: dict, closed_trade: dict | None = None,
     name = asset["name"]
     if macro_event:
         trigger_label = f"makro udalost {macro_event}"
+    elif closed_trade and closed_trade.get("evaluation_only"):
+        trigger_label = "post-close review (len vyhodnotenie)"
     elif closed_trade:
         trigger_label = "post-close review"
     else:

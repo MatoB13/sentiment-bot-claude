@@ -117,7 +117,7 @@ DECISION_TOOL = {
             "watch_price": {
                 "type": "number",
                 "description": (
-                    "Volitelne - vypln v JEDNOM z DVOCH nezavislych pripadov: "
+                    "Volitelne - vypln v JEDNOM z TROCH nezavislych pripadov: "
                     "(1) direction=none A skutocny blokujuci dovod je konkretna CENOVA "
                     "uroven (retest/breakout), ktoru by cenovy pohyb sam vedel potvrdit. "
                     "NEVYPLNAJ v tomto pripade, ak je blokujuci dovod CASOVA UDALOST "
@@ -126,13 +126,21 @@ DECISION_TOOL = {
                     "mimoriadne cykly pri beznom trhovom sume. "
                     "(2) direction=long/short A vyplnas aj confidence_threshold_note "
                     "nizsie - sem daj presne tu istu cenu, ktoru si tam popisal. "
-                    "Vynechaj cely field, ak nie je relevantny ani jeden pripad."
+                    "(3) toto je vyhodnotenie PRAVE zatvorenej pozicie na SL/likvidaciu (viz sekcia "
+                    "'Prave zatvorena pozicia' nizsie) A ocakavas, ze sa trh RYCHLO POHNE dalej "
+                    "smerom, ktory by opodstatnoval skory re-entry - sem daj cenu, KTOREJ REALNE "
+                    "PREKROCENIE by tento predpoklad potvrdilo (nie proste aktualnu cenu). V tomto "
+                    "pripade je to JEDINY sposob, ako moze TENTO konkretny cyklus viest k novej pozicii "
+                    "(tvoje direction/confidence z neho sa inak nikdy nevykona) - preto tu davaj naozaj "
+                    "konkretnu, zmysluplnu uroven, nie mechanicke vyplnanie pri kazdom SL. Ak si nie si "
+                    "isty alebo je situacia skor 'pockaj na dalsi bezny cyklus', toto pole vynechaj. "
+                    "Vynechaj cely field, ak nie je relevantny ziaden z troch pripadov."
                 ),
             },
             "watch_direction": {
                 "type": "string", "enum": ["above", "below"],
                 "description": (
-                    "Volitelne, vzdy spolu s watch_price (rovnaky pripad (1) alebo (2) - "
+                    "Volitelne, vzdy spolu s watch_price (rovnaky pripad (1)/(2)/(3) - "
                     "viz jeho popis)."
                 ),
             },
@@ -218,12 +226,14 @@ DECISION_TOOL = {
                 "type": "string",
                 "description": (
                     "VYPLN LEN ak user sprava obsahuje sekciu 'Práve zatvorená pozícia' "
-                    "(mimoriadny cyklus spustený HNEĎ po TP/timeout/manuálnom zatvorení). 2-3 "
-                    "vety: bolo zatvorenie správne timeované, alebo mala pozícia pokračovať "
-                    "dlhšie (napr. pri TP: bol cieľ nastavený príliš konzervatívne), alebo malo "
-                    "prísť skôr? Toto je NEZÁVISLÉ od tvojho direction/confidence rozhodnutia "
-                    "nižšie (to je o tom, či TERAZ otvoriť novú pozíciu) - tu ide o SPÄTNÉ "
-                    "hodnotenie tej PREDCHÁDZAJÚCEJ. Ak sekcia chýba, toto pole VYNECHAJ."
+                    "(mimoriadny cyklus spustený HNEĎ po TP/timeout/manuálnom zatvorení, alebo po "
+                    "SL/likvidácii). 2-3 vety: bolo zatvorenie správne timeované, alebo mala pozícia "
+                    "pokračovať dlhšie (napr. pri TP: bol cieľ nastavený príliš konzervatívne), alebo "
+                    "malo prísť skôr? Pri SL/likvidácii: bol vstup/SL nastavený primerane, alebo niečo "
+                    "(prehriaty RSI, chase breakoutu a pod.) vopred naznačovalo zvýšené riziko rýchleho "
+                    "zvratu? Toto je NEZÁVISLÉ od tvojho direction/confidence rozhodnutia nižšie (to je "
+                    "o tom, či TERAZ otvoriť novú pozíciu) - tu ide o SPÄTNÉ hodnotenie tej "
+                    "PREDCHÁDZAJÚCEJ. Ak sekcia chýba, toto pole VYNECHAJ."
                 ),
             },
             "upcoming_macro_event": _UPCOMING_MACRO_EVENT_PROPERTY,
@@ -1011,6 +1021,8 @@ _CLOSE_REASON_PROMPT_LABELS = {
     "take_profit": "take-profit",
     "force_closed_by_bot": "timeout - max. doba drzania prekrocena",
     "manual_kill_switch": "rucne zatvorene pouzivatelom (kill-switch)",
+    "stop_loss": "stop-loss",
+    "liquidation": "likvidacia burzou",
 }
 
 
@@ -1209,14 +1221,49 @@ TY, len odporúčaš človeku, ktorý sa rozhodne sám."""
         ct = closed_trade
         sign = "+" if ct["pnl_usd"] >= 0 else ""
         reason_label = _CLOSE_REASON_PROMPT_LABELS.get(ct["close_reason"], ct["close_reason"])
+        # 2026-08-18 (na ziadost pouzivatela) - SL/likvidacia TERAZ TIEZ spustaju
+        # tento mimoriadny cyklus (viz position_monitor._EVALUATION_ONLY_CLOSE_REASONS),
+        # ale VYHRADNE na vyhodnotenie - trade_cycle.run_cycle_for_asset
+        # STRUKTURALNE zahodi direction/confidence z tohto behu bez ohladu na
+        # to, co Claude navrhne (ziadne otvorenie pozicie z tohto volania).
+        # Claude to musi vediet VOPRED (nie len fakt, ze sa to potom zahodi) -
+        # inak by mohol citit tlak "musim navrhnut dalsi obchod hned teraz",
+        # co je presne ten revenge-trading impulz, ktoremu sa chceme vyhnut.
+        if ct.get("evaluation_only"):
+            action_note = (
+                "Toto je mimoriadny cyklus spustený HNEĎ po zatvorení tejto pozície na SL/likvidáciou "
+                "(nie bežný interval). Cez closed_trade_reflection zhodnoť, či bol vstup/SL nastavený "
+                "primerane, alebo či niečo (vstup pri prehriatom RSI, chase breakoutu a pod.) vopred "
+                "naznačovalo zvýšené riziko rýchleho zvratu. DÔLEŽITÉ: tvoje direction/confidence "
+                "rozhodnutie nižšie sa v TOMTO behu NEVYKONÁ - žiadna nová pozícia sa z neho priamo "
+                "neotvorí, aj keby confidence prešla prahom. Je to zámerné (aby okamžitý re-entry po "
+                "stop-oute nebol poznačený túžbou 'dohnať stratu') - bot môže znova vstúpiť pri "
+                "najbližšom bežnom cykle na základe čerstvej analýzy. Nástroj polia "
+                "direction/confidence/SL/TP aj tak vyžaduje, tak ich vyplň ako svoj aktuálny názor - "
+                "berie sa len ako záznam, nie príkaz.\n\n"
+                "VÝNIMKA - rýchly re-entry PODMIENENÝ potvrdením cenou: ak ide o prudký pohyb "
+                "(crash/run-up) a očakávaš, že sa trh RÝCHLO pohne ďalej smerom, ktorý by opodstatnil "
+                "skorší re-entry než bežný interval, použi pole watch_price/watch_direction nižšie "
+                "(prípad (3) v jeho popise) - nastav cenovú úroveň, ktorej REÁLNE prekročenie by tento "
+                "predpoklad potvrdilo. Systém ju bude kontrolovať každých pár sekúnd počas najbližších "
+                "minút, a ak sa splní, spustí sa ČERSTVÝ plný cyklus (s aktuálnymi dátami, nie len "
+                "touto úvahou) - to je JEDINÝ spôsob, ako môže tento post-SL cyklus reálne viesť k "
+                "novej pozícii skôr než bežný interval. Použi to len ak je to naozaj opodstatnené, nie "
+                "mechanicky pri každom SL zatvorení."
+            )
+        else:
+            action_note = (
+                "Toto je mimoriadny cyklus spustený HNEĎ po zatvorení tejto pozície (nie bežný interval). "
+                "Najprv cez closed_trade_reflection zhodnoť, či bolo zatvorenie správne timeované. Potom "
+                "NEZÁVISLE posúď AKTUÁLNU trhovú situáciu (rovnako ako pri bežnom cykle) a rozhodni, či "
+                "teraz otvoriť novú pozíciu - pokračujúcu v rovnakom smere (ak trend drží) alebo opačnú "
+                "(ak sa obraz otočil), alebo počkať (none)."
+            )
         closed_trade_block = f"""## Práve zatvorená pozícia (dôvod: {reason_label})
 Smer: {(ct['direction'] or '').upper()} | Vstup: {ct['entry_price']} | Výstup: {ct['exit_price']}
 Držaná: {ct['hours_held']:.1f}h | PnL: {sign}${ct['pnl_usd']:.2f}
 
-Toto je mimoriadny cyklus spustený HNEĎ po zatvorení tejto pozície (nie bežný interval). Najprv cez
-closed_trade_reflection zhodnoť, či bolo zatvorenie správne timeované. Potom NEZÁVISLE posúď
-AKTUÁLNU trhovú situáciu (rovnako ako pri bežnom cykle) a rozhodni, či teraz otvoriť novú pozíciu -
-pokračujúcu v rovnakom smere (ak trend drží) alebo opačnú (ak sa obraz otočil), alebo počkať (none).
+{action_note}
 
 """
 

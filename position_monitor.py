@@ -20,11 +20,26 @@ _CLOSE_REASON_BY_TYPE = {"stop": "stop_loss", "take_profit_limit": "take_profit"
 
 # TP a nase vlastne force-close (timeout ALEBO manualny kill-switch - obe idu
 # cez rovnaky cancel_all_orders+close_position_market mechanizmus, preto sa
-# "force_closed_by_bot" tyka oboch) su podnetom na okamzity "co teraz" cyklus
-# - SL a likvidacia VEDOME vynechane (2026-08 diskusia s pouzivatelom:
-# re-entry hned po stop-oute je nachylny na revenge-trading, tam sa pocka na
-# bezny interval namiesto okamzitej reakcie).
-_TRIGGER_REVIEW_REASONS = {"take_profit", "force_closed_by_bot", "manual_kill_switch"}
+# "force_closed_by_bot" tyka oboch) su podnetom na okamzity "co teraz" cyklus,
+# ktory MOZE otvorit novu poziciu.
+#
+# SL a likvidacia (2026-08-18, na ziadost pouzivatela - predtym VEDOME
+# vynechane, viz stara verzia tohto komentara nizsie) TIEZ TERAZ spustaju
+# review - ale VYHRADNE na vyhodnotenie (viz _EVALUATION_ONLY_CLOSE_REASONS
+# nizsie a trade_cycle.run_cycle_for_asset). Claude dostane closed_trade_reflection
+# kontext a zapise sa do retrospektivy (hodnota do uciaceho loopu), ale
+# vysledny smer/confidence z TOHTO konkretneho behu sa NIKDY nepouzije na
+# otvorenie novej pozicie - blokovane priamo v kode (trade_cycle), nie len
+# promptovou instrukciou. Povodny dovod vylucenia SL (revenge-trading riziko
+# okamziteho re-entry) je takto vyriesenej - bot moze znova vstupit len pri
+# najblizsom BEZNOM cykle, nikdy ako priama reakcia na stop-out.
+_TRIGGER_REVIEW_REASONS = {"take_profit", "force_closed_by_bot", "manual_kill_switch",
+                            "stop_loss", "liquidation"}
+
+# Podmnozina vyssie - tieto dovody spustaju review LEN na vyhodnotenie (viz
+# _build_closed_trade_context nizsie, ktora tento flag vlozi do closed_trade
+# dictu pre trade_cycle.py).
+_EVALUATION_ONLY_CLOSE_REASONS = {"stop_loss", "liquidation"}
 
 # Discord notifikacia o zatvoreni (2026-08-15, na ziadost pouzivatela) - TP/SL/
 # likvidacia/timeout, ale ZAMERNE NIE manual_kill_switch (to uz pouzivatel
@@ -150,7 +165,13 @@ def _build_closed_trade_context(trade: Trade) -> dict:
     """Plain dict (nie ORM objekt) so vsetkym, co claude_analyst._build_user_prompt
     potrebuje na popis prave zatvorenej pozicie - extrahovane HNED, kym je
     session este ziva (viz _fire_post_close_reviews, ktora bezi az PO
-    session.close())."""
+    session.close()).
+
+    evaluation_only (2026-08-18): True pre SL/likvidaciu - trade_cycle.
+    run_cycle_for_asset toto pole precita a po Claude volani STRUKTURALNE
+    preskoci risk_manager/otvorenie novej pozicie, bez ohladu na to, aky smer/
+    confidence Claude v tomto behu navrhol (viz _EVALUATION_ONLY_CLOSE_REASONS
+    vyssie)."""
     opened_at = trade.opened_at
     if opened_at.tzinfo is None:
         opened_at = opened_at.replace(tzinfo=timezone.utc)
@@ -165,6 +186,7 @@ def _build_closed_trade_context(trade: Trade) -> dict:
         "hours_held": (closed_at - opened_at).total_seconds() / 3600,
         "pnl_usd": trade.pnl_usd,
         "close_reason": trade.close_reason,
+        "evaluation_only": trade.close_reason in _EVALUATION_ONLY_CLOSE_REASONS,
     }
 
 
@@ -191,8 +213,9 @@ def _fire_post_close_reviews(pending_reviews: list) -> None:
     by pomaly review jedneho zatvoreneho obchodu blokoval kontrolu OSTATNYCH
     (stale otvorenych) pozicii na dalsom tiku."""
     for asset, closed_trade in pending_reviews:
-        print(f"[position_monitor] [{asset['name']}] post-close review "
-              f"(dovod={closed_trade['close_reason']}, pnl=${closed_trade['pnl_usd']:.2f}).")
+        mode = "len vyhodnotenie, bez noveho obchodu" if closed_trade.get("evaluation_only") else "plny cyklus"
+        print(f"[position_monitor] [{asset['name']}] post-close review ({mode}, "
+              f"dovod={closed_trade['close_reason']}, pnl=${closed_trade['pnl_usd']:.2f}).")
         trade_cycle.dispatch_triggered_check(asset, closed_trade=closed_trade)
 
 

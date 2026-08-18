@@ -184,6 +184,12 @@ def compute_daily_stats(asset: dict, for_date: date, session) -> dict:
                     "direction": trade.direction,
                     "status": trade.status,
                     "pnl_usd": trade.pnl_usd,
+                    # 2026-08-18 - viz format_stats_for_prompt nizsie: bez tychto
+                    # dvoch polí Claude pri hodnoteni PnL nemal ziadny odkaz na
+                    # KOLKO rizika bolo v hre ani na to, ci islo o SL/TP (teda
+                    # presne definovanu max. stratu/zisk, nie nahodny bod).
+                    "margin_usd": trade.margin_usd,
+                    "close_reason": trade.close_reason,
                 })
             continue
 
@@ -252,6 +258,25 @@ def format_stats_for_prompt(stats: dict) -> str:
             + (f" ({wins}/{len(closed)} vyhier z uzavretych, celkove PNL ${total_pnl:.2f})" if closed else "")
             + "."
         )
+        # 2026-08-18 (spatna vazba pouzivatela - SKHYNIX obchod -$35.75 oznaceny
+        # v daily_reflection ako "mierna strata", pricom to bolo ~36% risknutej
+        # marze PRESNE na SL urovni): bez odkazu na marzu/dovod zatvorenia nema
+        # Claude ziadnu kotvu na to, co je "mierne" - holy dolarovy udaj
+        # posudzoval len relativne k celkovemu portfoliu, nie k tomu, KOLKO
+        # rizika bolo na TOMTO obchode v hre. SL/TP je z definicie presne
+        # najhorsi/najlepsi mozny vysledok daneho obchodu, nie nahodny bod.
+        for o in closed:
+            if not o.get("margin_usd"):
+                continue
+            pct = o["pnl_usd"] / o["margin_usd"] * 100
+            reason_note = ""
+            if o.get("close_reason") == "stop_loss":
+                reason_note = " - SL, teda MAXIMALNA definovana strata na tomto obchode, nie nahodny bod"
+            elif o.get("close_reason") == "take_profit":
+                reason_note = " - TP, teda maximalny definovany zisk na tomto obchode"
+            lines.append(
+                f"  ({o['direction']}, conf {o['confidence']}: {pct:+.0f}% z risknutej marze{reason_note})"
+            )
     else:
         lines.append("- Realne otvorene: 0.")
 
