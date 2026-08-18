@@ -1,6 +1,6 @@
 """Periodicka kontrola otvorenych pozicii (naprieč vsetkymi assetmi - NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC/HYPE/SKHYNIX)
 - zaznamenanie zatvorenia a PnL."""
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import assets
 import config
@@ -49,6 +49,11 @@ _EVALUATION_ONLY_CLOSE_REASONS = {"stop_loss", "liquidation"}
 # vyssie - iny ucel, iny filter (SL/likvidacia tu SU zahrnute, hoci review ich
 # vedome vynechava).
 _NOTIFY_CLOSE_REASONS = {"take_profit", "stop_loss", "liquidation", "force_closed_by_bot"}
+
+# Kolko minut NAVYSE po POSITION_MAX_HOURS sa cakalo pred SL/TP grid-search
+# prepoctom (2026-08-19, na ziadost pouzivatela) - vid _check_and_queue_recompute
+# nizsie pre plne zdovodnenie (garancia kompletnej 24h cenovej historie).
+_RECOMPUTE_DELAY_BUFFER_MINUTES = 11
 
 
 def _sum_fills(fills: list[dict], order_id) -> dict | None:
@@ -334,19 +339,48 @@ def _fire_close_notifications(pending_notifications: list) -> None:
             print(f"[position_monitor] [{symbol}] Discord notifikacia o zatvoreni zlyhala: {e}")
 
 
-def _check_and_queue_recompute(trade: Trade, pending_recompute: set) -> None:
-    """Prida symbol do fronty na event-driven SL/TP grid-search prepocet (viz
-    sl_grid_backtest.recompute_symbol, 2026-08-19 na ziadost pouzivatela -
-    nahradza povodny 24h scheduler job, ktory prepocitaval VSETKY tickery
-    denne bez ohladu na to, ci mali novy obchod - cisty odpad, kedze vysledok
-    zavisi VYHRADNE od historie obchodov daneho tickera). NEZAVISLE od
-    _check_and_queue_review (iny ucel, vlastny dedup stlpec) - KAZDE
-    uzavretie pocita do vzorky, bez ohladu na close_reason (na rozdiel od
-    review-triggeru vyssie)."""
-    if trade.post_close_recompute_triggered_at is not None:
+def _check_and_queue_recompute(trade: Trade) -> None:
+    """NAPLANUJE (neodpali hned) event-driven SL/TP grid-search prepocet pre
+    tento ticker (2026-08-19, na ziadost pouzivatela - nahradza povodny 24h
+    scheduler job, ktory prepocitaval VSETKY tickery denne bez ohladu na to,
+    ci mali novy obchod).
+
+    DOLEZITE: prepocet sa NEODPALI HNED pri zatvoreni, ale az o
+    POSITION_MAX_HOURS + _RECOMPUTE_DELAY_BUFFER_MINUTES OD OTVORENIA tohto
+    obchodu (nie od zatvorenia). Dovod: ak sa obchod zatvoril SKOR (napr. SL
+    po 2h), grid search skusa aj SIRSIE hypoteticke SL/TP kombinacie, ktore
+    tento konkretny obchod nikdy nepouzil - tie potrebuju cenovu historiu AZ
+    DO KONCA 24h okna, inak by simulacia pre kazdu takuto sirsiu kombinaciu
+    ticho pouzila len neuplnu cast historie (viz sl_grid_backtest._prepare_trade
+    guard, ktory takyto pripad aj tak este raz odmietne ako poistku).
+    _fire_due_recomputes nizsie potom kazdy tik kontroluje, ci uz tento cas
+    nastal."""
+    if trade.recompute_due_at is not None:
         return
-    trade.post_close_recompute_triggered_at = datetime.now(timezone.utc)
-    pending_recompute.add(trade.symbol)
+    opened_at = trade.opened_at
+    if opened_at.tzinfo is None:
+        opened_at = opened_at.replace(tzinfo=timezone.utc)
+    trade.recompute_due_at = opened_at + timedelta(hours=config.POSITION_MAX_HOURS,
+                                                     minutes=_RECOMPUTE_DELAY_BUFFER_MINUTES)
+
+
+def _fire_due_recomputes(session, pending_recompute: set) -> None:
+    """Vola sa na KAZDOM position_monitor tiku (nezavisle od toho, ci prave
+    teraz nieco zatvara) - najde vsetky obchody, ktorych naplanovany
+    recompute_due_at (viz _check_and_queue_recompute) uz nastal a este
+    nebol spracovany, a prida ich symbol do frontu. Viac obchodov toho
+    isteho tickera naraz splatnych sa zluci do jedneho volania
+    recompute_symbol() (ten aj tak prepocitava VSETKY uzavrete obchody
+    tickera, nie len ten jeden, co due_at spustil)."""
+    now = datetime.now(timezone.utc)
+    due = session.query(Trade).filter(
+        Trade.recompute_due_at.isnot(None),
+        Trade.recompute_due_at <= now,
+        Trade.post_close_recompute_triggered_at.is_(None),
+    ).all()
+    for trade in due:
+        trade.post_close_recompute_triggered_at = now
+        pending_recompute.add(trade.symbol)
 
 
 def _fire_recomputes(symbols: set) -> None:
@@ -360,8 +394,7 @@ def _fire_recomputes(symbols: set) -> None:
             print(f"[position_monitor] [{symbol}] SL/TP grid-search prepocet zlyhal (neblokujuce): {e}")
 
 
-def _backfill_missing_exact_data(session, pending_reviews: list, pending_notifications: list,
-                                  pending_recompute: set) -> None:
+def _backfill_missing_exact_data(session, pending_reviews: list, pending_notifications: list) -> None:
     """Self-healing retry: obchody, ktore sa uz zatvorili, ale minule
     _lookup_exact_close nenasiel data (burza este neindexovala fill) - skusi
     znova. Nedotyka sa hlavnej trading logiky, len doplna historicke udaje.
@@ -382,7 +415,7 @@ def _backfill_missing_exact_data(session, pending_reviews: list, pending_notific
         session.add(trade)
         _check_and_queue_review(trade, session, pending_reviews)
         _check_and_queue_close_notification(trade, pending_notifications)
-        _check_and_queue_recompute(trade, pending_recompute)
+        _check_and_queue_recompute(trade)
 
 
 def check_open_trades():
@@ -392,7 +425,10 @@ def check_open_trades():
     pending_notifications: list = []
     pending_recompute: set = set()
     try:
-        _backfill_missing_exact_data(session, pending_reviews, pending_notifications, pending_recompute)
+        _backfill_missing_exact_data(session, pending_reviews, pending_notifications)
+        # Kazdy tik, nezavisle od toho, ci prave teraz nieco zatvara - viz
+        # _fire_due_recomputes docstring.
+        _fire_due_recomputes(session, pending_recompute)
 
         open_trades = session.query(Trade).filter(Trade.status == "open").all()
         if not open_trades:
@@ -425,7 +461,7 @@ def check_open_trades():
                     session.add(trade)
                     _check_and_queue_review(trade, session, pending_reviews)
                     _check_and_queue_close_notification(trade, pending_notifications)
-                    _check_and_queue_recompute(trade, pending_recompute)
+                    _check_and_queue_recompute(trade)
                     # 2026-08-16 na ziadost pouzivatela ("mela" po zatvoreni pri
                     # prudkom pohybe) - VSETKY dovody zatvorenia, SL/likvidacia
                     # najviac zo vsetkych (viz watch_monitor.mark_hot docstring).
@@ -450,7 +486,7 @@ def check_open_trades():
                     session.add(trade)
                     _check_and_queue_review(trade, session, pending_reviews)
                     _check_and_queue_close_notification(trade, pending_notifications)
-                    _check_and_queue_recompute(trade, pending_recompute)
+                    _check_and_queue_recompute(trade)
                     watch_monitor.mark_hot(trade.symbol)
                 else:
                     print(f"[position_monitor] Trade {trade.id} stale otvoreny "

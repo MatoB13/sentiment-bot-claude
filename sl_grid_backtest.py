@@ -48,18 +48,43 @@ import pandas_ta as ta
 import config
 import risk_manager
 import strike_client
-from db import CycleLog, PriceBar, SlTpBacktestCandidate, SlTpLocalSensitivity, Trade, get_session
+from db import (CycleLog, PriceBar, SlTpBacktestCandidate, SlTpBacktestCandidateConstrained,
+                 SlTpLocalSensitivity, SlTpLocalSensitivityConstrained, SlTpRecomputeStatus, Trade, get_session)
 
-# Rovnaka mriezka, aka sa pouzila na jednorazovy grid search 2026-08-19 (viz
-# memory pending_sl_calibration_methodology_fix) - siroke pokrytie navyse
-# overene, ze SL_k=5-10 uz vykazuje POKLES oproti SL_k=5 (nie je to len
-# artefakt kraja mriezky).
-_SL_K_GRID = [0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 7.0, 10.0, 15.0, 20.0]
-_TP_K_GRID = [0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 12.0]
+
+def _grid_range(start: float, stop: float, step: float) -> list[float]:
+    """Aritmeticky rad start..stop (vratane) po step, zaokruhleny na 2
+    desatinne miesta (predide plavakovym artefaktom ako 1.7999999999998)."""
+    n = round((stop - start) / step)
+    return [round(start + i * step, 2) for i in range(n + 1)]
+
+
+# Jednotna 0.5 granularita, SYMETRICKY rozsah 0.5-20 na oboch osiach
+# (2026-08-19, na ziadost pouzivatela - povodna mriezka mala 0.5 kroky len v
+# nizsom rozsahu a potom skakala po celych cislach 3->4->5->7->10->15->20,
+# a TP mala len do 12 kym SL do 20). Overene, ze SL_k=7-10 uz vykazuje POKLES
+# oproti SL_k=5 (viz memory pending_sl_calibration_methodology_fix), nie je
+# to artefakt kraja mriezky. #1 kandidat sa dalej rozpada na jemnejsie
+# +-0.25 v lokalnej citlivosti nizsie. 40x40 = 1600 kombinacii - lacne
+# (ziadne I/O v smycke), beziace len event-driven po uzavreti obchodu, nie
+# kontinualne.
+_SL_K_GRID = _grid_range(0.5, 20.0, 0.5)
+_TP_K_GRID = _grid_range(0.5, 20.0, 0.5)
 
 _CLOSED_STATUSES = ["closed_by_exchange", "closed_by_timeout", "closed_by_safety", "closed_by_user"]
 
 _TOP_N = 5
+
+# Minimalny TP:SL pomer pre "disciplinovany" rebricek (2026-08-19, na ziadost
+# pouzivatela) - povodny bot bol navrhnuty s TP=1.5xSL zamerne (viz stary
+# system prompt), nie nahodou. Cisto volny grid search moze najst kombinacie
+# so SL>=TP, ktore su ziskove LEN ak je odhadnuty win rate (z malej vzorky)
+# presny - taky pomer nema ZIADNU rezervu proti chybe odhadu (matematicky:
+# potrebuje win_rate > SL/(SL+TP), co pri SL>=TP znamena >50%, kym pri
+# TP=1.5xSL stac >40%). Oba rebricky (volny aj obmedzeny) sa pocitaju z
+# JEDNEJ simulacie (_run_full_grid) - obmedzeny je len filter nad tymi
+# istymi vysledkami, ziadna druha simulacia netreba.
+_MIN_REWARD_RISK_RATIO = 1.5
 
 # Lokalna citlivostna analyza okolo #1 (2026-08-19, na ziadost pouzivatela -
 # povodna verzia testovala kazdu os OSOBITNE s +-0.25/+-0.5, pouzivatel ju
@@ -82,7 +107,22 @@ _LOCAL_SENSITIVITY_OFFSETS = [
 
 def _prepare_trade(t: Trade, session, market_meta_cache: dict) -> dict | None:
     """Pripravi vsetko potrebne pre jeden realny obchod (entry/smer/ATR% v
-    case vstupu/forward bary/leverage-vstupy) - None ak dat nie je dost."""
+    case vstupu/forward bary/leverage-vstupy) - None ak dat nie je dost ALEBO
+    ak cenova historia este NEPOKRYVA CELE 24h okno (viz nizsie).
+
+    KRITICKY guard (2026-08-19, na ziadost pouzivatela): ak sa obchod zatvoril
+    SKOR ako za POSITION_MAX_HOURS (napr. SL po 2h), grid search tu skusa aj
+    SIRSIE hypoteticke SL/TP kombinacie, ktore skutocny obchod nikdy nepouzil -
+    tie potrebuju cenovu historiu AZ DO KONCA 24h okna, inak by sa "no_touch"
+    vetva (_first_touch_pnl) ticho pozrela na cenu na hranici NEUPLNYCH dat
+    (napr. po 2h) namiesto skutocnej ceny na konci 24h - falosny "predcasny
+    timeout" vysledok pre kazdu sirsiu kombinaciu. Preto NESTACI, ze fwd_bars
+    nie je prazdny - musia siahat (s 1h tolerantnou rezervou na aktualne
+    formovanu hodinu) az do window_end. Bez tohto guardu by okamzity
+    event-driven prepocet (viz position_monitor._check_and_queue_recompute)
+    davat nespravne vysledky pre kazdy obchod zatvoreny predcasne - presne
+    preto sa prepocet teraz aj ODKLADA (recompute_due_at), aby tu tento guard
+    v beznej prevadzke skoro nikdy neodmietol pripraveny obchod."""
     cl = session.query(CycleLog).filter(CycleLog.trade_id == t.id, CycleLog.outcome == "opened").first()
     if cl is None or cl.config_snapshot is None:
         return None
@@ -102,6 +142,8 @@ def _prepare_trade(t: Trade, session, market_meta_cache: dict) -> dict | None:
     hist_bars = [b for b in all_bars if b.hour_start <= opened_at]
     fwd_bars = [b for b in all_bars if b.hour_start > opened_at]
     if len(hist_bars) < 30 or not fwd_bars:
+        return None
+    if fwd_bars[-1].hour_start < window_end - timedelta(hours=1):
         return None
 
     edf = pd.DataFrame([{"high": b.high, "low": b.low, "close": b.close} for b in hist_bars])
@@ -187,34 +229,51 @@ def _simulate(prepared: list[dict], sl_k: float, tp_k: float) -> dict | None:
     return {"sl_k": sl_k, "tp_k": tp_k, "total_pnl": total_pnl, "win_rate": wins / n, "trade_count": n}
 
 
-def _run_grid_for_symbol(prepared_for_symbol: list[dict]) -> list[dict]:
+def _run_full_grid(prepared_for_symbol: list[dict]) -> list[dict]:
     """Cely (sl_k, tp_k) grid search pre JEDEN ticker (uz filtrovane obchody)
-    - vrati TOP N zoradenych podla total_pnl."""
+    - vrati VSETKY pouzitelne vysledky (neusporiadane, nefiltrovane). _top_n()
+    nizsie z nich odvodi volny aj 1.5x-obmedzeny rebricek bez druhej
+    simulacie."""
     results = []
     for sl_k in _SL_K_GRID:
         for tp_k in _TP_K_GRID:
             r = _simulate(prepared_for_symbol, sl_k, tp_k)
             if r is not None:
                 results.append(r)
-    if not results:
+    return results
+
+
+def _top_n(results: list[dict], min_reward_risk_ratio: float | None = None) -> list[dict]:
+    """TOP _TOP_N z uz vypocitanych vysledkov (viz _run_full_grid), zoradene
+    podla total_pnl. Ak je zadany min_reward_risk_ratio, najskor zahodi
+    kombinacie s TP_k < min_reward_risk_ratio * SL_k (viz _MIN_REWARD_RISK_RATIO)."""
+    pool = results
+    if min_reward_risk_ratio is not None:
+        pool = [r for r in pool if r["tp_k"] >= min_reward_risk_ratio * r["sl_k"]]
+    if not pool:
         return []
-    results.sort(key=lambda r: -r["total_pnl"])
-    return results[:_TOP_N]
+    return sorted(pool, key=lambda r: -r["total_pnl"])[:_TOP_N]
 
 
-def _run_local_sensitivity_for_symbol(prepared_for_symbol: list[dict], base_sl_k: float,
-                                       base_tp_k: float) -> list[dict]:
+def _run_local_sensitivity_for_symbol(prepared_for_symbol: list[dict], base_sl_k: float, base_tp_k: float,
+                                       min_reward_risk_ratio: float | None = None) -> list[dict]:
     """Otestuje plnu 3x3 mriezku okolo #1 (base_sl_k, base_tp_k), vsetky
     kombinacie delta z {-0.25, 0, +0.25} na oboch osiach (viz
     _LOCAL_SENSITIVITY_OFFSETS) - _simulate() je uz genericka na lubovolny
     float sl_k/tp_k, ziadny novy simulacny kod netreba. Varianty s vysledym
     sl_k/tp_k <= 0 (napr. base SL_k=0.25 mensi o 0.25 = 0) sa jednoducho
-    preskocia."""
+    preskocia. Ak je zadany min_reward_risk_ratio (2026-08-19, pre
+    "obmedzenu" citlivost okolo #1 z uz-obmedzeneho rebricka), preskocia sa
+    aj varianty, ktore by pomer poslali POD tuto hranicu (napr. TP-0.25 pri
+    #1 presne na hranici 1.5x) - inak by "obmedzena" tabulka nekonzistentne
+    obsahovala presne to, co ma vylucovat."""
     results = []
     for variant, sort_order, sl_delta, tp_delta in _LOCAL_SENSITIVITY_OFFSETS:
         sl_k = base_sl_k + sl_delta
         tp_k = base_tp_k + tp_delta
         if sl_k <= 0 or tp_k <= 0:
+            continue
+        if min_reward_risk_ratio is not None and tp_k < min_reward_risk_ratio * sl_k:
             continue
         r = _simulate(prepared_for_symbol, sl_k, tp_k)
         if r is None:
@@ -225,13 +284,45 @@ def _run_local_sensitivity_for_symbol(prepared_for_symbol: list[dict], base_sl_k
     return results
 
 
+def _write_candidates(session, symbol: str, top: list[dict], model, label: str) -> None:
+    """Spolocny zapis pre volny/obmedzeny rebricek (rovnaky tvar riadku,
+    iny model/tabulka)."""
+    print(f"[sl_grid_backtest] [{symbol}] {label}:")
+    for i, r in enumerate(top, start=1):
+        print(f"  #{i}: SL_k={r['sl_k']} TP_k={r['tp_k']} total_pnl=${r['total_pnl']:.2f} "
+              f"win_rate={r['win_rate']*100:.0f}% n={r['trade_count']}")
+        session.add(model(
+            symbol=symbol, rank=i, sl_k=r["sl_k"], tp_k=r["tp_k"], total_pnl=r["total_pnl"],
+            win_rate=r["win_rate"], trade_count=r["trade_count"],
+        ))
+
+
+def _write_sensitivity(session, symbol: str, prepared: list[dict], base_sl_k: float, base_tp_k: float,
+                        model, label: str, min_reward_risk_ratio: float | None = None) -> None:
+    """Spolocny zapis lokalnej citlivosti pre volny/obmedzeny rebricek."""
+    sensitivity = _run_local_sensitivity_for_symbol(prepared, base_sl_k, base_tp_k, min_reward_risk_ratio)
+    print(f"[sl_grid_backtest] [{symbol}] lokalna citlivost {label} okolo #1 ({len(sensitivity)}/9 pouzitelnych):")
+    for r in sensitivity:
+        print(f"  {r['variant']}: SL_k={r['sl_k']} TP_k={r['tp_k']} total_pnl=${r['total_pnl']:.2f} "
+              f"win_rate={r['win_rate']*100:.0f}%")
+        session.add(model(
+            symbol=symbol, variant=r["variant"], sort_order=r["sort_order"],
+            sl_k=r["sl_k"], tp_k=r["tp_k"], total_pnl=r["total_pnl"],
+            win_rate=r["win_rate"], trade_count=r["trade_count"],
+        ))
+
+
 def recompute_symbol(symbol: str) -> None:
-    """Prepocita TOP-5 grid-search rebricek + lokalnu citlivost LEN pre JEDEN
+    """Prepocita OBA TOP-5 grid-search rebricky (volny + 1.5x-obmedzeny,
+    viz _MIN_REWARD_RISK_RATIO) + ich lokalne citlivosti LEN pre JEDEN
     ticker (2026-08-19, na ziadost pouzivatela) - volane z position_monitor.py
-    HNED po uzavreti obchodu tohto tickera (event-driven), namiesto povodneho
+    po uzavreti obchodu tohto tickera (event-driven, s odkladom - viz
+    position_monitor._check_and_queue_recompute), namiesto povodneho
     globalneho 24h scheduler jobu (viz docstring modulu vyssie). Maze a znova
     zapisuje LEN riadky tohto symbolu (nie cele tabulky) - iny ticker sa
-    mohol medzitym prepocitat nezavisle vo vlastnom volani."""
+    mohol medzitym prepocitat nezavisle vo vlastnom volani. Simulacia
+    (_run_full_grid) bezi LEN RAZ - oba rebricky su len rozne filtre/top-5
+    nad tymi istymi vysledkami."""
     print(f"\n=== [sl_grid_backtest] recompute_symbol({symbol}) {datetime.now(timezone.utc).isoformat()} ===")
     session = get_session()
     try:
@@ -254,32 +345,43 @@ def recompute_symbol(symbol: str) -> None:
 
         session.query(SlTpBacktestCandidate).filter(SlTpBacktestCandidate.symbol == symbol).delete()
         session.query(SlTpLocalSensitivity).filter(SlTpLocalSensitivity.symbol == symbol).delete()
+        session.query(SlTpBacktestCandidateConstrained).filter(
+            SlTpBacktestCandidateConstrained.symbol == symbol).delete()
+        session.query(SlTpLocalSensitivityConstrained).filter(
+            SlTpLocalSensitivityConstrained.symbol == symbol).delete()
 
-        top = _run_grid_for_symbol(prepared)
-        if not top:
-            print(f"[sl_grid_backtest] [{symbol}] ziadne pouzitelne vysledky ({len(prepared)} obchodov), tabulky ostavaju prazdne.")
-            session.commit()
-            return
+        # 2026-08-19 (na ziadost pouzivatela) - VZDY zapiseme "kedy naposledy
+        # prepocitane + z kolkych POUZITELNYCH (t.j. uz s kompletnou 24h
+        # cenovou historiou, viz _prepare_trade guard) obchodov", aj ked grid
+        # search nizsie nenajde ziadne pouzitelne vysledky - dashboard tak
+        # vzdy vie ukazat "ako cerstvy" je rebricek, nie len ked sa podari.
+        session.merge(SlTpRecomputeStatus(
+            symbol=symbol, computed_at=datetime.now(timezone.utc), closed_trade_count=len(prepared),
+        ))
 
-        print(f"[sl_grid_backtest] [{symbol}] ({len(prepared)} obchodov):")
-        for i, r in enumerate(top, start=1):
-            print(f"  #{i}: SL_k={r['sl_k']} TP_k={r['tp_k']} total_pnl=${r['total_pnl']:.2f} "
-                  f"win_rate={r['win_rate']*100:.0f}% n={r['trade_count']}")
-            session.add(SlTpBacktestCandidate(
-                symbol=symbol, rank=i, sl_k=r["sl_k"], tp_k=r["tp_k"], total_pnl=r["total_pnl"],
-                win_rate=r["win_rate"], trade_count=r["trade_count"],
-            ))
+        full_results = _run_full_grid(prepared)
 
-        sensitivity = _run_local_sensitivity_for_symbol(prepared, top[0]["sl_k"], top[0]["tp_k"])
-        print(f"[sl_grid_backtest] [{symbol}] lokalna citlivost okolo #1 ({len(sensitivity)}/9 pouzitelnych):")
-        for r in sensitivity:
-            print(f"  {r['variant']}: SL_k={r['sl_k']} TP_k={r['tp_k']} total_pnl=${r['total_pnl']:.2f} "
-                  f"win_rate={r['win_rate']*100:.0f}%")
-            session.add(SlTpLocalSensitivity(
-                symbol=symbol, variant=r["variant"], sort_order=r["sort_order"],
-                sl_k=r["sl_k"], tp_k=r["tp_k"], total_pnl=r["total_pnl"],
-                win_rate=r["win_rate"], trade_count=r["trade_count"],
-            ))
+        top_free = _top_n(full_results)
+        if top_free:
+            _write_candidates(session, symbol, top_free, SlTpBacktestCandidate,
+                               f"volny rebricek ({len(prepared)} obchodov)")
+            _write_sensitivity(session, symbol, prepared, top_free[0]["sl_k"], top_free[0]["tp_k"],
+                                SlTpLocalSensitivity, "(volny)")
+        else:
+            print(f"[sl_grid_backtest] [{symbol}] volny rebricek: ziadne pouzitelne vysledky "
+                  f"({len(prepared)} obchodov).")
+
+        top_constrained = _top_n(full_results, min_reward_risk_ratio=_MIN_REWARD_RISK_RATIO)
+        if top_constrained:
+            _write_candidates(session, symbol, top_constrained, SlTpBacktestCandidateConstrained,
+                               f"obmedzeny rebricek TP>={_MIN_REWARD_RISK_RATIO}xSL ({len(prepared)} obchodov)")
+            _write_sensitivity(session, symbol, prepared, top_constrained[0]["sl_k"], top_constrained[0]["tp_k"],
+                                SlTpLocalSensitivityConstrained, "(obmedzeny)",
+                                min_reward_risk_ratio=_MIN_REWARD_RISK_RATIO)
+        else:
+            print(f"[sl_grid_backtest] [{symbol}] obmedzeny rebricek: ziadne pouzitelne vysledky "
+                  f"(TP>={_MIN_REWARD_RISK_RATIO}xSL, {len(prepared)} obchodov).")
+
         session.commit()
     finally:
         session.close()

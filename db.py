@@ -66,13 +66,21 @@ class Trade(Base):
     # tu ZAMERNE vynechany, na rozdiel od review-triggeru).
     close_notified_at = Column(DateTime, nullable=True)
 
-    # Nastavene, ked bol pre toto zatvorenie uz spusteny event-driven SL/TP
-    # grid-search prepocet (viz position_monitor._check_and_queue_recompute +
-    # sl_grid_backtest.recompute_symbol, 2026-08-19 na ziadost pouzivatela,
-    # nahradza povodny 24h scheduler job) - rovnaky dedup vzor ako
-    # post_close_review_triggered_at vyssie, ale NEZAVISLY od close_reason
-    # filtra (kazde uzavretie pocita do vzorky, bez ohladu na to, ci ten istý
-    # dovod spusta aj review).
+    # KEDY sa ma spustit event-driven SL/TP grid-search prepocet pre tento
+    # ticker (viz position_monitor._check_and_queue_recompute +
+    # sl_grid_backtest.recompute_symbol) - nastavene HNED pri zatvoreni na
+    # opened_at + POSITION_MAX_HOURS + buffer, NIE na cas zatvorenia (2026-08-19,
+    # oprava po naslednej diere: okamzity prepocet HNED po skorsom zatvoreni
+    # - napr. SL po 2h - by pre SIRSIE hypoteticke SL/TP kombinacie pouzival
+    # LEN neuplnu cast 24h cenovej historie, viz sl_grid_backtest._prepare_trade
+    # guard). position_monitor._fire_due_recomputes kontroluje na KAZDOM tiku,
+    # ci uz tento cas nastal, nezavisle od toho, ci prave teraz nieco zatvara.
+    recompute_due_at = Column(DateTime, nullable=True)
+
+    # Nastavene, KED bol tento naplanovany prepocet (vyssie) uz skutocne
+    # odpaleny - dedup, aby sa pri kazdom dalsom tiku po due_at neopakoval.
+    # NEZAVISLY od close_reason filtra (kazde uzavretie pocita do vzorky, bez
+    # ohladu na to, ci ten isty dovod spusta aj review).
     post_close_recompute_triggered_at = Column(DateTime, nullable=True)
 
     # Kedy naposledy plny (plateny) Claude position-health-check cyklus pre
@@ -529,6 +537,69 @@ class SlTpLocalSensitivity(Base):
     win_rate = Column(Float, nullable=False)
     trade_count = Column(Integer, nullable=False)
     computed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class SlTpBacktestCandidateConstrained(Base):
+    """Zrkadlova tabulka SlTpBacktestCandidate (2026-08-19, na ziadost
+    pouzivatela) - TOP-5, ale LEN z kombinacii kde TP_k >= 1.5x SL_k (viz
+    sl_grid_backtest._MIN_REWARD_RISK_RATIO). Dovod separatnej tabulky
+    namiesto pridania stlpca do SlTpBacktestCandidate: rank 1-5 by sa
+    prekryval pre oba rebricky na tom istom symbole (PRIMARY KEY konflikt),
+    a zmena existujuceho PRIMARY KEY nie je cez poor-man's migraciu
+    (_ensure_columns) mozna bez rizikovej ALTER TABLE operacie - rovnaky
+    dovod ako pri povodnom sl_tp_backtest_candidates -> _by_symbol prechode.
+
+    Ucel 1.5x filtra: cisto volny grid search moze najst kombinacie so
+    SL>=TP, ktore su ziskove LEN ak je odhadnuty win rate (z malej vzorky)
+    presny - zly risk:reward pomer nema ziadnu rezervu proti chybe odhadu.
+    Tato tabulka ukazuje, ake najlepsie kombinacie by vysli, keby sme sa
+    (z opatrnosti, na zaklade povodneho navrhu bota s TP=1.5xSL) obmedzili
+    len na disciplinovane pomery."""
+    __tablename__ = "sl_tp_backtest_candidates_constrained"
+
+    symbol = Column(String, primary_key=True)
+    rank = Column(Integer, primary_key=True)
+    sl_k = Column(Float, nullable=False)
+    tp_k = Column(Float, nullable=False)
+    total_pnl = Column(Float, nullable=False)
+    win_rate = Column(Float, nullable=False)
+    trade_count = Column(Integer, nullable=False)
+    computed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class SlTpLocalSensitivityConstrained(Base):
+    """Zrkadlova tabulka SlTpLocalSensitivity (2026-08-19) - lokalna 3x3
+    citlivost okolo #1 Z SlTpBacktestCandidateConstrained (nie z volneho
+    rebricka). Rovnaky dovod separatnej tabulky ako vyssie (PRIMARY KEY
+    kolizia so zdielanym symbol+variant klucom)."""
+    __tablename__ = "sl_tp_local_sensitivity_constrained"
+
+    symbol = Column(String, primary_key=True)
+    variant = Column(String, primary_key=True)
+    sort_order = Column(Integer, nullable=False)
+    sl_k = Column(Float, nullable=False)
+    tp_k = Column(Float, nullable=False)
+    total_pnl = Column(Float, nullable=False)
+    win_rate = Column(Float, nullable=False)
+    trade_count = Column(Integer, nullable=False)
+    computed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class SlTpRecomputeStatus(Base):
+    """Kedy bol naposledy prepocitany SL/TP grid-search rebricek pre KAZDY
+    ticker + kolko jeho VLASTNYCH uzavretych obchodov bolo v tom prepocte
+    POUZITELNYCH (t.j. malo uz kompletnu 24h cenovu historiu - viz
+    sl_grid_backtest._prepare_trade guard) - 2026-08-19, na ziadost
+    pouzivatela, aby bolo v dashboarde vidno "ako cerstvy" je rebricek a na
+    akej vzorke stoji. VZDY zapisovana pri kazdom recompute_symbol() volani,
+    aj ked grid search nenajde ziadne pouzitelne top-5 vysledky (na rozdiel
+    od SlTpBacktestCandidate/SlTpLocalSensitivity, ktore v tom pripade
+    ostanu prazdne pre dany symbol)."""
+    __tablename__ = "sl_tp_recompute_status"
+
+    symbol = Column(String, primary_key=True)
+    computed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    closed_trade_count = Column(Integer, nullable=False)
 
 
 def _ensure_columns(engine) -> None:
