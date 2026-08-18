@@ -42,7 +42,7 @@ import config
 import market_data
 import risk_manager
 import strike_client
-from db import CycleLog, PriceBar, SlTpBacktestCandidate, SrCalibration, Trade, get_session
+from db import CycleLog, PriceBar, SlTpBacktestCandidate, SlTpLocalSensitivity, SrCalibration, Trade, get_session
 
 # Rovnaka mriezka, aka sa pouzila na jednorazovy grid search 2026-08-19 (viz
 # memory pending_sl_calibration_methodology_fix) - siroke pokrytie navyse
@@ -54,6 +54,21 @@ _TP_K_GRID = [0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 12.0]
 _CLOSED_STATUSES = ["closed_by_exchange", "closed_by_timeout", "closed_by_safety", "closed_by_user"]
 
 _TOP_N = 5
+
+# Lokalna citlivostna analyza okolo #1 (2026-08-19, na ziadost pouzivatela) -
+# kazda os osobitne (SL_k pri fixnom TP_k, potom TP_k pri fixnom SL_k), aby
+# bolo hned vidno KTORA os je citlivejsia. (label, sort_order, sl_delta, tp_delta).
+_LOCAL_SENSITIVITY_OFFSETS = [
+    ("base", 0, 0.0, 0.0),
+    ("SL-0.5", 1, -0.5, 0.0),
+    ("SL-0.25", 2, -0.25, 0.0),
+    ("SL+0.25", 3, 0.25, 0.0),
+    ("SL+0.5", 4, 0.5, 0.0),
+    ("TP-0.5", 5, 0.0, -0.5),
+    ("TP-0.25", 6, 0.0, -0.25),
+    ("TP+0.25", 7, 0.0, 0.25),
+    ("TP+0.5", 8, 0.0, 0.5),
+]
 
 # S/R detekcia: fraktalovy pivot - bar je swing high/low, ak je jeho high/low
 # extrem v ramci +-_PIVOT_WINDOW barov.
@@ -289,6 +304,28 @@ def _run_grid_for_symbol(prepared_for_symbol: list[dict]) -> list[dict]:
     return top
 
 
+def _run_local_sensitivity_for_symbol(prepared_for_symbol: list[dict], base_sl_k: float,
+                                       base_tp_k: float) -> list[dict]:
+    """Otestuje 8 susednych bodov okolo #1 (base_sl_k, base_tp_k), kazda os
+    osobitne (viz _LOCAL_SENSITIVITY_OFFSETS) - _simulate() je uz genericka
+    na lubovolny float sl_k/tp_k, ziadny novy simulacny kod netreba. Varianty
+    s vysledym sl_k/tp_k <= 0 (napr. base SL_k=0.5 mensi o 0.5 = 0) sa
+    jednoducho preskocia."""
+    results = []
+    for variant, sort_order, sl_delta, tp_delta in _LOCAL_SENSITIVITY_OFFSETS:
+        sl_k = base_sl_k + sl_delta
+        tp_k = base_tp_k + tp_delta
+        if sl_k <= 0 or tp_k <= 0:
+            continue
+        r = _simulate(prepared_for_symbol, sl_k, tp_k)
+        if r is None:
+            continue
+        r["variant"] = variant
+        r["sort_order"] = sort_order
+        results.append(r)
+    return results
+
+
 def compute_leaderboard() -> None:
     """Vstupny bod scheduleru (main.py, denne) - PRE KAZDY ticker nezavisle
     prepocita grid search NAD VLASTNYMI obchodmi a prepise jeho TOP 5 v
@@ -319,6 +356,7 @@ def compute_leaderboard() -> None:
                 by_symbol.setdefault(t.symbol, []).append(p)
 
         session.query(SlTpBacktestCandidate).delete()
+        session.query(SlTpLocalSensitivity).delete()
         for symbol, prepared in by_symbol.items():
             top = _run_grid_for_symbol(prepared)
             if not top:
@@ -335,6 +373,17 @@ def compute_leaderboard() -> None:
                     symbol=symbol, rank=i, sl_k=r["sl_k"], tp_k=r["tp_k"], total_pnl=r["total_pnl"],
                     win_rate=r["win_rate"], trade_count=r["trade_count"],
                     sr_total_pnl=sr_pnl, sr_win_rate=sr_wr,
+                ))
+
+            sensitivity = _run_local_sensitivity_for_symbol(prepared, top[0]["sl_k"], top[0]["tp_k"])
+            print(f"[sl_grid_backtest] [{symbol}] lokalna citlivost okolo #1 ({len(sensitivity)}/9 pouzitelnych):")
+            for r in sensitivity:
+                print(f"  {r['variant']}: SL_k={r['sl_k']} TP_k={r['tp_k']} total_pnl=${r['total_pnl']:.2f} "
+                      f"win_rate={r['win_rate']*100:.0f}%")
+                session.add(SlTpLocalSensitivity(
+                    symbol=symbol, variant=r["variant"], sort_order=r["sort_order"],
+                    sl_k=r["sl_k"], tp_k=r["tp_k"], total_pnl=r["total_pnl"],
+                    win_rate=r["win_rate"], trade_count=r["trade_count"],
                 ))
         session.commit()
     finally:

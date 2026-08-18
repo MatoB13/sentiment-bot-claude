@@ -491,6 +491,38 @@ class SlTpBacktestCandidate(Base):
     sr_win_rate = Column(Float, nullable=True)
 
 
+class SlTpLocalSensitivity(Base):
+    """Lokalna citlivostna analyza OKOLO TOP-1 kandidata z SlTpBacktestCandidate
+    (2026-08-19, na ziadost pouzivatela) - grid search vyssie testuje len
+    diskretne body mriezky (napr. SL_k skace 2->3->4), takze #1 je najlepsi
+    z TESTOVANYCH bodov, nie nutne skutocne lokalne optimum. Táto tabulka
+    zoberie #1 (sl_k, tp_k) a otestuje 8 susednych bodov (kazda os osobitne,
+    +-0.25/+-0.5 SL_k pri fixnom TP_k, potom +-0.25/+-0.5 TP_k pri fixnom
+    SL_k) na TOTOZNYCH pripravenych obchodoch tickera (rovnaka _simulate()
+    funkcia ako hlavny grid - simulacia je uz generickA na lubovolny sl_k/
+    tp_k float, ziadny novy simulacny kod netreba).
+
+    Ucel: ukazat, ci #1 sedi v stabilnej "plosine" (susedne varianty podobny
+    PnL/win-rate = dovervyhodnejsie) alebo je to osamely vrchol (susedne
+    varianty vyrazne horsie = skor sum/overfit pri malom n) - viz diskusia
+    s pouzivatelom 2026-08-19 o citlivosti odstupov medzi kandidatmi.
+
+    Varianty s neplatnym (<=0) vysledym sl_k/tp_k (napr. base SL_k=0.5 mensi
+    o 0.5 = 0) sa jednoducho vynechaju - menej ako 9 riadkov je preto
+    normalne, nie chyba."""
+    __tablename__ = "sl_tp_local_sensitivity"
+
+    symbol = Column(String, primary_key=True)
+    variant = Column(String, primary_key=True)  # "base" | "SL-0.5" | "SL+0.25" | "TP+0.5" | ...
+    sort_order = Column(Integer, nullable=False)
+    sl_k = Column(Float, nullable=False)
+    tp_k = Column(Float, nullable=False)
+    total_pnl = Column(Float, nullable=False)
+    win_rate = Column(Float, nullable=False)
+    trade_count = Column(Integer, nullable=False)
+    computed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class SrCalibration(Base):
     """Aktualna (dnesna) S/R-prichytena SL%/TP% PRE KAZDY ticker x KAZDY z
     TOP 5 poolovanych kandidatov (2026-08-19, viz sl_grid_backtest.
