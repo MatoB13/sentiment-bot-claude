@@ -917,6 +917,19 @@ def run_triggered_check(asset: dict, closed_trade: dict | None = None,
 _triggered_check_lock = threading.Lock()
 _triggered_check_in_flight: set[str] = set()
 
+# Strop na POCET SUCASNE BEZIACICH Claude volani z dispatch_triggered_check
+# (2026-08-19, crash-scenario audit) - bez neho by hromadne zatvorenie viacerych
+# pozicii naraz (napr. cely trh padne, SL/TP sa vykonaju pre viacero tickerov v
+# tom istom position_monitor tiku) spustilo NEOBMEDZENY pocet suecasnych
+# vlakien, kazde s vlastnym Claude+web_search volanim aj vlastnou DB session
+# drzanou po celu jeho dlzku (1-3+ min) - riziko narazenia na Anthropic rate
+# limit aj vycerpania DB connection poolu naraz. Vlakno sa VZDY spusti hned
+# (in-flight bookkeeping ostava presne - symbol je "in flight" aj pocas
+# cakania), len samotna praca caka na volny slot - nadbytocne pozadovky sa
+# spracuju postupne, ziadna sa nestrati (na rozdiel od explicitneho zamietnutia).
+_DISPATCH_CONCURRENCY_LIMIT = 5
+_dispatch_semaphore = threading.Semaphore(_DISPATCH_CONCURRENCY_LIMIT)
+
 
 def is_triggered_check_in_flight(symbol: str) -> bool:
     """Umoznuje volajucemu (watch_monitor.py) zistit vopred, ci by dispatch_triggered_check()
@@ -968,13 +981,14 @@ def dispatch_triggered_check(asset: dict, **kwargs) -> None:
         _triggered_check_in_flight.add(symbol)
 
     def _run():
-        try:
-            run_triggered_check(asset, **kwargs)
-        except Exception as e:
-            print(f"[trade_cycle] [{name}] mimoriadny beh na pozadi zlyhal: {e}")
-        finally:
-            with _triggered_check_lock:
-                _triggered_check_in_flight.discard(symbol)
+        with _dispatch_semaphore:
+            try:
+                run_triggered_check(asset, **kwargs)
+            except Exception as e:
+                print(f"[trade_cycle] [{name}] mimoriadny beh na pozadi zlyhal: {e}")
+            finally:
+                with _triggered_check_lock:
+                    _triggered_check_in_flight.discard(symbol)
 
     threading.Thread(target=_run, daemon=True, name=f"triggered-{name}").start()
 

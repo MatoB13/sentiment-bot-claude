@@ -382,7 +382,16 @@ def _ensure_columns(engine) -> None:
             print(f"[db] Pridany chybajuci stlpec {table.name}.{column.name} ({col_type})")
 
 
-_engine = create_engine(config.DATABASE_URL, future=True)
+# pool_size/max_overflow explicitne (2026-08-19, crash-scenario audit) - bez
+# tychto parametrov SQLAlchemy default (5 + 10 overflow = 15 sucasnych spojeni)
+# by pri hromadnom zatvoreni viacerych pozicii naraz mohol byt tesny: az
+# _DISPATCH_CONCURRENCY_LIMIT (viz trade_cycle.py) suecasnych review vlakien +
+# 6 scheduler jobov, kazde drziace session (a teda pripojenie) otvorenu PO
+# CELU DLZKU Claude volania (nie len pocas samotneho DB dotazu). 30 celkovo
+# dava pohodlnu rezervu. pool_pre_ping=True zabrani chybam z "stale" spojeni,
+# ktore Railway/Postgres proxy obcas po dlhsej necinnosti tichy zahodi.
+_engine = create_engine(config.DATABASE_URL, future=True,
+                         pool_size=10, max_overflow=20, pool_pre_ping=True)
 Base.metadata.create_all(_engine)
 _ensure_columns(_engine)
 SessionLocal = sessionmaker(bind=_engine, future=True)

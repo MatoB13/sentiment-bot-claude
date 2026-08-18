@@ -3,12 +3,38 @@ webhooku vytvoreneho priamo v kanale (Channel Settings -> Integrations ->
 Webhooks). Pouziva sa LEN na upozornenia (fire-and-forget) - zlyhanie NESMIE
 nikdy ovplyvnit skutocne obchodovanie, preto kazda funkcia tu ticho zlyha
 (vypise chybu do logu, nikdy nevyhodi vynimku volajucemu)."""
+import time
+
 import requests
 
 import config
 
 _DIRECTION_COLOR = {"long": 3066993, "short": 15158332}  # Discord embed color (decimal), zelena/cervena
 _PNL_COLOR = {"win": 3066993, "loss": 15158332}  # rovnake farby, ale podla vysledku (viz notify_trade_closed)
+
+# 1 retry (2026-08-19, crash-scenario audit) - Discord webhook ma prisny
+# rate limit; pri hromadnom zatvoreni viacerych pozicii naraz (kazda vlastna
+# notifikacia) by niekolko notifikacii v rychlom slede mohlo dostat 429 a
+# doteraz sa ticho zahodili bez akehokolvek pokusu o retry.
+_MAX_RETRIES = 1
+_RETRY_DELAY_SECONDS = 2
+
+
+def _post_webhook(payload: dict, label: str) -> None:
+    """Zdielana odosielacia logika - fire-and-forget, ale s jednym retry pri
+    prechodnej chybe (vratane Discord 429). Nikdy nevyhodi vynimku volajucemu."""
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            resp = requests.post(config.DISCORD_WEBHOOK_URL, json=payload, timeout=10)
+            resp.raise_for_status()
+            return
+        except Exception as e:
+            if attempt < _MAX_RETRIES:
+                print(f"[discord_client] {label} zlyhala, skusam znova o "
+                      f"{_RETRY_DELAY_SECONDS}s: {e}")
+                time.sleep(_RETRY_DELAY_SECONDS)
+            else:
+                print(f"[discord_client] {label} zlyhala: {e}")
 
 
 def notify_trade_opened(asset: dict, sized: dict) -> None:
@@ -38,11 +64,7 @@ def notify_trade_opened(asset: dict, sized: dict) -> None:
             ],
         }]
     }
-    try:
-        resp = requests.post(config.DISCORD_WEBHOOK_URL, json=payload, timeout=10)
-        resp.raise_for_status()
-    except Exception as e:
-        print(f"[discord_client] Notifikacia o otvoreni zlyhala (obchod uz je otvoreny, pokracujem): {e}")
+    _post_webhook(payload, "Notifikacia o otvoreni")
 
 
 _CLOSE_REASON_LABELS = {
@@ -78,8 +100,4 @@ def notify_trade_closed(symbol: str, closed_trade: dict) -> None:
             ],
         }]
     }
-    try:
-        resp = requests.post(config.DISCORD_WEBHOOK_URL, json=payload, timeout=10)
-        resp.raise_for_status()
-    except Exception as e:
-        print(f"[discord_client] Notifikacia o zatvoreni zlyhala: {e}")
+    _post_webhook(payload, "Notifikacia o zatvoreni")

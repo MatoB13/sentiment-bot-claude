@@ -23,9 +23,13 @@ import market_data
 # Prechodne infra chyby (Cloudflare/Anthropic docasne nedostupne) - bezpecne
 # opakovat, kedze Messages API call nema ziadne vedlajsie ucinky (nehybe
 # peniazmi, neotvara poziciu). 529 je Anthropic-ove vlastne "overloaded_error".
+# 429 (rate limit) pridane 2026-08-19 (crash-scenario audit) - pri hromadnom
+# zatvoreni viacerych pozicii naraz (viz trade_cycle._DISPATCH_CONCURRENCY_LIMIT)
+# sa moze spustit viacero suecasnych Claude volani, co pri narazeni na rate
+# limit predtym cyklus rovno vzdalo bez pokusu o retry.
 # Odstup 60s (nie povodnych 3s) - realny 529 vydrzal cez cele povodne ~6s okno
 # (2026-07-31, XAU cyklus), minuta by mala prekryt bezny kratkodoby vypadok.
-_RETRYABLE_STATUS = {502, 503, 504, 520, 521, 522, 523, 524, 529}
+_RETRYABLE_STATUS = {429, 502, 503, 504, 520, 521, 522, 523, 524, 529}
 _MAX_API_RETRIES = 2
 _API_RETRY_DELAY_SECONDS = 60
 

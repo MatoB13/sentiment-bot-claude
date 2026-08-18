@@ -49,7 +49,12 @@ def _sign(method: str, path: str, body_str: str = "") -> dict:
 # pozicie a pod.) sa NIKDY neopakuju automaticky - ak by sa odpoved stratila po
 # tom, co sa objednavka na burze uz realne vykonala, retry by mohol omylom
 # spustit rovnaku akciu druhykrat (napr. otvorit poziciu 2x).
-_RETRYABLE_STATUS = {502, 503, 504}
+# 429 (rate limit) pridane 2026-08-19 (crash-scenario audit) - pri hromadnom
+# zatvoreni viacerych pozicii naraz robi position_monitor viacero GET volani
+# (order/fill history) za sebou; predtym by 429 rovno zhodil ten lookup bez
+# pokusu o retry (self-healing _backfill_missing_exact_data by to skusila
+# znova az pri buducom tiku).
+_RETRYABLE_STATUS = {429, 502, 503, 504}
 _MAX_RETRIES = 2
 _RETRY_DELAY_SECONDS = 2
 
