@@ -1,4 +1,4 @@
-# Sentiment Bot (Strike Finance) — NAS100 + NVDA + ADA + GOLD + WTI + NIGHT + BTC + HYPE + SKHYNIX + AAOI + MINIMAX + ZEC
+# Sentiment Bot (Strike Finance) — NAS100 + NVDA + ADA + GOLD + WTI + NIGHT + BTC + HYPE + SKHYNIX + AAOI + MINIMAX + ZEC + GOOGL
 
 Automatizovaný multi-asset obchodný bot na Strike Finance: **NAS100** (index),
 **NVDA** (akcia), **ADA** (krypto perpetuál), **GOLD** (komodita, zámerne
@@ -28,7 +28,12 @@ kódovania, keď sa nazbiera dosť dát), **ZEC** (krypto Zcash, privacy coin s
 voliteľnými "shielded" transakciami, pridaná 2026-08-15 na žiadosť
 používateľa — rizikový profil vedome nastavený rovnako ako ADA, ale vlastný
 Claude system prompt: shielded pool adopcia, regulačné/delisting riziko
-privacy coinov, korelácia s Monero/privacy-coin košom). Každý asset je nezávislý "bot" —
+privacy coinov, korelácia s Monero/privacy-coin košom), **GOOGL** (akcia
+Alphabet Class A, pridaná 2026-08-18 na žiadosť používateľa — Strike pridal
+GOOGL-USD do ponuky, korelačná analýza ukázala |korelácia| ≤ 0.5 voči
+všetkým ostatným tickerom v portfóliu, teda dobrý diverzifikačný kandidát;
+SL/TP % kalibrované z hodinového ATR rovnakým pomerom ako už naladený NVDA).
+Každý asset je nezávislý "bot" —
 vlastná pozícia, vlastný risk (SL/TP %, leverage, margin, min. confidence,
 frekvencia cyklu, trading hours), vlastné rozhodnutie od Claude — ale všetky
 bežia v **jednom scheduler cykle** a zdieľajú cross-market/session (a pre
@@ -44,7 +49,7 @@ referenciu nevyžaduje) makro fetch, takže sa tie isté dáta nesťahujú 9x (v
    yfinance, žiadny nový platený zdroj). Rovnako sa **RAZ** natiahne aj
    `fred_client.get_macro_snapshot()` (CPI/Core CPI/Fed funds rate priamo z Fedu,
    voliteľné - viz nižšie).
-1. Pre každý aktívny asset z `assets.py` (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC/HYPE/SKHYNIX/AAOI/MINIMAX/ZEC
+1. Pre každý aktívny asset z `assets.py` (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC/HYPE/SKHYNIX/AAOI/MINIMAX/ZEC/GOOGL
    — NVDA/AAOI/MINIMAX sú momentálne `enabled=False`, viz vyššie), KTORÝ je práve "na rade" (viz
    `trade_cycle._is_due` — každý asset má vlastnú frekvenciu, viz nižšie):
    - `market_data.py` zostaví hodinové OHLC sviečky a spočíta TA indikátory (RSI,
@@ -123,7 +128,7 @@ review cyklus vôbec spustili - kritické práve pri prudkom pohybe).
 `MONITOR_INTERVAL_MINUTES` teraz už používa len `funding_tracker.poll_new`
 (1 API volanie PER symbol, netreba preň rovnakú reaktivitu).
 
-Assety možno jednotlivo vypnúť cez `ENABLE_NVDA`/`ENABLE_ADA`/`ENABLE_GOLD`/`ENABLE_WTI`/`ENABLE_NIGHT`/`ENABLE_BTC`/`ENABLE_HYPE`/`ENABLE_SKHYNIX`/`ENABLE_AAOI`/`ENABLE_MINIMAX`/`ENABLE_ZEC` (NAS100 beží vždy; NVDA/AAOI/MINIMAX sú momentálne default `false`).
+Assety možno jednotlivo vypnúť cez `ENABLE_NVDA`/`ENABLE_ADA`/`ENABLE_GOLD`/`ENABLE_WTI`/`ENABLE_NIGHT`/`ENABLE_BTC`/`ENABLE_HYPE`/`ENABLE_SKHYNIX`/`ENABLE_AAOI`/`ENABLE_MINIMAX`/`ENABLE_ZEC`/`ENABLE_GOOGL` (NAS100 beží vždy; NVDA/AAOI/MINIMAX sú momentálne default `false`).
 
 ## ⚠️ Dôležité upozornenia
 
@@ -279,8 +284,9 @@ Pozri `.env.example` — najdôležitejšie:
   iný kontinent/timezone ako zdieľaný NYSE default)
 
 **Per-ticker premenné (2026-07-31 zjednotené, BTC pridaný 2026-08-06, HYPE+SKHYNIX pridané
-2026-08-07, AAOI+MINIMAX pridané 2026-08-14, ZEC pridaný 2026-08-15)** — každý z 12 tickerov
-(NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC/HYPE/SKHYNIX/AAOI/MINIMAX/ZEC) má VLASTNÚ
+2026-08-07, AAOI+MINIMAX pridané 2026-08-14, ZEC pridaný 2026-08-15, GOOGL pridaný 2026-08-18)**
+— každý z 13 tickerov
+(NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC/HYPE/SKHYNIX/AAOI/MINIMAX/ZEC/GOOGL) má VLASTNÚ
 sadu presne rovnakých 9 premenných, zoskupenú v `.env.example` ticker-po-tickeri:
 `{TICKER}_MIN_CONFIDENCE`, `{TICKER}_MARGIN_USD`, `{TICKER}_LEVERAGE`,
 `{TICKER}_LIQUIDATION_CUSHION_MULTIPLE`, `{TICKER}_SL_PCT`, `{TICKER}_TP_PCT`,
@@ -290,13 +296,13 @@ sadu presne rovnakých 9 premenných, zoskupenú v `.env.example` ticker-po-tick
 dvojicu (KRX seansa 00:00-06:30 UTC).
 
 - Predtým mal NAS100 bezpredponové názvy (`MIN_CONFIDENCE`/`MARGIN_USD`/...) a ADA/NIGHT nemali
-  `off_hours`/`weekend` vôbec - teraz je štruktúra jednotná pre všetkých dvanásť.
+  `off_hours`/`weekend` vôbec - teraz je štruktúra jednotná pre všetkých trinásť.
 - `MIN_CONFIDENCE`, `MARGIN_USD`, `SL_PCT`/`TP_PCT` — risk parametre (per asset). `MARGIN_USD` je
   fixná marža na obchod; `SL_PCT`/`TP_PCT` sú cieľové SL/TP ako % od live ceny — Claude navrhuje
   presnú vzdialenosť, ktorá sa orežie do 0.1x-5x týchto hodnôt (nikdy nezablokuje vstup - viz
-  `risk_manager.py`). `ADA`/`NIGHT`/`HYPE`/`SKHYNIX`/`ZEC_MARGIN_USD` sú `$50`
-  (ostatné `$100`) - viac tickerov teraz zdiela jednu peňaženku bez koordinácie (viz preflight
-  kontrola zostatku nižšie).
+  `risk_manager.py`). `ADA`/`NIGHT`/`HYPE`/`SKHYNIX`/`ZEC_MARGIN_USD` sú `$50`, `GOOGL_MARGIN_USD`
+  je `$100` (ostatné `$100`) - viac tickerov teraz zdiela jednu peňaženku bez koordinácie (viz
+  preflight kontrola zostatku nižšie).
 - **`LEVERAGE` vs. `LIQUIDATION_CUSHION_MULTIPLE`** (2026-08-08): ⚠️ `{TICKER}_LEVERAGE` už
   NEOVPLYVŇUJE skutočný position sizing - **zmena tejto hodnoty na Railway sa na živých obchodoch
   vôbec neprejaví.** Ostáva len ako historický/referenčný údaj (dashboard, `retrospective.py`
@@ -311,7 +317,7 @@ dvojicu (KRX seansa 00:00-06:30 UTC).
   **Ak chceš skutočne zmeniť reálnu páku, uprav `{TICKER}_LIQUIDATION_CUSHION_MULTIPLE`, nie
   `{TICKER}_LEVERAGE`.** Bezpredponová `LIQUIDATION_CUSHION_MULTIPLE` (bez `{TICKER}_` prefixu) je
   len interný fallback-cascade default (rovnaký status ako `MIN_CONFIDENCE`/`MARGIN_USD` nižšie) -
-  keďže všetkých 12 tickerov už má vlastnú explicitnú hodnotu, tento zdieľaný default sa v praxi už
+  keďže všetkých 13 tickerov už má vlastnú explicitnú hodnotu, tento zdieľaný default sa v praxi už
   nikdy nepoužije; bola omylom nastavená priamo na Railway (bez efektu) - 2026-08-16 odstránená.
 - `TRADE_INTERVAL_HOURS`/`OFF_HOURS_INTERVAL_HOURS`/`WEEKEND_INTERVAL_HOURS` — frekvencia cyklu
   počas trading hours / mimo nich / cez víkend. Pre 24/7 krypto (ADA/NIGHT/BTC/HYPE/ZEC) sú
@@ -319,7 +325,7 @@ dvojicu (KRX seansa 00:00-06:30 UTC).
   neexistujú), ale sú nezávisle nastaviteľné rovnako ako pre ostatné - napr. neskôr predĺžiť
   víkendový interval aj pre ne, bez zmeny kódu.
 - `ENABLE_NVDA`/`ENABLE_ADA`/`ENABLE_GOLD`/`ENABLE_WTI`/`ENABLE_NIGHT`/`ENABLE_BTC`/`ENABLE_HYPE`/
-  `ENABLE_SKHYNIX`/`ENABLE_AAOI`/`ENABLE_MINIMAX`/`ENABLE_ZEC` — `true`/`false`, vypnutie/zapnutie daného bota
+  `ENABLE_SKHYNIX`/`ENABLE_AAOI`/`ENABLE_MINIMAX`/`ENABLE_ZEC`/`ENABLE_GOOGL` — `true`/`false`, vypnutie/zapnutie daného bota
   (NAS100 beží vždy). NVDA je od 2026-07-31 pozastavené (nahradené WTI/NIGHT, cost-optimalizácia) —
   historické `cycle_logs`/`trades` ostávajú v DB a v monitor-web dashboarde, len sa nezapočítavajú do
   nového `web_search`/Claude nákladu (viz `trade_cycle._mark_disabled_assets` pre "Pozastavené"
@@ -351,7 +357,7 @@ dvojicu (KRX seansa 00:00-06:30 UTC).
 |---|---|
 | `main.py` | scheduler, entrypoint |
 | `config.py` | centrálne env premenné (zdieľané + per-asset) |
-| `assets.py` | registry assetov (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC/HYPE/SKHYNIX/AAOI/MINIMAX/ZEC) - symbol, TA ticker, SL/TP%, leverage, margin, min_confidence, frekvencia cyklu, trading hours |
+| `assets.py` | registry assetov (NAS100/NVDA/ADA/GOLD/WTI/NIGHT/BTC/HYPE/SKHYNIX/AAOI/MINIMAX/ZEC/GOOGL) - symbol, TA ticker, SL/TP%, leverage, margin, min_confidence, frekvencia cyklu, trading hours |
 | `coingecko_client.py` | verejné CoinGecko OHLC dáta - fallback/backfill zdroj LEN pre HYPE (nie je na Binance ani yfinance) |
 | `db.py` | SQLAlchemy modely `Trade`/`CycleLog` (obe majú `symbol`) + session |
 | `market_data.py` | OHLCV + TA indikátory (per asset, primárne z vlastných `price_bars`, fallback yfinance), zdieľaný cross-market/session/BTC-proxy fetch |

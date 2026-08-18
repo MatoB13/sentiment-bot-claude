@@ -411,7 +411,31 @@ ZEC = {
     "marketaux_query": {"symbols": "ZECUSD"},
 }
 
-ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX, AAOI, MINIMAX, ZEC]
+GOOGL = {
+    "name": "GOOGL",
+    "asset_class": "stock",
+    "strike_symbol": config.STRIKE_GOOGL_SYMBOL,
+    "yf_symbol": "GOOGL",
+    "yf_fallback": None,
+    "sl_pct": config.GOOGL_SL_PCT,
+    "tp_pct": config.GOOGL_TP_PCT,
+    "leverage": config.GOOGL_LEVERAGE,
+    "liquidation_cushion_multiple": config.GOOGL_LIQUIDATION_CUSHION_MULTIPLE,
+    "margin_usd": config.GOOGL_MARGIN_USD,
+    "min_confidence": config.GOOGL_MIN_CONFIDENCE,
+    "enabled": config.ENABLE_GOOGL,
+    "needs_btc_proxy": False,
+    # Realny NASDAQ mega-cap titul, rovnaky spolahlivy yfinance zdroj ako NVDA/AAOI.
+    "include_volume": True,
+    "trade_interval_hours": config.GOOGL_TRADE_INTERVAL_HOURS,
+    "off_hours_interval_hours": config.GOOGL_OFF_HOURS_INTERVAL_HOURS,
+    "weekend_interval_hours": config.GOOGL_WEEKEND_INTERVAL_HOURS,
+    "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
+    "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
+    "marketaux_query": {"symbols": "GOOGL"},
+}
+
+ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX, AAOI, MINIMAX, ZEC, GOOGL]
 
 
 def enabled_assets() -> list[dict]:

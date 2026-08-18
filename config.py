@@ -291,6 +291,10 @@ ENABLE_MINIMAX = _bool("ENABLE_MINIMAX", "false")
 # ZEC pridany 2026-08-15, rovnaky "aktivny hned" vzor ako WTI/NIGHT/HYPE/SKHYNIX
 # (na rozdiel od AAOI/MINIMAX, ktore vedome zacali len ako zber historie).
 ENABLE_ZEC = _bool("ENABLE_ZEC", "true")
+# GOOGL pridany 2026-08-18 (na ziadost pouzivatela, po korelacnej analyze -
+# |korelacia| <= 0.5 voci vsetkym ostatnym tickerom v portfoliu) - rovnaky
+# "aktivny hned" vzor ako ZEC/WTI/NIGHT/HYPE/SKHYNIX.
+ENABLE_GOOGL = _bool("ENABLE_GOOGL", "true")
 
 # Presny symbol/asset identifikator zisti cez strike_client.get_markets() - toto
 # su len predpoklady podla existujuceho NAS100-USD pomenovacieho vzoru, okrem
@@ -541,3 +545,28 @@ ZEC_TP_PCT = _float("ZEC_TP_PCT", 5.25)
 ZEC_TRADE_INTERVAL_HOURS = _float("ZEC_TRADE_INTERVAL_HOURS", ADA_TRADE_INTERVAL_HOURS)
 ZEC_OFF_HOURS_INTERVAL_HOURS = _float("ZEC_OFF_HOURS_INTERVAL_HOURS", ZEC_TRADE_INTERVAL_HOURS)
 ZEC_WEEKEND_INTERVAL_HOURS = _float("ZEC_WEEKEND_INTERVAL_HOURS", ZEC_TRADE_INTERVAL_HOURS)
+
+# ============================== GOOGL (Alphabet) ==============================
+# Pridany 2026-08-18 na ziadost pouzivatela - Strike pridal GOOGL-USD (Alphabet
+# Class A) do /v2/markets. LIVE od zaciatku (rovnaky "aktivny hned" vzor ako
+# ZEC/WTI/NIGHT/HYPE/SKHYNIX, NIE "len zbiera historiu" ako AAOI/MINIMAX) -
+# korelacna analyza (Prehlad tab) ukazala |korelacia| <= 0.5 voci vsetkym
+# ostatnym tickerom v portfoliu, dobry diverzifikacny kandidat. Realny NASDAQ
+# titul (nie synteticky tracker) - zdiela bezny TRADING_HOURS_START/END_UTC
+# (rovnaky vzor ako NVDA/AAOI).
+STRIKE_GOOGL_SYMBOL = os.getenv("STRIKE_GOOGL_SYMBOL", "GOOGL-USD")
+GOOGL_MIN_CONFIDENCE = _int("GOOGL_MIN_CONFIDENCE", MIN_CONFIDENCE)
+GOOGL_MARGIN_USD = _float("GOOGL_MARGIN_USD", 100)
+GOOGL_LEVERAGE = _int("GOOGL_LEVERAGE", 10)  # DEAD - viz risk_manager._leverage_from_cushion, skutocna paka sa odvodzuje z cushion multiple nizsie
+GOOGL_LIQUIDATION_CUSHION_MULTIPLE = _float("GOOGL_LIQUIDATION_CUSHION_MULTIPLE", LIQUIDATION_CUSHION_MULTIPLE)
+# Hodinovy ATR (30d, yfinance) = 0.485% z ceny - kalibrovane rovnakym pomerom
+# SL_PCT/ATR (~2.34x) ako uz naladeny NVDA (po jeho SL/TP re-evaluacii),
+# NIE NAS100 (index, nizsia vola) ani AAOI (micro-cap, vyssia vola) - GOOGL je
+# svojou trhovou kapitalizaciou/charakterom najblizsie k NVDA z uz odladenych
+# tickerov. NIE empiricky backtestovane na vlastnych datach (ziadna historia),
+# prehodnotit po zozbierani realnych cyklov.
+GOOGL_SL_PCT = _float("GOOGL_SL_PCT", 1.2)
+GOOGL_TP_PCT = _float("GOOGL_TP_PCT", 1.8)
+GOOGL_TRADE_INTERVAL_HOURS = _float("GOOGL_TRADE_INTERVAL_HOURS", TRADE_INTERVAL_HOURS)
+GOOGL_OFF_HOURS_INTERVAL_HOURS = _float("GOOGL_OFF_HOURS_INTERVAL_HOURS", OFF_HOURS_INTERVAL_HOURS)
+GOOGL_WEEKEND_INTERVAL_HOURS = _float("GOOGL_WEEKEND_INTERVAL_HOURS", WEEKEND_INTERVAL_HOURS)

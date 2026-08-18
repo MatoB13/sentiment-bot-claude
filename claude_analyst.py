@@ -753,6 +753,18 @@ ASSET_TEXT = {
         ),
         "macro_rules": _ZEC_MACRO_RULES,
     },
+    "GOOGL": {
+        "label": "akciu GOOGL (Alphabet, Class A)",
+        "news_focus": (
+            'správach o Alphabet/Google samotnom (earnings, Google Cloud rast a marže, YouTube '
+            'reklamný príjem, kapex guidance na AI infraštruktúru), Gemini/AI produktovej '
+            'konkurencii (OpenAI, Anthropic, Microsoft Copilot) a vlastnom TPU čipe (konkurencia '
+            'voči Nvidia GPU u veľkých cloud zákazníkov), regulačnom/antitrustovom tlaku (US DOJ '
+            'spory o vyhľadávanie a reklamný trh, EU DMA vyšetrovania, prípadné nariadené '
+            'štrukturálne zmeny), a Fed/makro dátach (CPI, PPI, NFP, FOMC)'
+        ),
+        "macro_rules": _EQUITY_MACRO_RULES,
+    },
 }
 
 # System prompt je rozdeleny na 2 cache_control bloky (viz _system_prompt_blocks nizsie):

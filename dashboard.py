@@ -138,6 +138,28 @@ ASSET_NUMERIC = {
         ("SKHYNIX_TRADING_HOURS_START_UTC", int, "Zaciatok KRX seansy (UTC hodina) - JEDINY asset s vlastnym oknom, ostatne pouzivaju zdielane TRADING_HOURS_START_UTC vyssie"),
         ("SKHYNIX_TRADING_HOURS_END_UTC", int, "Koniec KRX seansy (UTC hodina)"),
     ],
+    "ZEC": [
+        ("ZEC_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
+        ("ZEC_MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
+        ("ZEC_LEVERAGE", int, "NEPOUZIVANE pre sizing (2026-08-08+) - paka sa pocita z vankusa, len historicky referencny udaj"),
+        ("ZEC_LIQUIDATION_CUSHION_MULTIPLE", float, "Kolko-nasobok SL vzdialenosti musi byt do teoretickej likvidacie (paka sa z toho dopocita, orezana na Strike max)"),
+        ("ZEC_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
+        ("ZEC_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
+        ("ZEC_TRADE_INTERVAL_HOURS", float, "Interval POCAS trading hours (hodiny) - ZEC je 24/7, defaultne rovnaky ako off_hours/weekend"),
+        ("ZEC_OFF_HOURS_INTERVAL_HOURS", float, "Interval mimo trading hours (hodiny)"),
+        ("ZEC_WEEKEND_INTERVAL_HOURS", float, "Interval cez vikend (hodiny)"),
+    ],
+    "GOOGL": [
+        ("GOOGL_MIN_CONFIDENCE", int, "Minimalna confidence pre otvorenie obchodu (0-100)"),
+        ("GOOGL_MARGIN_USD", float, "Fixna marza na jeden obchod (USD)"),
+        ("GOOGL_LEVERAGE", int, "NEPOUZIVANE pre sizing (2026-08-08+) - paka sa pocita z vankusa, len historicky referencny udaj"),
+        ("GOOGL_LIQUIDATION_CUSHION_MULTIPLE", float, "Kolko-nasobok SL vzdialenosti musi byt do teoretickej likvidacie (paka sa z toho dopocita, orezana na Strike max)"),
+        ("GOOGL_SL_PCT", float, "Cielova SL vzdialenost (% od live ceny)"),
+        ("GOOGL_TP_PCT", float, "Cielova TP vzdialenost (% od live ceny)"),
+        ("GOOGL_TRADE_INTERVAL_HOURS", float, "Interval POCAS trading hours (hodiny)"),
+        ("GOOGL_OFF_HOURS_INTERVAL_HOURS", float, "Interval mimo trading hours (hodiny)"),
+        ("GOOGL_WEEKEND_INTERVAL_HOURS", float, "Interval cez vikend (hodiny)"),
+    ],
 }
 
 # Spatna kompatibilita s povodnym menom pouzivanym nizsie v kode.
@@ -175,7 +197,7 @@ def reload_app_modules():
     importlib.reload(config)
 
 
-st.title("Sentiment Bot (NAS100 + NVDA + ADA + GOLD + WTI + NIGHT + BTC + HYPE + SKHYNIX) — Dashboard")
+st.title("Sentiment Bot (NAS100 + NVDA + ADA + GOLD + WTI + NIGHT + BTC + HYPE + SKHYNIX + ZEC + GOOGL) — Dashboard")
 
 env_values = load_env()
 
@@ -212,8 +234,8 @@ with tabs[0]:
 
     _render_numeric(SHARED_NUMERIC)
 
-    ASSET_NAMES = ["NAS100", "NVDA", "ADA", "GOLD", "WTI", "NIGHT", "BTC", "HYPE", "SKHYNIX"]
-    OPTIONAL_ASSETS = ["NVDA", "ADA", "GOLD", "WTI", "NIGHT", "BTC", "HYPE", "SKHYNIX"]  # NAS100 beri vzdy, ostatne su ENABLE_* prepinatelne
+    ASSET_NAMES = ["NAS100", "NVDA", "ADA", "GOLD", "WTI", "NIGHT", "BTC", "HYPE", "SKHYNIX", "ZEC", "GOOGL"]
+    OPTIONAL_ASSETS = ["NVDA", "ADA", "GOLD", "WTI", "NIGHT", "BTC", "HYPE", "SKHYNIX", "ZEC", "GOOGL"]  # NAS100 beri vzdy, ostatne su ENABLE_* prepinatelne
 
     asset_tabs = st.tabs(ASSET_NAMES)
     for asset_name, asset_tab in zip(ASSET_NAMES, asset_tabs):

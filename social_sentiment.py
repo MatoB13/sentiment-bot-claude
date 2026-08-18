@@ -24,6 +24,7 @@ QUERIES = {
     # dovod ako NIGHT/HYPE) - viazane frazy namiesto toho.
     "MINIMAX": '("MiniMax Group" OR "MiniMax AI") lang:en -is:retweet',
     "ZEC": '($ZEC OR "Zcash" OR "Zcash shielded") lang:en -is:retweet',
+    "GOOGL": '($GOOGL OR $GOOG OR Alphabet OR "Google Cloud" OR Gemini) lang:en -is:retweet',
 }
 
 
