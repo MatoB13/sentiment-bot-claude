@@ -240,6 +240,23 @@ DECISION_TOOL = {
                     "PREDCHÁDZAJÚCEJ. Ak sekcia chýba, toto pole VYNECHAJ."
                 ),
             },
+            "sl_tp_calibration_verdict": {
+                "type": "string",
+                "description": (
+                    "VYPLN LEN ak user správa obsahuje sekciu 'Vyhodnotenie SL/TP tejto pozície' "
+                    "(rovnaký trigger ako closed_trade_reflection). Zaujmi VÝSLOVNÉ stanovisko k "
+                    "presne JEDNEJ z troch možností: (1) zvolené SL/TP tejto pozície bolo správne - "
+                    "zdôvodni PREČO technicky (volatilita/ATR režim, štruktúra S/R, typ vstupu), nie "
+                    "len tým, že vyšiel zisk/strata; (2) mal sa radšej použiť niektorý z uvedených "
+                    "kalibračných kandidátov - uveď PRESNE ktorý (#rank) a prečo; alebo (3) ani jeden "
+                    "z kandidátov by nebol správny a zvolil by si ÚPLNE INÚ hodnotu - uveď konkrétne "
+                    "% aj TECHNICKÉ zdôvodnenie (napr. na základe ATR/volatility režimu v čase vstupu, "
+                    "vzdialenosti k najbližšej S/R úrovni, typu vstupu), NIE LEN odkaz na to, že v "
+                    "backteste vyšla lepšie - backtest čísla sú vstup do úvahy, nie samotné "
+                    "zdôvodnenie. Zohľadni aj históriu predošlých obchodov tohto tickera. 3-5 viet. "
+                    "Ak sekcia chýba, toto pole VYNECHAJ."
+                ),
+            },
             "upcoming_macro_event": _UPCOMING_MACRO_EVENT_PROPERTY,
         },
         "required": ["direction", "confidence", "stop_loss_price", "take_profit_price",
@@ -1284,12 +1301,71 @@ TY, len odporúčaš človeku, ktorý sa rozhodne sám."""
                 "teraz otvoriť novú pozíciu - pokračujúcu v rovnakom smere (ak trend drží) alebo opačnú "
                 "(ak sa obraz otočil), alebo počkať (none)."
             )
+        # 2026-08-19 (na ziadost pouzivatela) - SL/TP+kalibracia vyhodnotenie
+        # TEJTO konkretnej pozicie, nezavisle od typu zatvorenia (na rozdiel od
+        # action_note vyssie, ktory sa lisi SL/likvidacia vs ostatne). Data
+        # pripravene v position_monitor._build_review_context - ak chybaju
+        # (napr. ticker este nema dost obchodov na kalibraciu), tento blok sa
+        # jednoducho vynecha, closed_trade_reflection funguje aj bez neho.
+        sltp_eval_block = ""
+        if ct.get("sl_pct_chosen") is not None:
+            lines = [
+                "## Vyhodnotenie SL/TP tejto pozície",
+                f"Zvolené SL/TP tejto pozície: SL {ct['sl_pct_chosen']:.3f}% / TP {ct['tp_pct_chosen']:.3f}%",
+            ]
+            if ct.get("default_sl_pct") is not None:
+                lines.append(
+                    f"(aktuálny default pre {instrument}: SL {ct['default_sl_pct']:.3f}% / "
+                    f"TP {ct['default_tp_pct']:.3f}%)"
+                )
+
+            history = ct.get("history") or []
+            if history:
+                lines.append(f"\nPosledných {len(history)} predošlých uzavretých obchodov {instrument} "
+                              f"(najnovší prvý):")
+                for h in history:
+                    hsign = "+" if (h["pnl_usd"] or 0) >= 0 else ""
+                    sl_str = f"{h['sl_pct']:.2f}%" if h.get("sl_pct") is not None else "?"
+                    tp_str = f"{h['tp_pct']:.2f}%" if h.get("tp_pct") is not None else "?"
+                    lines.append(f"- {hsign}${h['pnl_usd']:.2f} ({h['close_reason']}), SL/TP {sl_str}/{tp_str}")
+
+            candidates = ct.get("calibration_candidates") or []
+            if candidates:
+                lines.append(
+                    f"\nTOP-{len(candidates)} kandidáti z priebežného grid-search rebríčka "
+                    f"(z VLASTNÝCH obchodov {instrument}, n={candidates[0]['trade_count']} - viz "
+                    f"tab \"Kalibrácia SL/TP\" v dashboarde):"
+                )
+                for c in candidates:
+                    atr_sl = f"{c['atr_sl_pct']:.3f}%" if c.get("atr_sl_pct") is not None else "?"
+                    atr_tp = f"{c['atr_tp_pct']:.3f}%" if c.get("atr_tp_pct") is not None else "?"
+                    line = (
+                        f"- #{c['rank']}: ATR-kalibrované SL {atr_sl}/TP {atr_tp} -> backtest PnL "
+                        f"${c['total_pnl']:.2f}, win rate {c['win_rate']*100:.0f}%"
+                    )
+                    if c.get("sr_sl_pct") is not None:
+                        sr_pnl_str = "N/A" if c.get("sr_total_pnl") is None else f"${c['sr_total_pnl']:.2f}"
+                        sr_wr_str = "N/A" if c.get("sr_win_rate") is None else f"{c['sr_win_rate']*100:.0f}%"
+                        line += (
+                            f"; S/R-prichytené SL {c['sr_sl_pct']:.3f}%/TP {c['sr_tp_pct']:.3f}% -> "
+                            f"PnL {sr_pnl_str}, win rate {sr_wr_str}"
+                        )
+                    lines.append(line)
+                lines.append(
+                    "\nNa základe všetkého vyššie (vlastné SL/TP tejto pozície vs. default, história "
+                    "tickera, kalibrační kandidáti aj S/R kontext) vyplň sl_tp_calibration_verdict - "
+                    "zauji výslovné stanovisko, či bolo zvolené SL/TP správne, či mal byť použitý "
+                    "niektorý z uvedených kandidátov, alebo by si zvolil úplne inú hodnotu s vlastným "
+                    "TECHNICKÝM zdôvodnením (nie len odkazom na to, čo vyšlo lepšie v backteste)."
+                )
+            sltp_eval_block = "\n" + "\n".join(lines) + "\n"
+
         closed_trade_block = f"""## Práve zatvorená pozícia (dôvod: {reason_label})
 Smer: {(ct['direction'] or '').upper()} | Vstup: {ct['entry_price']} | Výstup: {ct['exit_price']}
 Držaná: {ct['hours_held']:.1f}h | PnL: {sign}${ct['pnl_usd']:.2f}
 
 {action_note}
-
+{sltp_eval_block}
 """
 
     threshold_low = asset["min_confidence"] - config.WATCH_CONFIDENCE_MARGIN

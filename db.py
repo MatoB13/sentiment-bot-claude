@@ -156,6 +156,12 @@ class CycleLog(Base):
     reviewed_trade_id = Column(Integer, nullable=True)
     closed_trade_reflection = Column(String, nullable=True)
 
+    # 2026-08-19 (na ziadost pouzivatela) - vyplnene LEN spolu s closed_trade_reflection,
+    # explicitny verdikt k SL/TP TEJTO konkretnej pozicie: bolo spravne / mal sa
+    # pouzit niektory kalibracny kandidat (viz SlTpBacktestCandidate/SrCalibration)
+    # / uplne iny navrh s TECHNICKYM (nie len empirickym) zdovodnenim.
+    sl_tp_calibration_verdict = Column(String, nullable=True)
+
     # Ak tento cyklus bol vyvolany mimoriadne kvoli PRAVE zverejnenej makro
     # udalosti (FOMC/CPI/NFP - viz macro_calendar.py + watch_monitor.
     # _check_macro_events), nazov tej udalosti (napr. "CPI"). None pre bezne

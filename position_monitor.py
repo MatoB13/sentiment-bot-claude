@@ -5,10 +5,11 @@ from datetime import datetime, timezone
 import assets
 import config
 import discord_client
+import risk_overrides
 import strike_client
 import trade_cycle
 import watch_monitor
-from db import Trade, get_session
+from db import AtrCalibration, SlTpBacktestCandidate, SrCalibration, Trade, get_session
 
 # /v2/closedPositions (povodny zdroj) nema ZIADNE price/PnL/fee polia - viz
 # memory strike_api_integration_lessons. Presne udaje sa daju ziskat len cez
@@ -212,7 +213,84 @@ def _build_closed_trade_context(trade: Trade) -> dict:
     }
 
 
-def _check_and_queue_review(trade: Trade, pending_reviews: list) -> None:
+def _build_review_context(trade: Trade, session, asset: dict) -> dict:
+    """Rozsiruje _build_closed_trade_context (2026-08-19, na ziadost pouzivatela)
+    o SL/TP+kalibracia+historia kontext - POUZE pre post-close review (Discord
+    notifikacia si vystaci so zakladnym _build_closed_trade_context, netreba
+    pre nu tieto navyse DB dotazy).
+
+    Cely blok je zabaleny v try/except - ak nieco zlyha (napr. tento ticker
+    este nema ziadny kalibracny prepocet), review sa aj tak spusti so
+    zakladnym kontextom namiesto toho, aby padol celkom."""
+    ctx = _build_closed_trade_context(trade)
+    try:
+        entry = trade.entry_price
+        if entry and trade.stop_loss_price is not None:
+            ctx["sl_pct_chosen"] = abs(entry - trade.stop_loss_price) / entry * 100
+        if entry and trade.take_profit_price is not None:
+            ctx["tp_pct_chosen"] = abs(trade.take_profit_price - entry) / entry * 100
+
+        default_sl, default_tp = risk_overrides.get_effective_sl_tp(session, asset)
+        ctx["default_sl_pct"] = default_sl
+        ctx["default_tp_pct"] = default_tp
+
+        prior = (
+            session.query(Trade)
+            .filter(Trade.symbol == trade.symbol, Trade.id != trade.id, Trade.pnl_usd.isnot(None))
+            .order_by(Trade.closed_at.desc())
+            .limit(5)
+            .all()
+        )
+        history = []
+        for pt in prior:
+            pt_entry = pt.entry_price
+            history.append({
+                "pnl_usd": pt.pnl_usd,
+                "close_reason": pt.close_reason,
+                "sl_pct": abs(pt_entry - pt.stop_loss_price) / pt_entry * 100
+                          if pt_entry and pt.stop_loss_price is not None else None,
+                "tp_pct": abs(pt.take_profit_price - pt_entry) / pt_entry * 100
+                          if pt_entry and pt.take_profit_price is not None else None,
+            })
+        ctx["history"] = history
+
+        atr_calib = (
+            session.query(AtrCalibration)
+            .filter(AtrCalibration.symbol == trade.symbol)
+            .order_by(AtrCalibration.computed_at.desc())
+            .first()
+        )
+        atr_pct = atr_calib.atr_pct if atr_calib else None
+        sr_by_rank = {
+            r.rank: r for r in session.query(SrCalibration).filter(SrCalibration.symbol == trade.symbol).all()
+        }
+        candidates = []
+        for c in (
+            session.query(SlTpBacktestCandidate)
+            .filter(SlTpBacktestCandidate.symbol == trade.symbol)
+            .order_by(SlTpBacktestCandidate.rank)
+            .all()
+        ):
+            entry_row = {
+                "rank": c.rank, "sl_k": c.sl_k, "tp_k": c.tp_k,
+                "total_pnl": c.total_pnl, "win_rate": c.win_rate, "trade_count": c.trade_count,
+                "atr_sl_pct": (c.sl_k * atr_pct) if atr_pct else None,
+                "atr_tp_pct": (c.tp_k * atr_pct) if atr_pct else None,
+                "sr_total_pnl": c.sr_total_pnl, "sr_win_rate": c.sr_win_rate,
+            }
+            sr = sr_by_rank.get(c.rank)
+            if sr:
+                entry_row["sr_sl_pct"] = sr.sl_pct
+                entry_row["sr_tp_pct"] = sr.tp_pct
+            candidates.append(entry_row)
+        ctx["calibration_candidates"] = candidates
+    except Exception as e:
+        print(f"[position_monitor] Trade {trade.id}: nepodarilo sa zostavit SL/TP kalibracny "
+              f"kontext pre review (neblokujuce, review pobezi bez neho): {e}")
+    return ctx
+
+
+def _check_and_queue_review(trade: Trade, session, pending_reviews: list) -> None:
     """Po _apply_exact_close over, ci uz je close_reason VYRIESENY (nie surovy
     fallback text - viz _apply_exact_close) a ci patri medzi _TRIGGER_REVIEW_REASONS.
     Nastavi post_close_review_triggered_at HNED (v tej istej transakcii ako
@@ -225,7 +303,7 @@ def _check_and_queue_review(trade: Trade, pending_reviews: list) -> None:
     if asset is None:
         return
     trade.post_close_review_triggered_at = datetime.now(timezone.utc)
-    pending_reviews.append((asset, _build_closed_trade_context(trade)))
+    pending_reviews.append((asset, _build_review_context(trade, session, asset)))
 
 
 def _fire_post_close_reviews(pending_reviews: list) -> None:
@@ -278,7 +356,7 @@ def _backfill_missing_exact_data(session, pending_reviews: list, pending_notific
     for trade in pending:
         _apply_exact_close(trade, trade.close_reason)
         session.add(trade)
-        _check_and_queue_review(trade, pending_reviews)
+        _check_and_queue_review(trade, session, pending_reviews)
         _check_and_queue_close_notification(trade, pending_notifications)
 
 
@@ -318,7 +396,7 @@ def check_open_trades():
                     trade.closed_at = now
                     _apply_exact_close(trade, "not_found_in_open_positions (TP/SL/liquidation)")
                     session.add(trade)
-                    _check_and_queue_review(trade, pending_reviews)
+                    _check_and_queue_review(trade, session, pending_reviews)
                     _check_and_queue_close_notification(trade, pending_notifications)
                     # 2026-08-16 na ziadost pouzivatela ("mela" po zatvoreni pri
                     # prudkom pohybe) - VSETKY dovody zatvorenia, SL/likvidacia
@@ -342,7 +420,7 @@ def check_open_trades():
                     trade.closed_at = now
                     _apply_exact_close(trade, f"max_hold_{config.POSITION_MAX_HOURS}h_reached")
                     session.add(trade)
-                    _check_and_queue_review(trade, pending_reviews)
+                    _check_and_queue_review(trade, session, pending_reviews)
                     _check_and_queue_close_notification(trade, pending_notifications)
                     watch_monitor.mark_hot(trade.symbol)
                 else:
