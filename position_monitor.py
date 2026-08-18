@@ -6,10 +6,11 @@ import assets
 import config
 import discord_client
 import risk_overrides
+import sl_grid_backtest
 import strike_client
 import trade_cycle
 import watch_monitor
-from db import AtrCalibration, SlTpBacktestCandidate, SrCalibration, Trade, get_session
+from db import AtrCalibration, SlTpBacktestCandidate, Trade, get_session
 
 # /v2/closedPositions (povodny zdroj) nema ZIADNE price/PnL/fee polia - viz
 # memory strike_api_integration_lessons. Presne udaje sa daju ziskat len cez
@@ -261,9 +262,6 @@ def _build_review_context(trade: Trade, session, asset: dict) -> dict:
             .first()
         )
         atr_pct = atr_calib.atr_pct if atr_calib else None
-        sr_by_rank = {
-            r.rank: r for r in session.query(SrCalibration).filter(SrCalibration.symbol == trade.symbol).all()
-        }
         candidates = []
         for c in (
             session.query(SlTpBacktestCandidate)
@@ -271,18 +269,12 @@ def _build_review_context(trade: Trade, session, asset: dict) -> dict:
             .order_by(SlTpBacktestCandidate.rank)
             .all()
         ):
-            entry_row = {
+            candidates.append({
                 "rank": c.rank, "sl_k": c.sl_k, "tp_k": c.tp_k,
                 "total_pnl": c.total_pnl, "win_rate": c.win_rate, "trade_count": c.trade_count,
                 "atr_sl_pct": (c.sl_k * atr_pct) if atr_pct else None,
                 "atr_tp_pct": (c.tp_k * atr_pct) if atr_pct else None,
-                "sr_total_pnl": c.sr_total_pnl, "sr_win_rate": c.sr_win_rate,
-            }
-            sr = sr_by_rank.get(c.rank)
-            if sr:
-                entry_row["sr_sl_pct"] = sr.sl_pct
-                entry_row["sr_tp_pct"] = sr.tp_pct
-            candidates.append(entry_row)
+            })
         ctx["calibration_candidates"] = candidates
     except Exception as e:
         print(f"[position_monitor] Trade {trade.id}: nepodarilo sa zostavit SL/TP kalibracny "
@@ -342,10 +334,42 @@ def _fire_close_notifications(pending_notifications: list) -> None:
             print(f"[position_monitor] [{symbol}] Discord notifikacia o zatvoreni zlyhala: {e}")
 
 
-def _backfill_missing_exact_data(session, pending_reviews: list, pending_notifications: list) -> None:
+def _check_and_queue_recompute(trade: Trade, pending_recompute: set) -> None:
+    """Prida symbol do fronty na event-driven SL/TP grid-search prepocet (viz
+    sl_grid_backtest.recompute_symbol, 2026-08-19 na ziadost pouzivatela -
+    nahradza povodny 24h scheduler job, ktory prepocitaval VSETKY tickery
+    denne bez ohladu na to, ci mali novy obchod - cisty odpad, kedze vysledok
+    zavisi VYHRADNE od historie obchodov daneho tickera). NEZAVISLE od
+    _check_and_queue_review (iny ucel, vlastny dedup stlpec) - KAZDE
+    uzavretie pocita do vzorky, bez ohladu na close_reason (na rozdiel od
+    review-triggeru vyssie)."""
+    if trade.post_close_recompute_triggered_at is not None:
+        return
+    trade.post_close_recompute_triggered_at = datetime.now(timezone.utc)
+    pending_recompute.add(trade.symbol)
+
+
+def _fire_recomputes(symbols: set) -> None:
+    """Bezi AZ PO session.close(), rovnaky dovod ako _fire_post_close_reviews -
+    sl_grid_backtest.recompute_symbol otvara vlastnu nezavislu session. Kazdy
+    symbol izolovane (jeden zlyhany prepocet neblokuje ostatne)."""
+    for symbol in symbols:
+        try:
+            sl_grid_backtest.recompute_symbol(symbol)
+        except Exception as e:
+            print(f"[position_monitor] [{symbol}] SL/TP grid-search prepocet zlyhal (neblokujuce): {e}")
+
+
+def _backfill_missing_exact_data(session, pending_reviews: list, pending_notifications: list,
+                                  pending_recompute: set) -> None:
     """Self-healing retry: obchody, ktore sa uz zatvorili, ale minule
     _lookup_exact_close nenasiel data (burza este neindexovala fill) - skusi
-    znova. Nedotyka sa hlavnej trading logiky, len doplna historicke udaje."""
+    znova. Nedotyka sa hlavnej trading logiky, len doplna historicke udaje.
+
+    Toto je zaroven JEDINY spolocny bod pre VSETKY sposoby uzavretia obchodu
+    (kill-switch cez watch_monitor.py, safety-net cez trade_cycle.py aj
+    obycajne TP/SL/timeout tu nizsie) - preto je to (spolu s dvoma inline
+    vetvami v check_open_trades()) spravne miesto na _check_and_queue_recompute."""
     pending = session.query(Trade).filter(
         Trade.status.in_(["closed_by_exchange", "closed_by_timeout", "closed_by_safety", "closed_by_user"]),
         Trade.pnl_usd.is_(None),
@@ -358,6 +382,7 @@ def _backfill_missing_exact_data(session, pending_reviews: list, pending_notific
         session.add(trade)
         _check_and_queue_review(trade, session, pending_reviews)
         _check_and_queue_close_notification(trade, pending_notifications)
+        _check_and_queue_recompute(trade, pending_recompute)
 
 
 def check_open_trades():
@@ -365,8 +390,9 @@ def check_open_trades():
     session = get_session()
     pending_reviews: list = []
     pending_notifications: list = []
+    pending_recompute: set = set()
     try:
-        _backfill_missing_exact_data(session, pending_reviews, pending_notifications)
+        _backfill_missing_exact_data(session, pending_reviews, pending_notifications, pending_recompute)
 
         open_trades = session.query(Trade).filter(Trade.status == "open").all()
         if not open_trades:
@@ -375,6 +401,7 @@ def check_open_trades():
             session.close()
             _fire_post_close_reviews(pending_reviews)
             _fire_close_notifications(pending_notifications)
+            _fire_recomputes(pending_recompute)
             return
 
         # Bez symbol filtra - vsetky otvorene pozicie na ucte v JEDNOM volani,
@@ -398,6 +425,7 @@ def check_open_trades():
                     session.add(trade)
                     _check_and_queue_review(trade, session, pending_reviews)
                     _check_and_queue_close_notification(trade, pending_notifications)
+                    _check_and_queue_recompute(trade, pending_recompute)
                     # 2026-08-16 na ziadost pouzivatela ("mela" po zatvoreni pri
                     # prudkom pohybe) - VSETKY dovody zatvorenia, SL/likvidacia
                     # najviac zo vsetkych (viz watch_monitor.mark_hot docstring).
@@ -422,6 +450,7 @@ def check_open_trades():
                     session.add(trade)
                     _check_and_queue_review(trade, session, pending_reviews)
                     _check_and_queue_close_notification(trade, pending_notifications)
+                    _check_and_queue_recompute(trade, pending_recompute)
                     watch_monitor.mark_hot(trade.symbol)
                 else:
                     print(f"[position_monitor] Trade {trade.id} stale otvoreny "
@@ -447,6 +476,7 @@ def check_open_trades():
     # AZ PO session.close() - viz _fire_post_close_reviews docstring.
     _fire_post_close_reviews(pending_reviews)
     _fire_close_notifications(pending_notifications)
+    _fire_recomputes(pending_recompute)
 
 
 if __name__ == "__main__":

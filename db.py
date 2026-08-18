@@ -66,6 +66,15 @@ class Trade(Base):
     # tu ZAMERNE vynechany, na rozdiel od review-triggeru).
     close_notified_at = Column(DateTime, nullable=True)
 
+    # Nastavene, ked bol pre toto zatvorenie uz spusteny event-driven SL/TP
+    # grid-search prepocet (viz position_monitor._check_and_queue_recompute +
+    # sl_grid_backtest.recompute_symbol, 2026-08-19 na ziadost pouzivatela,
+    # nahradza povodny 24h scheduler job) - rovnaky dedup vzor ako
+    # post_close_review_triggered_at vyssie, ale NEZAVISLY od close_reason
+    # filtra (kazde uzavretie pocita do vzorky, bez ohladu na to, ci ten istý
+    # dovod spusta aj review).
+    post_close_recompute_triggered_at = Column(DateTime, nullable=True)
+
     # Kedy naposledy plny (plateny) Claude position-health-check cyklus pre
     # TUTO otvorenu poziciu naozaj prebehol (nie len mechanicka kontrola) - viz
     # trade_cycle._run_position_health_check cooldown, 2026-08-17. Perzistovane
@@ -158,7 +167,7 @@ class CycleLog(Base):
 
     # 2026-08-19 (na ziadost pouzivatela) - vyplnene LEN spolu s closed_trade_reflection,
     # explicitny verdikt k SL/TP TEJTO konkretnej pozicie: bolo spravne / mal sa
-    # pouzit niektory kalibracny kandidat (viz SlTpBacktestCandidate/SrCalibration)
+    # pouzit niektory kalibracny kandidat (viz SlTpBacktestCandidate)
     # / uplne iny navrh s TECHNICKYM (nie len empirickym) zdovodnenim.
     sl_tp_calibration_verdict = Column(String, nullable=True)
 
@@ -481,14 +490,11 @@ class SlTpBacktestCandidate(Base):
     trade_count = Column(Integer, nullable=False)
     computed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
-    # S/R-upravena verzia TOHO ISTEHO (sl_k, tp_k) kandidata (2026-08-19, na
-    # ziadost pouzivatela) - namiesto cisteho k*ATR sa SL/TP prichyti na
-    # najblizsiu support/resistance uroven (+ buffer) - viz sl_grid_backtest.
-    # _simulate_sr. Nullable - ak S/R backtest pre dany kandidat zlyha
-    # (napr. nedostatok swingov v historii), cisty ATR vysledok vyssie
-    # zostava vzdy dostupny.
-    sr_total_pnl = Column(Float, nullable=True)
-    sr_win_rate = Column(Float, nullable=True)
+    # POZOR (2026-08-19): tento model mal predtym aj sr_total_pnl/sr_win_rate
+    # stlpce (S/R-upravena verzia toho isteho kandidata) - cely ten koncept
+    # bol ZRUSENY (viz pending_sr_calibration_shelved memory), stlpce v
+    # produkcnej DB fyzicky ostavaju (orphaned, neskodne, poor-man's migration
+    # nevie DROP COLUMN), ale uz sa nezapisuju ani necitaju.
 
 
 class SlTpLocalSensitivity(Base):
@@ -522,22 +528,6 @@ class SlTpLocalSensitivity(Base):
     total_pnl = Column(Float, nullable=False)
     win_rate = Column(Float, nullable=False)
     trade_count = Column(Integer, nullable=False)
-    computed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-
-
-class SrCalibration(Base):
-    """Aktualna (dnesna) S/R-prichytena SL%/TP% PRE KAZDY ticker x KAZDY z
-    TOP 5 poolovanych kandidatov (2026-08-19, viz sl_grid_backtest.
-    compute_sr_calibration) - feeduje druhu tabulku v per-ticker "Kalibracia
-    SL/TP" tabe (nas100-monitor-web), vedla existujucej cistej ATR-nasobkovej
-    tabulky (AtrCalibration/SlTpBacktestCandidate). Vzdy PREPISOVANA (rovnaky
-    vzor ako SlTpBacktestCandidate) - kombinovany kluc (symbol, rank)."""
-    __tablename__ = "sr_calibrations"
-
-    symbol = Column(String, primary_key=True)
-    rank = Column(Integer, primary_key=True)  # 1-5, zodpoveda SlTpBacktestCandidate.rank
-    sl_pct = Column(Float, nullable=False)
-    tp_pct = Column(Float, nullable=False)
     computed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 

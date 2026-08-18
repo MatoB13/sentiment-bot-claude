@@ -10,7 +10,6 @@ import funding_tracker
 import position_monitor
 import price_poller
 import sl_calibration
-import sl_grid_backtest
 import trade_cycle
 import watch_monitor
 
@@ -120,15 +119,13 @@ def main():
                        hours=24,
                        next_run_time=now + timedelta(hours=24),
                        id="sl_calibration")
-    # Denne (2026-08-19) - "zivy" TOP-5 SL/TP grid-search rebricek naprieč
-    # vsetkymi tickermi (viz sl_grid_backtest.py) - nezavisly od sl_calibration
-    # vyssie (ta je per-ticker navrh, toto je pooled backtest kandidatov na
-    # sledovanie, ako sa vyvija so vzorkou). Tiez len informativne, ziadny
-    # automaticky zapis do RiskOverride.
-    scheduler.add_job(sl_grid_backtest.compute_leaderboard, "interval",
-                       hours=24,
-                       next_run_time=now + timedelta(hours=24),
-                       id="sl_grid_backtest")
+    # "Zivy" TOP-5 SL/TP grid-search rebricek PER TICKER (viz sl_grid_backtest.py)
+    # UZ NIE JE scheduler job (2026-08-19, na ziadost pouzivatela) - vysledok
+    # zavisi VYHRADNE od historie obchodov daneho tickera, takze denny beh pre
+    # VSETKY tickery bol cisty odpad (a naopak, hned po uzavreti bol rebricek
+    # az 24h neaktualny). Prepocet je teraz EVENT-DRIVEN - position_monitor.py
+    # vola sl_grid_backtest.recompute_symbol() PRIAMO PO uzavreti kazdeho
+    # obchodu, LEN pre ten jeden ticker (viz position_monitor._fire_recomputes).
     scheduler.start()
 
     # spusti oba joby hned na starte, potom uz podla intervalu. Na rozdiel od
