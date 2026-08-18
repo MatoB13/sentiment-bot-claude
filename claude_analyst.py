@@ -441,6 +441,15 @@ _COMMODITY_MACRO_RULES = """- **Reálne výnosy (US10Y) a DXY sú hlavný hýbat
   reakciou {instrument}.
 - **Event Risk Gate**: FOMC/CPI/PPI/NFP sú KĽÚČOVÉ eventy pre {instrument} (priamo hýbu výnosmi/DXY
   očakávaniami) - pred takým eventom buď výrazne konzervatívnejší (nízka confidence alebo "none").
+- **Po FOMC rozhodnutí (post-event, nie pred ním) - MOMENTUM, nie fade**: Interný backtest (2024-2026,
+  overené na XAU aj EURUSD/GBPUSD/USDJPY, s kontrolou voči náhodným hodinám mimo eventov) ukázal
+  konzistentný momentum efekt - prvá hodinová reakcia po FOMC statemente má tendenciu POKRAČOVAŤ (nie
+  sa vrátiť) na horizonte 4-24h, win rate cca 58-74% naprieč oboma assetmi. Ak {instrument} po FOMC
+  rozhodnutí jasne vyrazí jedným smerom a fundamentálny kontext (jastrabí/holubičí tón, dot-plot) tomu
+  zodpovedá, zváž vyššiu confidence v smere prvého pohybu namiesto automatického vyčkávania na reverz.
+  POZOR: toto NEPLATÍ pre CPI/NFP - tam bol post-event signál na zlate slabý a nekonzistentný (malá
+  vzorka, win rate len okolo 50%), takže sa naň nespoliehaj, drž sa len konzervatívneho Event Risk Gate
+  pravidla vyššie.
 - **Nepredvídateľné politické výroky (Trump/Truth Social)**: Príspevky amerického prezidenta vedia
   okamžite zdvihnúť geopolitické/safe-haven riziko (sankcie, vojenské hrozby, obchodné vojny) bez
   akéhokoľvek kalendárneho varovania. Cez web_search over nedávne výroky s dopadom na
