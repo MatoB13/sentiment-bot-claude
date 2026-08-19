@@ -80,6 +80,14 @@ DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 # volania pri kazdom cykle (viz marketaux_client.py) - 3h je kompromis medzi
 # cerstvostou a poctom volani.
 MARKETAUX_CACHE_HOURS = _float("MARKETAUX_CACHE_HOURS", 3)
+# Clanky starsie nez tolko hodin sa DO PROMPTU vobec nedaju (2026-08-19, na
+# ziadost pouzivatela - live analyza ukazala, ze pre ADA/ZEC/NIGHT bol aj
+# NAJNOVSI dostupny clanok 65-70+ dni stary, teda ziadny pocet-limit by to
+# nevyriesil). 25h = tesne nad POSITION_MAX_HOURS (24h, najhorsi realny
+# pripad - otvorena pozicia, ziadny trigger) a nad najdlhsim beznym cyklom
+# (WEEKEND_INTERVAL_HOURS default 6h) - vsetko starsie uz bolo (alebo mohlo
+# byt) videne v predchadzajucom cykle, nie je to "nova" informacia.
+MARKETAUX_MAX_ARTICLE_AGE_HOURS = _float("MARKETAUX_MAX_ARTICLE_AGE_HOURS", 25)
 
 # DB
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///trades.db")

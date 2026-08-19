@@ -1199,9 +1199,15 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
         # 2026-08-19 (na ziadost pouzivatela) - predtym LEN titulok (Claude
         # nevidel, o com clanok skutocne je) - Marketaux uz aj tak posiela
         # snippet v tej istej odpovedi (ziadny extra request/naklad), teraz
-        # sa aj skutocne posiela do promptu.
+        # sa aj skutocne posiela do promptu. Vek clanku ("pred Xh") sa uz
+        # pocita v marketaux_client.py (freshness filter) - explicitne sa
+        # vypisuje AJ tu (nie len surovy ISO timestamp), aby Claude nemusel
+        # sam pocitat rozdiel voci aktualnemu datumu - riziko, ze si niekedy
+        # nevsimne a X-hodinovu udalost bude povazovat za cerstvu aktualitu.
         def _article_line(a):
-            line = (f"- [{a.get('published_at', '?')}] {a.get('title')} "
+            age = a.get("age_hours")
+            age_label = f"pred {age:.0f}h" if age is not None else (a.get("published_at") or "?")
+            line = (f"- [{age_label}] {a.get('title')} "
                     f"(zdroj: {a.get('source')}, sentiment: {a.get('sentiment_score')})")
             snippet = a.get("snippet")
             if snippet:
@@ -1212,7 +1218,8 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
             f"\n## Najnovšie financne spravy so sentiment skore (Marketaux, NIE web_search)\n"
             f"{articles}\n"
             f"(sentiment skore je -1 az +1 na urovni konkretneho clanku, priamo od Marketaux, "
-            f"nie tvoj vlastny odhad; text pod kazdym titulkom je kratky vytah z clanku, nie plny text)\n"
+            f"nie tvoj vlastny odhad; text pod kazdym titulkom je kratky vytah z clanku, nie plny text; "
+            f"vsetky clanky su uz vopred filtrovane na mladsie nez {config.MARKETAUX_MAX_ARTICLE_AGE_HOURS:.0f}h)\n"
         )
 
     # CoinMarketCal (2026-08-19, na ziadost pouzivatela) - strukturovany zdroj
