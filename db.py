@@ -199,6 +199,15 @@ class CycleLog(Base):
     # naplanovane cykly.
     triggered_by_macro_event = Column(String, nullable=True)
 
+    # True ak tento cyklus vyvolal splneny watch_price/watch_direction (viz
+    # watch_monitor.check_watch_triggers) - 2026-08-19, na ziadost pouzivatela
+    # po HYPE zacykleni (watch sa opakovane spustal, Claude vzdy 'none' +
+    # novy tesny watch, bez toho aby o tom vedel, ze uz je to Nty raz za
+    # sebou). Umoznuje presne (nie odhadovane) spocitat _get_watch_retrigger_streak
+    # v trade_cycle.py, na rozdiel od macro_event vyssie (string nazov
+    # udalosti) tu staci boolean - watch nema "nazov", len fakt ze sa spustil.
+    triggered_by_watch = Column(Boolean, nullable=True)
+
     outcome = Column(String)            # opened | rejected | error | skipped | disabled | position_check
     reject_reason = Column(String, nullable=True)
 

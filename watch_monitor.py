@@ -266,7 +266,7 @@ def _check_price_watch_for_assets(session, assets_to_check: list[dict]) -> None:
         # Claude volania nizsie nespotreboval rozpocet bez ozajstneho zapisu.
         session.add(TriggeredWatch(symbol=symbol))
         session.commit()
-        trade_cycle.dispatch_triggered_check(asset)
+        trade_cycle.dispatch_triggered_check(asset, watch_triggered=True)
 
 
 def check_watch_triggers() -> None:

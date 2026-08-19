@@ -1123,6 +1123,7 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                         eia_data: dict | None = None,
                         marketaux_news: list[dict] | None = None,
                         confidence_streak: dict | None = None,
+                        watch_retrigger_streak: dict | None = None,
                         open_position: dict | None = None,
                         closed_trade: dict | None = None,
                         macro_event: str | None = None,
@@ -1239,6 +1240,46 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
             f"trendujúci alebo range-bound (máš to z vlastnej TA), nie podľa počtu cyklov.\n"
         )
 
+    # 2026-08-19 (na ziadost pouzivatela, po HYPE zacykleni) - analogicke k
+    # streak_block vyssie, ale pre INY pripad: opakovane splnena watch_price/
+    # watch_direction podmienka (direction='none' pri kazdom z nich), bez toho,
+    # aby sa Claude niekedy dozvedel, ze uz je to Nty raz za sebou - kazdy
+    # mimoriadny cyklus vyzeral ako cerstvy, izolovany pohlad, takze sa
+    # opakovane nastavila nova tesna watch uroven, ktoru bezny pohyb hned
+    # prekonal. Viz trade_cycle._get_watch_retrigger_streak.
+    watch_retrigger_block = ""
+    if watch_retrigger_streak:
+        wrs = watch_retrigger_streak
+        entries_desc = "\n".join(
+            f"  {i + 1}. watch {e['watch_direction']} {e['watch_price']} (nastavené pri cene {e['live_price']}) "
+            f"→ vtedy si zvolil direction='{e['direction']}', confidence={e['confidence']}"
+            for i, e in enumerate(wrs["entries"])
+        )
+        watch_retrigger_block = (
+            f"\n## Opakovane spustenie watch podmienky bez otvorenia pozície (posledných {wrs['count']} "
+            f"mimoriadnych cyklov za sebou)\n"
+            f"Toto je už {wrs['count']}. mimoriadny cyklus za sebou vyvolaný splnením watch_price/"
+            f"watch_direction podmienky, ktorú si SÁM nastavil v predchádzajúcom cykle - a ani raz si "
+            f"zatiaľ neotvoril pozíciu:\n{entries_desc}\n"
+            f"To znamená, že tvoje doterajšie watch úrovne boli buď príliš blízko aktuálnej ceny (bežný "
+            f"pokračujúci pohyb/šum ich prekonal skôr, než reálne potvrdili niečo NOVÉ), alebo že aj "
+            f"napriek opakovanému potvrdeniu smeru zostávaš nerozhodný. Toto kolo sa rozhodni inak než "
+            f"doteraz:\n"
+            f"- Ak sa cena od PRVÉHO watch triggeru vyššie skutočne posunula v smere, ktorý si sledoval, a "
+            f"tvoja analýza to podporuje, ZVÁŽ SKUTOČNÉ OTVORENIE POZÍCIE teraz namiesto ďalšieho čakania - "
+            f"opakované čakanie na 'ešte jedno potvrdenie' pri už potvrdenom pohybe je presne ten vzor, "
+            f"ktorý viedol k tomuto zacykleniu.\n"
+            f"- Ak stále nie si dostatočne istý, NENASTAVUJ novú watch úroveň blízko aktuálnej ceny - buď ju "
+            f"úplne vynechaj (počkaj na bežný interval), alebo ju nastav výrazne ďalej (minimálne 2-3x ATR "
+            f"od aktuálnej ceny), aby ju nespustil ten istý bežný pohyb/šum znova o pár minút.\n"
+        )
+        if wrs["count"] >= 3:
+            watch_retrigger_block += (
+                "POZOR: ak aj teraz nastavíš novú watch úroveň, systém ju MECHANICKY zmaže (dosiahnutý "
+                "limit opakovaní) - tvoje direction/confidence/SL/TP rozhodnutie sa aj tak uloží, len "
+                "watch_price/watch_direction sa tento cyklus nepoužije.\n"
+            )
+
     marketaux_block = ""
     if marketaux_news:
         # 2026-08-19 (na ziadost pouzivatela) - predtym LEN titulok (Claude
@@ -1312,6 +1353,7 @@ Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/sp
 ## Kľúčové predpoklady z predchádzajúceho cyklu (~{interval_h}h dozadu)
 {prev_block}
 {streak_block}
+{watch_retrigger_block}
 {retro_block}"""
 
     macro_event_block = ""
@@ -1488,7 +1530,8 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
             confidence_streak: dict | None = None,
             closed_trade: dict | None = None,
             macro_event: str | None = None,
-            coinmarketcal_events: list[dict] | None = None) -> tuple[dict, list[dict], dict]:
+            coinmarketcal_events: list[dict] | None = None,
+            watch_retrigger_streak: dict | None = None) -> tuple[dict, list[dict], dict]:
     """Vrati (decision, web_search_log, usage). web_search_log je zoznam
     {"query": str, "sources": [{"title", "url", "page_age"}]} pre kazde
     vyhladavanie, ktore Claude spravil - sluzi na audit (co realne citas,
@@ -1516,7 +1559,7 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
                                       btc_proxy, prev_assumptions, prev_cycle_time,
                                       retrospective_reflection, new_stats_text,
                                       fred_macro, eia_data, marketaux_news,
-                                      confidence_streak, open_position=None,
+                                      confidence_streak, watch_retrigger_streak, open_position=None,
                                       closed_trade=closed_trade, macro_event=macro_event,
                                       coinmarketcal_events=coinmarketcal_events)
     decision, web_search_log, usage = _call_claude(asset, system_blocks, user_prompt,

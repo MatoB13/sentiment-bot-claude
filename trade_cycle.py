@@ -214,6 +214,48 @@ def _save_pending_retrospective(name: str, symbol: str, pending_stats: dict, dec
             session.rollback()
 
 
+# Kolko WATCH-triggered cyklov za sebou (bez otvorenej pozicie medzi nimi) sa
+# uz stalo pre tento symbol - 2026-08-19, na ziadost pouzivatela po HYPE
+# zacykleni (watch_price/watch_direction sa spustal opakovane kazdych par
+# minut, Claude vzdy zvolil 'none' + hned znova nastavil novu tesnu watch
+# uroven, bez akehokolvek povedomia o vlastnom opakujucom sa vzore - na
+# rozdiel od _get_confidence_streak nizsie, ktory pokryva LEN long/short pod
+# prahom, nie direction='none'+watch). Nad tento pocet sa novo nastavena
+# watch uroven MECHANICKY zmaze (viz run_cycle_for_asset) - Claude tak
+# nemoze retazec predlzit donekonecna ani keby prompt kontext ignoroval,
+# padne spat na bezny hodinovy interval.
+_WATCH_RETRIGGER_HARD_LIMIT = 3
+
+
+def _get_watch_retrigger_streak(symbol: str, session) -> dict | None:
+    """Analogicke k _get_confidence_streak, ale pre watch-retrigger slucku
+    namiesto opakovaneho near-threshold smeru. Retazec sa pocita od
+    NAJNOVSIEHO zaznamu spat, kym neprejde cyklus, ktory NEBOL watch-triggered,
+    alebo cyklus s outcome='opened' (poziciu uz otvoril, retazec sa prerusil)."""
+    logs = (
+        session.query(CycleLog)
+        .filter(CycleLog.symbol == symbol)
+        .order_by(CycleLog.created_at.desc())
+        .limit(20)
+        .all()
+    )
+    streak = []
+    for log in logs:
+        if log.outcome == "opened" or not log.triggered_by_watch:
+            break
+        streak.append(log)
+    if not streak:
+        return None
+    return {
+        "count": len(streak),
+        "entries": [
+            {"watch_price": l.watch_price, "watch_direction": l.watch_direction,
+             "confidence": l.confidence, "direction": l.direction, "live_price": l.live_price}
+            for l in reversed(streak)  # najstarsi prvy
+        ],
+    }
+
+
 def _get_confidence_streak(symbol: str, min_confidence: int, session) -> dict | None:
     """Zisti, kolko POSLEDNYCH cyklov za sebou Claude navrhol ROVNAKY smer
     (long/short) s confidence POD prahom (teda kazdy z nich by bol zamietnuty)
@@ -605,7 +647,8 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                          btc_proxy: dict | None, fred_macro: dict | None = None,
                          skip_due_check: bool = False,
                          closed_trade: dict | None = None,
-                         macro_event: str | None = None) -> None:
+                         macro_event: str | None = None,
+                         watch_triggered: bool = False) -> None:
     """Kompletny cyklus pre JEDEN asset - vlastna DB session/commit, aby chyba
     v jednom assete neponechala nedokoncenu transakciu pre dalsi.
 
@@ -635,7 +678,11 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
     (viz claude_analyst), aby Claude vedel, PRECO cyklus bezi mimo bezneho
     intervalu a cielene si to cez web_search overil. Nezavisle od closed_trade
     (obe sa mozu teoreticky zisst v tom istom cykle, ak makro udalost prijde
-    tesne po zatvoreni pozicie)."""
+    tesne po zatvoreni pozicie).
+
+    watch_triggered: True ak tento beh vyvolala splnena watch_price/watch_direction
+    podmienka (viz watch_monitor.py) - zapise sa do CycleLog.triggered_by_watch
+    a pouzije sa na _get_watch_retrigger_streak (viz jej docstring vyssie)."""
     name = asset["name"]
     symbol = asset["strike_symbol"]
     print(f"\n--- [{name}] ---")
@@ -704,6 +751,12 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             confidence_streak = None
 
         try:
+            watch_retrigger_streak = _get_watch_retrigger_streak(symbol, session)
+        except Exception as e:
+            print(f"[{name}] Vypocet watch retrigger streak zlyhal (pokracujem bez neho): {e}")
+            watch_retrigger_streak = None
+
+        try:
             retrospective_reflection, new_stats_text, pending_stats = _get_retrospective_context(asset, session)
         except Exception as e:
             # Retrospektiva je cisto doplnkova (uciaci feature) - jej zlyhanie
@@ -747,6 +800,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 fred_macro, eia_data, marketaux_news,
                 confidence_streak, closed_trade, macro_event,
                 coinmarketcal_events=coinmarketcal_events,
+                watch_retrigger_streak=watch_retrigger_streak,
             )
         except Exception as e:
             print(f"[{name}] Claude analyza zlyhala, preskakujem cyklus: {e}")
@@ -766,6 +820,25 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
         if pending_stats:
             _save_pending_retrospective(name, symbol, pending_stats, decision, session)
 
+        # 2026-08-19 (na ziadost pouzivatela, po HYPE zacykleni) - mechanicka
+        # poistka NEZAVISLA od promptoveho kontextu (watch_retrigger_block v
+        # claude_analyst.py): ak uz tento symbol ma _WATCH_RETRIGGER_HARD_LIMIT+
+        # watch-triggered cyklov za sebou bez otvorenia pozicie, NOVU watch
+        # uroven z tohto rozhodnutia zahodime bez ohladu na to, co Claude
+        # vratil - direction/confidence/SL/TP ostavaju netknute, len sa
+        # nenastavi dalsia cenova pascka, ktora by retazec predlzila donekonecna.
+        watch_price = decision.get("watch_price")
+        watch_direction = decision.get("watch_direction")
+        watch_price_2 = decision.get("watch_price_2")
+        watch_direction_2 = decision.get("watch_direction_2")
+        if (watch_triggered and watch_retrigger_streak
+                and watch_retrigger_streak["count"] >= _WATCH_RETRIGGER_HARD_LIMIT
+                and (watch_price is not None or watch_price_2 is not None)):
+            print(f"[{name}] Watch retrigger streak ({watch_retrigger_streak['count']}) dosiahol limit "
+                  f"({_WATCH_RETRIGGER_HARD_LIMIT}) - mazem novo navrhnutu watch uroven, "
+                  "padam spat na bezny interval.")
+            watch_price = watch_direction = watch_price_2 = watch_direction_2 = None
+
         cycle_log = CycleLog(
             symbol=symbol, live_price=live_price, ta=ta, cross_market=cross_market,
             session_data=market_session,
@@ -776,16 +849,17 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             web_search_log=web_search_log,
             **_source_usage_fields(asset, marketaux_news, social, coinmarketcal_events),
             key_assumptions=decision.get("key_assumptions"),
-            watch_price=decision.get("watch_price"),
-            watch_direction=decision.get("watch_direction"),
-            watch_price_2=decision.get("watch_price_2"),
-            watch_direction_2=decision.get("watch_direction_2"),
+            watch_price=watch_price,
+            watch_direction=watch_direction,
+            watch_price_2=watch_price_2,
+            watch_direction_2=watch_direction_2,
             confidence_threshold_note=decision.get("confidence_threshold_note"),
             data_issue=decision.get("data_issue"),
             reviewed_trade_id=closed_trade["trade_id"] if closed_trade else None,
             closed_trade_reflection=decision.get("closed_trade_reflection"),
             sl_tp_calibration_verdict=decision.get("sl_tp_calibration_verdict"),
             triggered_by_macro_event=macro_event,
+            triggered_by_watch=True if watch_triggered else None,
             usage_input_tokens=usage.get("input_tokens"),
             usage_cache_write_tokens=usage.get("cache_write_tokens"),
             usage_cache_read_tokens=usage.get("cache_read_tokens"),
@@ -942,7 +1016,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
 
 
 def run_triggered_check(asset: dict, closed_trade: dict | None = None,
-                         macro_event: str | None = None) -> None:
+                         macro_event: str | None = None, watch_triggered: bool = False) -> None:
     """Mimoriadny cyklus LEN pre jeden asset, mimo bezneho zdielaneho hodinoveho
     tiku - vola ho watch_monitor.py (watch_price/watch_direction podmienka
     splnena ALEBO macro_event - viz nizsie) alebo position_monitor.py
@@ -987,7 +1061,8 @@ def run_triggered_check(asset: dict, closed_trade: dict | None = None,
         print(f"[trade_cycle] [{name}] FRED fetch zlyhal (pokracujem bez neho): {e}")
 
     run_cycle_for_asset(asset, cross_market, market_session, btc_proxy, fred_macro,
-                         skip_due_check=True, closed_trade=closed_trade, macro_event=macro_event)
+                         skip_due_check=True, closed_trade=closed_trade, macro_event=macro_event,
+                         watch_triggered=watch_triggered)
 
 
 # Symboly s momentalne beziacim mimoriadnym (background-thread) behom - viz
