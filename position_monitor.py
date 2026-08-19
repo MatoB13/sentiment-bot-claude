@@ -69,6 +69,35 @@ def _sum_fills(fills: list[dict], order_id) -> dict | None:
     return {"avg_price": avg_price, "fee": total_fee, "realized_pnl": total_realized_pnl}
 
 
+# Tolerancia pri porovnavani realnej ceny zatvorenia s SL/TP urovnou pozicie
+# (viz _reclassify_by_close_price) - stop-market objednavky mozu preklznut
+# cez SL uroven, limit TP objednavky sa naopak vykonaju AT-ALEBO-LEPSIE nez
+# zadana cena, takze male percento tolerancie pokryje bezny slippage bez
+# rizika falosnej zhody so vzdialenejsou SL/TP urovnou druhej strany.
+_CLOSE_PRICE_TOLERANCE = 0.003
+
+
+def _reclassify_by_close_price(trade: Trade, close_price: float) -> str | None:
+    """Ak nasa TP/SL bracket noha chyba v /v2/history/order (staleness, viz
+    volajuci), skusi urcit skutocny dovod zatvorenia podla toho, ci sa realna
+    cena zatvorenia zhoduje s TP alebo SL urovnou TEJTO pozicie (s malou
+    tolerantnostou na slippage/zaokruhlenie). Vrati None, ak sa nezhoduje so
+    ziadnou z nich (teda ide skutocne o timeout/manualne zatvorenie mimo TP/SL)."""
+    sl, tp = trade.stop_loss_price, trade.take_profit_price
+    is_long = (trade.direction or "").lower() == "long"
+    if tp is not None:
+        tp_hit = close_price >= tp * (1 - _CLOSE_PRICE_TOLERANCE) if is_long \
+            else close_price <= tp * (1 + _CLOSE_PRICE_TOLERANCE)
+        if tp_hit:
+            return "take_profit"
+    if sl is not None:
+        sl_hit = close_price <= sl * (1 + _CLOSE_PRICE_TOLERANCE) if is_long \
+            else close_price >= sl * (1 - _CLOSE_PRICE_TOLERANCE)
+        if sl_hit:
+            return "stop_loss"
+    return None
+
+
 def _lookup_exact_close(trade: Trade) -> dict | None:
     """Presne (NIE odhadovane) udaje o zatvoreni priamo z burzy. Vrati
     {close_reason, entry_fill_price, close_fill_price, fees_usd, pnl_usd}
@@ -154,6 +183,18 @@ def _lookup_exact_close(trade: Trade) -> dict | None:
     close_agg = _sum_fills(fills, closing_order_id)
     if entry_agg is None or close_agg is None:
         return None
+
+    # 2026-08-19 produkcny nalez (ZEC trade #46, "timeout" flag na zjavnom TP
+    # hite): rovnaky /v2/history/order staleness problem ako 2026-08-18
+    # komentar vyssie (XAU) sa moze tykat aj samotnej TP/SL bracket nohy, nie
+    # len timeout/likvidacnej objednavky - potom ju fallback vyssie najde cez
+    # siroke hladanie a OMYLOM oznaci "force_closed_by_bot", hoci realna
+    # cena zatvorenia je zjavne pri TP/SL urovni tejto pozicie. Preto tu, LEN
+    # pre tento neisty fallback (nie pre uz spolahlivo urcenu "liquidation"),
+    # este dorefinujeme podla skutocnej ceny zatvorenia - ak sedi na TP/SL
+    # (s malou tolerantnostou na slippage), pouzijeme presnejsi dovod.
+    if close_reason == "force_closed_by_bot":
+        close_reason = _reclassify_by_close_price(trade, close_agg["avg_price"]) or close_reason
 
     fees_usd = entry_agg["fee"] + close_agg["fee"]
     return {
