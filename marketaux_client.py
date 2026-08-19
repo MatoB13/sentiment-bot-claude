@@ -81,6 +81,12 @@ def get_news_sentiment(query: dict, limit: int = 5) -> list[dict] | None:
             "published_at": a.get("published_at"),
             "sentiment_score": sentiment,
             "url": a.get("url"),
+            # 2026-08-19 (na ziadost pouzivatela) - API toto uz aj tak posiela v
+            # tej istej odpovedi (ZIADNY extra request/naklad), ale doteraz sa
+            # to nikde nezachytavalo ani neposielalo do promptu - Claude tak
+            # videl LEN holy titulok, nikdy skutocny obsah clanku. snippet je
+            # kratky vytah (par viet), nie plny text.
+            "snippet": a.get("snippet"),
         })
     _cache[key] = (time.time(), out)
     return out

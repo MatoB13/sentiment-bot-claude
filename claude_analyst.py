@@ -1196,16 +1196,23 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
 
     marketaux_block = ""
     if marketaux_news:
-        articles = "\n".join(
-            f"- [{a.get('published_at', '?')}] {a.get('title')} "
-            f"(zdroj: {a.get('source')}, sentiment: {a.get('sentiment_score')})"
-            for a in marketaux_news
-        )
+        # 2026-08-19 (na ziadost pouzivatela) - predtym LEN titulok (Claude
+        # nevidel, o com clanok skutocne je) - Marketaux uz aj tak posiela
+        # snippet v tej istej odpovedi (ziadny extra request/naklad), teraz
+        # sa aj skutocne posiela do promptu.
+        def _article_line(a):
+            line = (f"- [{a.get('published_at', '?')}] {a.get('title')} "
+                    f"(zdroj: {a.get('source')}, sentiment: {a.get('sentiment_score')})")
+            snippet = a.get("snippet")
+            if snippet:
+                line += f"\n  {snippet}"
+            return line
+        articles = "\n".join(_article_line(a) for a in marketaux_news)
         marketaux_block = (
             f"\n## Najnovšie financne spravy so sentiment skore (Marketaux, NIE web_search)\n"
             f"{articles}\n"
             f"(sentiment skore je -1 az +1 na urovni konkretneho clanku, priamo od Marketaux, "
-            f"nie tvoj vlastny odhad)\n"
+            f"nie tvoj vlastny odhad; text pod kazdym titulkom je kratky vytah z clanku, nie plny text)\n"
         )
 
     # CoinMarketCal (2026-08-19, na ziadost pouzivatela) - strukturovany zdroj
