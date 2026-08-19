@@ -194,6 +194,14 @@ NIGHT = {
     # CoinMarketCal slug (2026-08-19, overene naozivo) - projekt sa tam vola
     # "Midnight" (symbol "night"), nie "NIGHT" - viz coinmarketcal_client.py.
     "coinmarketcal_slug": "midnight-3",
+    # CoinGecko fallback/backfill (2026-08-19, overene naozivo - realne
+    # aktualne OHLC dostupne zadarmo na Demo kluci, rovnaky id ako
+    # coinmarketcal_slug vyssie) - rovnaky vzor ako HYPE, viz
+    # market_data.get_price_history/fetch_ohlcv_coingecko. Na rozdiel od
+    # HYPE ma NIGHT aj binance_volume_symbol nizsie (funguje v hlavnej,
+    # vlastnej price_bars ceste - tento fallback sa pouzije len ak vlastne
+    # data chybaju/su zastarale, vtedy sa volume jednoducho nedoplni).
+    "coingecko_id": "midnight-3",
     "yf_fallback": None,
     "sl_pct": config.NIGHT_SL_PCT,
     "tp_pct": config.NIGHT_TP_PCT,
