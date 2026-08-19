@@ -9,8 +9,29 @@ import requests
 
 import config
 
-_DIRECTION_COLOR = {"long": 3066993, "short": 15158332}  # Discord embed color (decimal), zelena/cervena
-_PNL_COLOR = {"win": 3066993, "loss": 15158332}  # rovnake farby, ale podla vysledku (viz notify_trade_closed)
+_DIRECTION_COLOR = {"long": 2123412, "short": 10181046}  # Discord embed color (decimal), tmavomodra/fialova
+_PNL_COLOR = {"win": 3066993, "loss": 15158332}  # zelena/cervena, podla vysledku (viz notify_trade_closed)
+
+# 2026-08-19 (na ziadost pouzivatela) - notifikacie chodia aj na hodinky, kde
+# sa zvycajne zobrazi LEN prvy riadok/content, nie cele embed telo - preto
+# VZDY prvy znak (farebny smerovy glyf), potom ticker, potom suma. Povodne 2
+# farby (zelena=zisk/long, cervena=strata/short) boli zamerne zjednodusene na
+# 4 odlisne farebne sipky, kedze OTVORENIE (smer, nie vysledok) a ZATVORENIE
+# (vysledok, nie smer) su semanticky odlisne veci - miesat ich do rovnakych 2
+# farieb bolo zavadzajuce (napr. zisková SHORT by inak mala rovnaku farbu ako
+# strata). Presna "tmavomodra"/"fialova" farba nie je ako jednotny Unicode
+# glyf dostupna (ziadny natívny "tmavomodry sipka" znak existuje) - preto
+# farebny kruh (garantovana farba naprieč platformami) + smerova sipka spolu.
+_LONG_GLYPH = "\U0001F535➡️"    # (modry kruh + sipka doprava) long
+_SHORT_GLYPH = "\U0001F7E3⬅️"   # (fialovy kruh + sipka dolava) short
+_PROFIT_GLYPH = "\U0001F7E2⬆️"  # (zeleny kruh + sipka hore) zisk
+_LOSS_GLYPH = "\U0001F534⬇️"    # (cerveny kruh + sipka dole) strata
+
+
+def _short_ticker(symbol: str) -> str:
+    """'ADA-USD' -> 'ADA' - kratsie pre watch notifikaciu (rovnaky vzor ako
+    monitor-web tickerLabel())."""
+    return symbol.removesuffix("-USD") if symbol else symbol
 
 # 1 retry (2026-08-19, crash-scenario audit) - Discord webhook ma prisny
 # rate limit; pri hromadnom zatvoreni viacerych pozicii naraz (kazda vlastna
@@ -49,10 +70,15 @@ def notify_trade_opened(asset: dict, sized: dict) -> None:
     # na default/cervenu bez ohladu na skutocny smer. .lower() to zjednoti.
     direction = sized["direction"]
     direction_key = direction.lower()
-    emoji = "\U0001F7E2" if direction_key == "long" else "\U0001F534"
+    glyph = _LONG_GLYPH if direction_key == "long" else _SHORT_GLYPH
+    # Glyf, ticker, suma (notional = skutocna velkost pozicie, NIE margin) -
+    # v tomto presnom poradi, aby to bolo citatelne aj v skratenom watch
+    # nahlade (viz modulovy docstring vyssie).
+    headline = f"{glyph} {asset['name']} ${sized['notional_usd']:.0f}"
     payload = {
+        "content": headline,
         "embeds": [{
-            "title": f"{emoji} Otvorena pozicia: {asset['name']} {direction.upper()}",
+            "title": f"{headline} - {direction.upper()} otvorena",
             "color": _DIRECTION_COLOR.get(direction_key, 3447003),
             "fields": [
                 {"name": "Confidence", "value": str(sized["confidence"]), "inline": True},
@@ -86,14 +112,19 @@ def notify_trade_closed(symbol: str, closed_trade: dict) -> None:
     # nie smer pozicie - predtym sa farba (na rozdiel od uz spravneho emoji nizsie)
     # riadila direction, takze napr. zisková SHORT pozicia mala cervenu farbu.
     is_win = (pnl or 0) >= 0
-    emoji = "\U0001F7E2" if is_win else "\U0001F534"
+    glyph = _PROFIT_GLYPH if is_win else _LOSS_GLYPH
+    pnl_str = f"${pnl:+.2f}" if pnl is not None else "-"
+    ticker = _short_ticker(symbol)
+    # Glyf, ticker, suma (PnL) - rovnake poradie/dovod ako notify_trade_opened.
+    headline = f"{glyph} {ticker} {pnl_str}"
     reason_label = _CLOSE_REASON_LABELS.get(closed_trade.get("close_reason"), closed_trade.get("close_reason"))
     payload = {
+        "content": headline,
         "embeds": [{
-            "title": f"{emoji} Zatvorena pozicia: {symbol} ({reason_label})",
+            "title": f"{headline} ({reason_label})",
             "color": _PNL_COLOR["win"] if is_win else _PNL_COLOR["loss"],
             "fields": [
-                {"name": "PnL", "value": f"${pnl:.2f}" if pnl is not None else "-", "inline": True},
+                {"name": "PnL", "value": pnl_str if pnl is not None else "-", "inline": True},
                 {"name": "Vstup", "value": str(closed_trade.get("entry_price")), "inline": True},
                 {"name": "Vystup", "value": str(closed_trade.get("exit_price")), "inline": True},
                 {"name": "Drzane", "value": f"{closed_trade.get('hours_held', 0):.1f}h", "inline": True},
