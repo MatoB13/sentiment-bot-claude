@@ -310,6 +310,9 @@ ENABLE_ZEC = _bool("ENABLE_ZEC", "true")
 # |korelacia| <= 0.5 voci vsetkym ostatnym tickerom v portfoliu) - rovnaky
 # "aktivny hned" vzor ako ZEC/WTI/NIGHT/HYPE/SKHYNIX.
 ENABLE_GOOGL = _bool("ENABLE_GOOGL", "true")
+# UNITREE pridany 2026-08-19, default FALSE - rovnaky "len zbiera historiu"
+# vzor ako AAOI/MINIMAX vyssie (viz UNITREE sekcia nizsie pre kontext).
+ENABLE_UNITREE = _bool("ENABLE_UNITREE", "false")
 
 # Presny symbol/asset identifikator zisti cez strike_client.get_markets() - toto
 # su len predpoklady podla existujuceho NAS100-USD pomenovacieho vzoru, okrem
@@ -585,3 +588,38 @@ GOOGL_TP_PCT = _float("GOOGL_TP_PCT", 1.8)
 GOOGL_TRADE_INTERVAL_HOURS = _float("GOOGL_TRADE_INTERVAL_HOURS", TRADE_INTERVAL_HOURS)
 GOOGL_OFF_HOURS_INTERVAL_HOURS = _float("GOOGL_OFF_HOURS_INTERVAL_HOURS", OFF_HOURS_INTERVAL_HOURS)
 GOOGL_WEEKEND_INTERVAL_HOURS = _float("GOOGL_WEEKEND_INTERVAL_HOURS", WEEKEND_INTERVAL_HOURS)
+
+# ============================== UNITREE (NEAKTIVNE - zbiera historiu) ==============================
+# Pridany 2026-08-19 na ziadost pouzivatela (Unitree Robotics - cinsky vyrobca
+# humanoidnych/quadruped robotov) - IPO na sanghajskom STAR Markete PRESNE
+# v den pridania (2026-08-19), akcia +460 az +542% v prvy den (viz CNBC).
+# ENABLE_UNITREE default FALSE (rovnaky "len zbiera historiu" vzor ako AAOI/
+# MINIMAX vyssie) - kedze IPO bolo doslova dnes, nemame ZIADNU cenovu historiu,
+# takze aj korelacia s ostatnymi tickermi (predpoklad pre "aktivny hned" vzor
+# ako GOOGL) je zatial nemoznenie vypocitat. Ked pribudne dost dat (min.
+# CORR_MIN_OVERLAP prekryvajucich sa hodinovych barov voci VSETKYM aktivnym
+# tickerom, viz index.html readinessBannerHtml), dashboard sam nahlasi v
+# "Historia signalov" danho tickera, ze je pripraveny na rozhodnutie.
+# STRIKE symbol overeny naozivo (2026-08-19, get_markets() vratil 'UNITREE-USD',
+# status 'trading', mark_price ~119) - NA ROZDIEL od MINIMAX (sukromna firma
+# bez trhu) je toto SKUTOCNY synteticky tracker realnej verejne obchodovanej
+# akcie, ale na sanghajskej burze (STAR Market), nie US - TRADING_HOURS_START/
+# END_UTC (NYSE-orientovany default) je preto len hruba aproximacia, rovnako
+# ako uz MINIMAX pouziva pre neznamy trh (prehodnotit pri realnej aktivacii).
+# yfinance nema ziadnu pouzitelnu historiu (IPO dnes + CNY nominal, nekompatibilna
+# skala so Strike USD trackerom, rovnaky dovod ako SKHYNIX yf_volume_only) -
+# jediny zdroj dat je vlastny 1-min Strike poller (price_poller.py, ALL_ASSETS).
+STRIKE_UNITREE_SYMBOL = os.getenv("STRIKE_UNITREE_SYMBOL", "UNITREE-USD")
+UNITREE_MIN_CONFIDENCE = _int("UNITREE_MIN_CONFIDENCE", MIN_CONFIDENCE)
+UNITREE_MARGIN_USD = _float("UNITREE_MARGIN_USD", 50)
+UNITREE_LEVERAGE = _int("UNITREE_LEVERAGE", 10)
+UNITREE_LIQUIDATION_CUSHION_MULTIPLE = _float("UNITREE_LIQUIDATION_CUSHION_MULTIPLE", LIQUIDATION_CUSHION_MULTIPLE)
+# Rovnaka sirka ako MINIMAX/NIGHT pri ich zavedeni - genuinne nezname riziko
+# BEZ ziadnej cenovej historie, navyse zdokumentovana extremna IPO-den
+# volatilita (+460/542% v prvy den) potvrdzuje, ze konzervativnejsi odhad nez
+# napr. AAOI/GOOGL je tu opodstatneny. NIE empiricky backtestovane.
+UNITREE_SL_PCT = _float("UNITREE_SL_PCT", 6.0)
+UNITREE_TP_PCT = _float("UNITREE_TP_PCT", 9.0)
+UNITREE_TRADE_INTERVAL_HOURS = _float("UNITREE_TRADE_INTERVAL_HOURS", TRADE_INTERVAL_HOURS)
+UNITREE_OFF_HOURS_INTERVAL_HOURS = _float("UNITREE_OFF_HOURS_INTERVAL_HOURS", OFF_HOURS_INTERVAL_HOURS)
+UNITREE_WEEKEND_INTERVAL_HOURS = _float("UNITREE_WEEKEND_INTERVAL_HOURS", WEEKEND_INTERVAL_HOURS)

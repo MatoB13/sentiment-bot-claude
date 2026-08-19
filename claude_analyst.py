@@ -652,6 +652,40 @@ _ZEC_MACRO_RULES = """- **Regulacne/delisting riziko privacy coinov - najdolezit
   sú kľúčové eventy - pred/počas takého eventu buď výrazne konzervatívnejší (nízka confidence alebo
   "none")."""
 
+_UNITREE_MACRO_RULES = """- **KRITICKÉ UPOZORNENIE - čerstvo listovaná akcia bez obchodnej histórie**: {instrument} (Unitree
+  Robotics, čínsky výrobca quadruped/humanoidných robotov) mala IPO na šanghajskom STAR Markete
+  19.8.2026 s prvodňovým pohybom +460 až +542% - toto NIE JE bežná zavedená akcia s rokmi cenovej
+  histórie/earnings track recordu (na rozdiel od AAOI/SKHYNIX/GOOGL). Bez overiteľnej histórie buď
+  výrazne konzervatívnejší pri confidence, kým sa nenazbiera aspoň niekoľko týždňov reálneho
+  obchodovania.
+- **STAR Market pravidlá cenových limitov (odlišné od bežných A-shares aj od US búrz)**: čerstvo
+  listované STAR Market tituly NEMAJÚ denný cenový limit prvých 5 obchodných dní od IPO, potom platí
+  ±20% denný limit (oproti bežnému ±10% na iných čínskych burzách) - to je štrukturálne vyššia
+  povolená volatilita než pri ktoromkoľvek inom tickeri v portfóliu. T+1 vyrovnanie (nie T+0) je
+  ďalší rozdiel oproti US akciám, hoci na samotné Strike obchodovanie priamo nevplýva.
+- **Retail-dominovaná vlastnícka štruktúra**: IPO malo cez 8000-násobné prevýšenie dopytu retail
+  investormi - takáto štruktúra historicky znamená vyššiu sentiment/hype-driven volatilitu a menšiu
+  väzbu na fundamenty v prvých týždňoch/mesiacoch obchodovania.
+- **Sektorová konkurencia v humanoidnej/quadruped robotike**: porovnaj s Tesla Optimus, Figure AI,
+  Boston Dynamics (Hyundai), Agility Robotics, a najmä UBTech (už skôr listovaný čínsky humanoidný
+  konkurent) - prelomové produktové announcementy/kontrakty konkurencie často pohnú celým sektorovým
+  naratívom, aj bez priamej správy o {instrument} samotnom.
+- **Čínska priemyselná politika k robotike/AI**: čínska vláda aktívne podporuje robotiku ako súčasť
+  stratégie "nových kvalitatívnych produktívnych síl" - štátna podpora/dotácie sú pozitívny driver,
+  US-Čína exportné obmedzenia na pokročilé komponenty (čipy, senzory) sú naopak riziko (podobný duálny
+  efekt ako pri SKHYNIX/AAOI).
+- **Jazyková asymetria spravodajstva**: väčšina primárneho spravodajstva (earnings, oficiálne
+  oznámenia) vychádza najprv v čínštine - anglické pokrytie môže byť oneskorené/neúplné, ber to do
+  úvahy pri hodnotení, ako "čerstvá" je dostupná informácia cez web_search.
+- **Lock-up/insider unlock riziko**: ako pri každom čerstvom IPO, blížiaci sa koniec lock-up periody
+  pre zakladateľov/skorých investorov je známy medvedí katalyzátor - over cez web_search, ak sa o tom
+  objavia správy.
+- **Market Reaction Score**: rovnako dôležité ako inde, možno ešte viac vzhľadom na tenkú obchodnú
+  históriu - porovnaj obsah správy s reálnou cenovou reakciou {instrument}.
+- **Event Risk Gate**: prvý kvartálny report ako verejná firma (zatiaľ neexistuje), akékoľvek
+  regulačné/lock-up správy, väčšie produktové/kontraktové oznámenia, a US-Čína technologická politika
+  sú kľúčové eventy - buď výrazne konzervatívnejší (nízka confidence alebo "none")."""
+
 ASSET_TEXT = {
     "NAS100": {
         "label": "index NAS100 (Nasdaq-100)",
@@ -794,6 +828,17 @@ ASSET_TEXT = {
             'štrukturálne zmeny), a Fed/makro dátach (CPI, PPI, NFP, FOMC)'
         ),
         "macro_rules": _EQUITY_MACRO_RULES,
+    },
+    "UNITREE": {
+        "label": "akciu UNITREE (Unitree Robotics, čínsky výrobca humanoidných/quadruped robotov, IPO na šanghajskom STAR Markete 19.8.2026)",
+        "news_focus": (
+            'správach o Unitree Robotics samotnom (produktové launche, kontrakty, prvý kvartálny '
+            'report ako verejná firma), sektorovej konkurencii v humanoidnej/quadruped robotike '
+            '(Tesla Optimus, Figure AI, Boston Dynamics, Agility Robotics, UBTech), čínskej '
+            'priemyselnej politike k robotike/AI, US-Čína exportných obmedzeniach na pokročilé '
+            'komponenty, a prípadných lock-up/insider unlock správach'
+        ),
+        "macro_rules": _UNITREE_MACRO_RULES,
     },
 }
 

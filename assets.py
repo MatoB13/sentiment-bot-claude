@@ -455,7 +455,44 @@ GOOGL = {
     "marketaux_query": {"symbols": "GOOGL"},
 }
 
-ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX, AAOI, MINIMAX, ZEC, GOOGL]
+UNITREE = {
+    "name": "UNITREE",
+    # IPO na sanghajskom STAR Markete presne v den pridania (2026-08-19), akcia
+    # +460 az +542% v prvy den. NA ROZDIEL od MINIMAX ide o realnu verejne
+    # obchodovanu akciu (nie sukromnu pre-IPO firmu) - ale na cinskej burze,
+    # nie US, preto vlastna kategoria namiesto proste "stock".
+    "asset_class": "stock_cn_star_market",
+    "strike_symbol": config.STRIKE_UNITREE_SYMBOL,
+    # Ziadna pouzitelna yfinance historia (IPO doslova dnes + CNY nominal,
+    # nekompatibilna skala so Strike USD trackerom, rovnaky dovod ako SKHYNIX
+    # yf_volume_only) - yf_symbol ostava len ako NEPOUZITY fallback (rovnaky
+    # vzor ako MINIMAX). Jediny realny zdroj historie je vlastny 1-min Strike
+    # poller (viz price_poller.py ALL_ASSETS).
+    "yf_symbol": "UNITREE",
+    "yf_fallback": None,
+    "sl_pct": config.UNITREE_SL_PCT,
+    "tp_pct": config.UNITREE_TP_PCT,
+    "leverage": config.UNITREE_LEVERAGE,
+    "liquidation_cushion_multiple": config.UNITREE_LIQUIDATION_CUSHION_MULTIPLE,
+    "margin_usd": config.UNITREE_MARGIN_USD,
+    "min_confidence": config.UNITREE_MIN_CONFIDENCE,
+    "enabled": config.ENABLE_UNITREE,
+    "needs_btc_proxy": False,
+    # FALSE - ziaden spolahlivy zdroj (viz yf_symbol komentar vyssie), rovnaky
+    # dovod ako MINIMAX.
+    "include_volume": False,
+    "trade_interval_hours": config.UNITREE_TRADE_INTERVAL_HOURS,
+    "off_hours_interval_hours": config.UNITREE_OFF_HOURS_INTERVAL_HOURS,
+    "weekend_interval_hours": config.UNITREE_WEEKEND_INTERVAL_HOURS,
+    "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
+    "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
+    # "Unitree" nie je bezne anglicke slovo (na rozdiel od "night"/"minimax") -
+    # zive overene 2026-08-19 (holy aj viacslovny dopyt), oba cisto relevantne,
+    # nulove falosne zhody, viacero clankov mladsich nez 25h (IPO prave dnes).
+    "marketaux_query": {"search": "Unitree"},
+}
+
+ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX, AAOI, MINIMAX, ZEC, GOOGL, UNITREE]
 
 
 def enabled_assets() -> list[dict]:
