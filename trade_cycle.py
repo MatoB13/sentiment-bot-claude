@@ -111,6 +111,21 @@ def _is_due(asset: dict, session) -> bool:
     return elapsed_hours >= required_hours - _TIME_GATE_TOLERANCE_HOURS
 
 
+def _source_usage_fields(asset: dict, marketaux_news, social, coinmarketcal_events) -> dict:
+    """Zdrojova telemetria pre CycleLog (2026-08-19, na ziadost pouzivatela) -
+    "Zdroje pre rozhodovanie" tab v dashboarde z toho pocita % vyuzitia
+    kazdeho zdroja za poslednych 24h. None pre marketaux/coinmarketcal =
+    tento zdroj sa pre dany asset vobec nekonfiguruje (odlisuje sa od False =
+    nakonfigurovany, ale zlyhal/prazdny). social sa vola VZDY (nezavisle od
+    configu), preto tam None netreba - 0 uz sam o sebe znamena "skusene,
+    nic nenajdene"."""
+    return {
+        "marketaux_used": bool(marketaux_news) if asset.get("marketaux_query") else None,
+        "social_post_count": len(social) if social is not None else 0,
+        "coinmarketcal_used": bool(coinmarketcal_events) if asset.get("coinmarketcal_slug") else None,
+    }
+
+
 def _config_snapshot(asset: dict) -> dict:
     """Aktualne aktivne trading/risk nastavenia pre dany asset - uklada sa s
     kazdym cyklom, aby dashboard vzdy zobrazoval presne to, s cim bot naozaj
@@ -523,6 +538,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
             symbol=symbol, live_price=live_price, ta=ta, cross_market=cross_market,
             session_data=market_session, config_snapshot=_config_snapshot(asset),
             outcome="error", reject_reason=f"health_check_failed: {e}", trade_id=open_trade.id,
+            **_source_usage_fields(asset, marketaux_news, social, coinmarketcal_events),
         ))
         session.commit()
         return
@@ -539,7 +555,9 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         # prenesieme povodne predpoklady bez zmeny nez aby retazec pre buduci
         # cyklus (prev_log query vyssie) proste zmizol.
         key_assumptions=health.get("key_assumptions") or prev_assumptions,
-        web_search_log=web_search_log, health_recommendation=health.get("recommendation"),
+        web_search_log=web_search_log,
+        **_source_usage_fields(asset, marketaux_news, social, coinmarketcal_events),
+        health_recommendation=health.get("recommendation"),
         health_expected_direction=health.get("expected_direction"),
         close_confidence=health.get("close_confidence"),
         trade_id=open_trade.id,
@@ -710,6 +728,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 session_data=market_session,
                 config_snapshot=_config_snapshot(asset),
                 outcome="error", reject_reason=str(e),
+                **_source_usage_fields(asset, marketaux_news, social, coinmarketcal_events),
             ))
             session.commit()
             return
@@ -728,6 +747,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             stop_loss_price=decision.get("stop_loss_price"), take_profit_price=decision.get("take_profit_price"),
             reasoning=decision.get("reasoning"),
             web_search_log=web_search_log,
+            **_source_usage_fields(asset, marketaux_news, social, coinmarketcal_events),
             key_assumptions=decision.get("key_assumptions"),
             watch_price=decision.get("watch_price"),
             watch_direction=decision.get("watch_direction"),

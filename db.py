@@ -114,6 +114,20 @@ class CycleLog(Base):
     take_profit_price = Column(Float, nullable=True)
     reasoning = Column(String, nullable=True)
     web_search_log = Column(JSON, nullable=True)  # [{"query", "sources": [{"title","url","page_age"}]}]
+
+    # Zdrojova telemetria (2026-08-19, na ziadost pouzivatela) - "Zdroje pre
+    # rozhodovanie" tab v dashboarde z toho pocita % vyuzitia kazdeho zdroja
+    # za poslednych 24h. web_search_log vyssie uz ma vsetko potrebne pre
+    # domeny navstivene cez web_search (Bloomberg/CNBC/atd.) - tieto tri
+    # stlpce doplnaju STRUKTUROVANE zdroje, ktore sa doteraz po pouziti v
+    # prompte jednoducho zahodili (Marketaux/social/CoinMarketCal), takze
+    # spatne sa da tento matica pocitat LEN odteraz dopredu, nie retroaktivne.
+    # None = zdroj sa pre tento asset vobec nekonfiguruje (napr. marketaux_query
+    # chyba) - odlisuje sa od False (nakonfigurovany, ale zlyhal/prazdny).
+    marketaux_used = Column(Boolean, nullable=True)
+    social_post_count = Column(Integer, nullable=True)
+    coinmarketcal_used = Column(Boolean, nullable=True)
+
     key_assumptions = Column(String, nullable=True)  # kluc. predpoklady tohto rozhodnutia - overuju sa dalsi cyklus
     # Volitelne - Claude sem napise strucny popis, ak vstupne data pre tento
     # cyklus vyzeraju podozrivo/nekonzistentne (zastarana cena, chybajuci/nulovy
