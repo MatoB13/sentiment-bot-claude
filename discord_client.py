@@ -14,18 +14,16 @@ _PNL_COLOR = {"win": 3066993, "loss": 15158332}  # zelena/cervena, podla vysledk
 
 # 2026-08-19 (na ziadost pouzivatela) - notifikacie chodia aj na hodinky, kde
 # sa zvycajne zobrazi LEN prvy riadok/content, nie cele embed telo - preto
-# VZDY prvy znak (farebny smerovy glyf), potom ticker, potom suma. Povodne 2
-# farby (zelena=zisk/long, cervena=strata/short) boli zamerne zjednodusene na
-# 4 odlisne farebne sipky, kedze OTVORENIE (smer, nie vysledok) a ZATVORENIE
-# (vysledok, nie smer) su semanticky odlisne veci - miesat ich do rovnakych 2
-# farieb bolo zavadzajuce (napr. zisková SHORT by inak mala rovnaku farbu ako
-# strata). Presna "tmavomodra"/"fialova" farba nie je ako jednotny Unicode
-# glyf dostupna (ziadny natívny "tmavomodry sipka" znak existuje) - preto
-# farebny kruh (garantovana farba naprieč platformami) + smerova sipka spolu.
-_LONG_GLYPH = "\U0001F535➡️"    # (modry kruh + sipka doprava) long
-_SHORT_GLYPH = "\U0001F7E3⬅️"   # (fialovy kruh + sipka dolava) short
-_PROFIT_GLYPH = "\U0001F7E2⬆️"  # (zeleny kruh + sipka hore) zisk
-_LOSS_GLYPH = "\U0001F534⬇️"    # (cerveny kruh + sipka dole) strata
+# VZDY prvy znak(y) (kratky pismenkovy kod), potom ticker, potom suma. Povodne
+# farebne sipka-glyfy (skusane naozivo, viz o par commitov skor) pouzivatel po
+# zvazeni zrusil v prospech jednoduchsich pismenkovych skratiek - OL/OS
+# (otvorenie: OTVORENIE, nie vysledok) vs. L/P (zatvorenie: VYSLEDOK, nie
+# smer) - rovnaky dovod odlisenia ako predtym pri farbach (zisková SHORT musi
+# byt odlisitelna od otvorenia SHORT).
+_LONG_LABEL = "OL"    # Open Long
+_SHORT_LABEL = "OS"   # Open Short
+_PROFIT_LABEL = "P"   # zisk (Profit)
+_LOSS_LABEL = "L"     # strata (Loss)
 
 
 def _short_ticker(symbol: str) -> str:
@@ -70,11 +68,11 @@ def notify_trade_opened(asset: dict, sized: dict) -> None:
     # na default/cervenu bez ohladu na skutocny smer. .lower() to zjednoti.
     direction = sized["direction"]
     direction_key = direction.lower()
-    glyph = _LONG_GLYPH if direction_key == "long" else _SHORT_GLYPH
-    # Glyf, ticker, suma (notional = skutocna velkost pozicie, NIE margin) -
+    label = _LONG_LABEL if direction_key == "long" else _SHORT_LABEL
+    # Label, ticker, suma (notional = skutocna velkost pozicie, NIE margin) -
     # v tomto presnom poradi, aby to bolo citatelne aj v skratenom watch
     # nahlade (viz modulovy docstring vyssie).
-    headline = f"{glyph} {asset['name']} ${sized['notional_usd']:.0f}"
+    headline = f"{label} {asset['name']} ${sized['notional_usd']:.0f}"
     payload = {
         "content": headline,
         "embeds": [{
@@ -112,11 +110,11 @@ def notify_trade_closed(symbol: str, closed_trade: dict) -> None:
     # nie smer pozicie - predtym sa farba (na rozdiel od uz spravneho emoji nizsie)
     # riadila direction, takze napr. zisková SHORT pozicia mala cervenu farbu.
     is_win = (pnl or 0) >= 0
-    glyph = _PROFIT_GLYPH if is_win else _LOSS_GLYPH
+    label = _PROFIT_LABEL if is_win else _LOSS_LABEL
     pnl_str = f"${pnl:+.2f}" if pnl is not None else "-"
     ticker = _short_ticker(symbol)
-    # Glyf, ticker, suma (PnL) - rovnake poradie/dovod ako notify_trade_opened.
-    headline = f"{glyph} {ticker} {pnl_str}"
+    # Label, ticker, suma (PnL) - rovnake poradie/dovod ako notify_trade_opened.
+    headline = f"{label} {ticker} {pnl_str}"
     reason_label = _CLOSE_REASON_LABELS.get(closed_trade.get("close_reason"), closed_trade.get("close_reason"))
     payload = {
         "content": headline,
