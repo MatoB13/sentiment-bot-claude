@@ -535,12 +535,19 @@ MINIMAX_MIN_CONFIDENCE = _int("MINIMAX_MIN_CONFIDENCE", MIN_CONFIDENCE)
 MINIMAX_MARGIN_USD = _float("MINIMAX_MARGIN_USD", 50)
 MINIMAX_LEVERAGE = _int("MINIMAX_LEVERAGE", 10)
 MINIMAX_LIQUIDATION_CUSHION_MULTIPLE = _float("MINIMAX_LIQUIDATION_CUSHION_MULTIPLE", LIQUIDATION_CUSHION_MULTIPLE)
-# Uplne nova trieda assetu bez akejkolvek cenovej historie k dispozicii (viz
-# assets.py komentar) - najkonzervativnejsi pociatocny odhad zo vsetkych
-# tickerov (rovnaka sirka ako NIGHT pri jeho zavedeni, z rovnakeho dovodu:
-# genuinne nezname riziko), NIE empiricky backtestovane.
-MINIMAX_SL_PCT = _float("MINIMAX_SL_PCT", 6.0)
-MINIMAX_TP_PCT = _float("MINIMAX_TP_PCT", 9.0)
+# Povodne (2026-08-14) najsirsi konzervativny odhad (6.0/9.0, rovnako ako
+# NIGHT) kvoli uplnej absencii cenovej historie. Prepocitane 2026-08-19 (na
+# ziadost pouzivatela, po SKHYNIX incidente kde sa presny opacny problem -
+# SL prilis TESNY voci realnej volatilite - prejavil na zivych obchodoch)
+# rovnakou metodou, teraz uz z 5 dni realnych PriceBar dat z vlastneho Strike
+# pollera: hodinovy ATR14 = 1.386%, 90.percentil hodinoveho TR% = 2.403% ->
+# 2.34x ATR (rovnaky pomer ako pri NVDA/GOOGL) = SL 3.24%. Povodne 6.0% bolo
+# teda az 1.85x SIRSIE nez treba - opacny extrem od SKHYNIX, nie nebezpecny,
+# len zbytocne konzervativny. Zaokruhlene na 3.2/4.8 (1:1.5 pomer). Tato
+# ATR-based metodika (nie kopirovanie z "podobneho" tickera) sa teraz pouziva
+# pri KAZDOM novom tickeri, akonahle ma dost vlastnej cenovej historie.
+MINIMAX_SL_PCT = _float("MINIMAX_SL_PCT", 3.2)
+MINIMAX_TP_PCT = _float("MINIMAX_TP_PCT", 4.8)
 MINIMAX_TRADE_INTERVAL_HOURS = _float("MINIMAX_TRADE_INTERVAL_HOURS", TRADE_INTERVAL_HOURS)
 MINIMAX_OFF_HOURS_INTERVAL_HOURS = _float("MINIMAX_OFF_HOURS_INTERVAL_HOURS", OFF_HOURS_INTERVAL_HOURS)
 MINIMAX_WEEKEND_INTERVAL_HOURS = _float("MINIMAX_WEEKEND_INTERVAL_HOURS", WEEKEND_INTERVAL_HOURS)
