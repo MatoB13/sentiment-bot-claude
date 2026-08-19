@@ -105,6 +105,9 @@ ADA = {
     "asset_class": "crypto",
     "strike_symbol": config.STRIKE_ADA_SYMBOL,
     "yf_symbol": "ADA-USD",
+    # CoinMarketCal slug (2026-08-19, overene naozivo - "tracked": true) - viz
+    # coinmarketcal_client.py.
+    "coinmarketcal_slug": "cardano",
     "yf_fallback": None,
     "sl_pct": config.ADA_SL_PCT,
     "tp_pct": config.ADA_TP_PCT,
@@ -188,6 +191,9 @@ NIGHT = {
     "asset_class": "crypto",
     "strike_symbol": config.STRIKE_NIGHT_SYMBOL,
     "yf_symbol": "NIGHT-USD",
+    # CoinMarketCal slug (2026-08-19, overene naozivo) - projekt sa tam vola
+    # "Midnight" (symbol "night"), nie "NIGHT" - viz coinmarketcal_client.py.
+    "coinmarketcal_slug": "midnight-3",
     "yf_fallback": None,
     "sl_pct": config.NIGHT_SL_PCT,
     "tp_pct": config.NIGHT_TP_PCT,
@@ -240,6 +246,10 @@ HYPE = {
     "name": "HYPE",
     "asset_class": "crypto",
     "strike_symbol": config.STRIKE_HYPE_SYMBOL,
+    # CoinMarketCal slug (2026-08-19, overene naozivo) - "hyperliquid",
+    # napriek tomu, ze yfinance/Binance nemaju spolahlivy zdroj cien nizsie -
+    # viz coinmarketcal_client.py.
+    "coinmarketcal_slug": "hyperliquid",
     # Ziadny spolahlivy yfinance ticker (HYPE-USD nevracia data) ani Binance
     # par (HYPEUSDT/HYPEUSDC oba neplatne, overene naozivo 2026-08-07) - preto
     # yf_symbol ostava len ako NEPOUZITY fallback pre pripad, ze coingecko_id
@@ -388,6 +398,8 @@ ZEC = {
     "asset_class": "crypto",
     "strike_symbol": config.STRIKE_ZEC_SYMBOL,
     "yf_symbol": "ZEC-USD",
+    # CoinMarketCal slug (2026-08-19, overene naozivo) - viz coinmarketcal_client.py.
+    "coinmarketcal_slug": "zcash",
     "yf_fallback": None,
     "sl_pct": config.ZEC_SL_PCT,
     "tp_pct": config.ZEC_TP_PCT,

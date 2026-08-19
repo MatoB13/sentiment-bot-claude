@@ -62,6 +62,13 @@ FRED_API_KEY = os.getenv("FRED_API_KEY", "")
 # Marketaux - free tier (100 req/den) news+sentiment API, per-asset (viz
 # assets.py marketaux_query). Registracia: https://www.marketaux.com
 MARKETAUX_API_KEY = os.getenv("MARKETAUX_API_KEY", "")
+# CoinMarketCal - krypto-projektovy kalendar udalosti (burzove listingy,
+# hlasovania, protokolove upgrady, token unlocky), per-asset (viz assets.py
+# coinmarketcal_slug) - 2026-08-19. Free plan ma kreditovy kvoten (nie
+# klasicky rate-limit), preto sa vola LEN raz denne z coinmarketcal_client.
+# poll_events, nikdy zivo pocas obchodneho cyklu. Registracia:
+# https://coinmarketcal.com/developer
+COINMARKETCAL_API_KEY = os.getenv("COINMARKETCAL_API_KEY", "")
 # Discord webhook (viz discord_client.py) - notifikacia pri kazdom otvoreni
 # pozicie. Prazdne = vypnute (ticho no-op). Vytvorenie: Discord kanal ->
 # Channel Settings -> Integrations -> Webhooks -> New Webhook -> skopirovat URL.

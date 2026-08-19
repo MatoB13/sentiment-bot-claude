@@ -602,6 +602,33 @@ class SlTpRecomputeStatus(Base):
     closed_trade_count = Column(Integer, nullable=False)
 
 
+class CoinMarketCalEvent(Base):
+    """Kesovane nadchadzajuce krypto-projektove udalosti z CoinMarketCal
+    (2026-08-19, na ziadost pouzivatela) - burzove listingy, hlasovania,
+    protokolove upgrady, token unlocky. Doplna existujuci Event Risk Gate
+    mechanizmus (viz claude_analyst.py), ktory doteraz spolieha VYHRADNE na
+    Claude-ov vlastny web_search bez strukturovaneho zdroja.
+
+    Refreshuje sa DENNE (viz coinmarketcal_client.poll_events) - ZIADNE zive
+    volanie API pocas obchodneho cyklu. Free plan ma kreditovy kvoten (nie
+    klasicky rate-limit, resetuje sa ~13 dni), takze denny poll pre max. 4
+    tickery je bezpecne konzervativny.
+
+    Kompletne PREPISOVANA pre kazdy symbol pri kazdom pollovacom behu (stare
+    riadky zmazane, nove vlozene) - nie historia v case, len aktualny
+    nadchadzajuci vyhlad."""
+    __tablename__ = "coinmarketcal_events"
+
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False, index=True)  # nas strike_symbol, napr. "ADA-USD"
+    cmc_event_id = Column(String, nullable=False)
+    title = Column(String, nullable=False)
+    date_start = Column(DateTime, nullable=False)
+    date_end = Column(DateTime, nullable=True)
+    is_estimated = Column(Boolean, default=False)
+    fetched_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 def _ensure_columns(engine) -> None:
     """create_all() vytvori len chybajuce TABULKY, nikdy nepridá stlpec do uz
     existujucej tabulky. Toto je poor-man's migration: pri kazdom starte

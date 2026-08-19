@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 import assets
 import claude_analyst
+import coinmarketcal_client
 import config
 import discord_client
 import eia_client
@@ -501,12 +502,20 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         except Exception as e:
             print(f"[{name}] Marketaux fetch zlyhal (pokracujem bez neho): {e}")
 
+    coinmarketcal_events = None
+    if asset.get("coinmarketcal_slug"):
+        try:
+            coinmarketcal_events = coinmarketcal_client.get_cached_events(symbol, session)
+        except Exception as e:
+            print(f"[{name}] CoinMarketCal cache-read zlyhal (pokracujem bez neho): {e}")
+
     try:
         health, web_search_log, usage = claude_analyst.analyze_position_health(
             asset, open_position, ta, cross_market, market_session, social, btc_proxy,
             prev_assumptions, prev_cycle_time, retrospective_reflection,
             fred_macro, eia_data, marketaux_news, macro_event,
             new_stats_text=new_stats_text,
+            coinmarketcal_events=coinmarketcal_events,
         )
     except Exception as e:
         print(f"[{name}] Position health check zlyhal: {e}")
@@ -677,6 +686,14 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             except Exception as e:
                 print(f"[{name}] Marketaux fetch zlyhal (pokracujem bez neho): {e}")
 
+        coinmarketcal_events = None
+        if asset.get("coinmarketcal_slug"):
+            try:
+                coinmarketcal_events = coinmarketcal_client.get_cached_events(symbol, session)
+                print(f"[{name}] CoinMarketCal udalosti: {coinmarketcal_events}")
+            except Exception as e:
+                print(f"[{name}] CoinMarketCal cache-read zlyhal (pokracujem bez neho): {e}")
+
         try:
             decision, web_search_log, usage = claude_analyst.analyze(
                 asset, ta, cross_market, market_session, social, btc_proxy,
@@ -684,6 +701,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 retrospective_reflection, new_stats_text,
                 fred_macro, eia_data, marketaux_news,
                 confidence_streak, closed_trade, macro_event,
+                coinmarketcal_events=coinmarketcal_events,
             )
         except Exception as e:
             print(f"[{name}] Claude analyza zlyhala, preskakujem cyklus: {e}")

@@ -1080,7 +1080,8 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                         confidence_streak: dict | None = None,
                         open_position: dict | None = None,
                         closed_trade: dict | None = None,
-                        macro_event: str | None = None) -> str:
+                        macro_event: str | None = None,
+                        coinmarketcal_events: list[dict] | None = None) -> str:
     instrument = asset["name"]
     social_block = "\n".join(
         f"- ({p.get('likes')}♥/{p.get('retweets')}rt) {p.get('text')}"
@@ -1207,6 +1208,30 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
             f"nie tvoj vlastny odhad)\n"
         )
 
+    # CoinMarketCal (2026-08-19, na ziadost pouzivatela) - strukturovany zdroj
+    # nadchadzajucich krypto-projektovych udalosti (burzove listingy,
+    # hlasovania, protokolove upgrady, token unlocky), doplnajuci existujuci
+    # Event Risk Gate (ktory doteraz spolieha VYHRADNE na Claude-ov vlastny
+    # web_search) - viz coinmarketcal_client.py. Len pre ADA/ZEC/HYPE/NIGHT
+    # (jedine nase krypto tickery, ktore su na CoinMarketCal Free plane
+    # pokryte - viz assets.py coinmarketcal_slug).
+    coinmarketcal_block = ""
+    if coinmarketcal_events:
+        events_txt = "\n".join(
+            f"- {e['title']} ({e['date_start'].strftime('%d %b')}"
+            + (f" → {e['date_end'].strftime('%d %b')}" if e.get("date_end") else "")
+            + (", odhadovaný dátum" if e.get("is_estimated") else "")
+            + ")"
+            for e in coinmarketcal_events
+        )
+        coinmarketcal_block = (
+            f"\n## Nadchádzajúce projektové udalosti {instrument} (CoinMarketCal, štruktúrovaný "
+            f"zdroj, NIE web_search)\n"
+            f"{events_txt}\n"
+            f"(overené udalosti priamo z API - zohľadni ich pri Event Risk Gate úvahe nižšie "
+            f"popri/namiesto vlastného web_search)\n"
+        )
+
     header = f"""## Aktuálny dátum a čas
 {now.strftime('%A, %d. %B %Y, %H:%M')} UTC ({now.isoformat()})
 Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/správy za posledných
@@ -1223,7 +1248,7 @@ Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/sp
 {btc_block}
 ## Social media sentiment
 {social_block}
-{marketaux_block}
+{marketaux_block}{coinmarketcal_block}
 
 ## Kľúčové predpoklady z predchádzajúceho cyklu (~{interval_h}h dozadu)
 {prev_block}
@@ -1403,7 +1428,8 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
             marketaux_news: list[dict] | None = None,
             confidence_streak: dict | None = None,
             closed_trade: dict | None = None,
-            macro_event: str | None = None) -> tuple[dict, list[dict], dict]:
+            macro_event: str | None = None,
+            coinmarketcal_events: list[dict] | None = None) -> tuple[dict, list[dict], dict]:
     """Vrati (decision, web_search_log, usage). web_search_log je zoznam
     {"query": str, "sources": [{"title", "url", "page_age"}]} pre kazde
     vyhladavanie, ktore Claude spravil - sluzi na audit (co realne citas,
@@ -1432,7 +1458,8 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
                                       retrospective_reflection, new_stats_text,
                                       fred_macro, eia_data, marketaux_news,
                                       confidence_streak, open_position=None,
-                                      closed_trade=closed_trade, macro_event=macro_event)
+                                      closed_trade=closed_trade, macro_event=macro_event,
+                                      coinmarketcal_events=coinmarketcal_events)
     decision, web_search_log, usage = _call_claude(asset, system_blocks, user_prompt,
                                                      DECISION_TOOL, "submit_trade_decision")
     _validate_decision(decision)
@@ -1449,7 +1476,8 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                              eia_data: dict | None = None,
                              marketaux_news: list[dict] | None = None,
                              macro_event: str | None = None,
-                             new_stats_text: str | None = None) -> tuple[dict, list[dict], dict]:
+                             new_stats_text: str | None = None,
+                             coinmarketcal_events: list[dict] | None = None) -> tuple[dict, list[dict], dict]:
     """Ako analyze(), ale pre UZ OTVORENU poziciu (viz
     trade_cycle._run_position_health_check) - namiesto rozhodnutia o novom
     obchode (direction/SL/TP) sa Claude vyjadri, ci povodne predpoklady este
@@ -1469,7 +1497,7 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                                       retrospective_reflection, new_stats_text,
                                       fred_macro, eia_data, marketaux_news,
                                       confidence_streak=None, open_position=open_position,
-                                      macro_event=macro_event)
+                                      macro_event=macro_event, coinmarketcal_events=coinmarketcal_events)
     decision, web_search_log, usage = _call_claude(asset, system_blocks, user_prompt,
                                                      POSITION_HEALTH_TOOL, "submit_position_health_check")
     _validate_health_decision(decision)

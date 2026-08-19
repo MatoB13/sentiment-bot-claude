@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from apscheduler.schedulers.background import BackgroundScheduler
 
 import assets
+import coinmarketcal_client
 import config
 import funding_tracker
 import position_monitor
@@ -119,6 +120,14 @@ def main():
                        hours=24,
                        next_run_time=now + timedelta(hours=24),
                        id="sl_calibration")
+    # Denne (2026-08-19, na ziadost pouzivatela) - CoinMarketCal krypto-projektovy
+    # event kalendar (viz coinmarketcal_client.py) pre kazdy asset s nastavenym
+    # coinmarketcal_slug (ADA/ZEC/HYPE/NIGHT). Free plan ma kreditovy kvoten
+    # (resetuje sa ~13 dni), preto LEN raz denne, nikdy zivo pocas cyklu.
+    scheduler.add_job(coinmarketcal_client.poll_events, "interval",
+                       hours=24,
+                       next_run_time=now + timedelta(minutes=2),
+                       id="coinmarketcal_poller")
     # "Zivy" TOP-5 SL/TP grid-search rebricek PER TICKER (viz sl_grid_backtest.py)
     # UZ NIE JE scheduler job (2026-08-19, na ziadost pouzivatela) - vysledok
     # zavisi VYHRADNE od historie obchodov daneho tickera, takze denny beh pre
