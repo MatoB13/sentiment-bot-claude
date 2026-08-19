@@ -25,6 +25,16 @@ _SHORT_LABEL = "OS"   # Open Short
 _PROFIT_LABEL = "P"   # zisk (Profit)
 _LOSS_LABEL = "L"     # strata (Loss)
 
+# 2026-08-19 (na ziadost pouzivatela) - na PC notifikacia len ticho pipne bez
+# vyrazneho odznaku/unread pocitadla, ktore pouzivatel potrebuje, aby si
+# nevsimnutu spravu nepretiekol. Discord vsak takto vyrazne oznaci LEN
+# spravy s @mention (priamy tag alebo @everyone) - webhook spravy bez
+# akehokolvek tagu su "tiche". Pouzivatel vedome zvolil @everyone (pred
+# alternativou vlastneho <@user_id> tagu) - viz AskUserQuestion v tejto
+# session. Pripojene AZ za headline (nie pred), aby prvych par znakov v
+# skratenom watch nahlade zostalo LEN glyf+ticker+suma.
+_EVERYONE_PING = "@everyone"
+
 
 def _short_ticker(symbol: str) -> str:
     """'ADA-USD' -> 'ADA' - kratsie pre watch notifikaciu (rovnaky vzor ako
@@ -74,7 +84,7 @@ def notify_trade_opened(asset: dict, sized: dict) -> None:
     # nahlade (viz modulovy docstring vyssie).
     headline = f"{label} {asset['name']} ${sized['notional_usd']:.0f}"
     payload = {
-        "content": headline,
+        "content": f"{headline} {_EVERYONE_PING}",
         "embeds": [{
             "title": f"{headline} - {direction.upper()} otvorena",
             "color": _DIRECTION_COLOR.get(direction_key, 3447003),
@@ -117,7 +127,7 @@ def notify_trade_closed(symbol: str, closed_trade: dict) -> None:
     headline = f"{label} {ticker} {pnl_str}"
     reason_label = _CLOSE_REASON_LABELS.get(closed_trade.get("close_reason"), closed_trade.get("close_reason"))
     payload = {
-        "content": headline,
+        "content": f"{headline} {_EVERYONE_PING}",
         "embeds": [{
             "title": f"{headline} ({reason_label})",
             "color": _PNL_COLOR["win"] if is_win else _PNL_COLOR["loss"],
