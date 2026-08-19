@@ -301,6 +301,14 @@ def _get_retrospective_context(asset: dict, session) -> tuple[str | None, str | 
     return retrospective_reflection, retrospective.format_stats_for_prompt(stats), stats
 
 
+# 2026-08-19 produkcny nalez: rozne cykly casto pomenuju TU ISTU realnu
+# udalost mierne inak ("FOMC minutes" vs "FOMC Minutes Release" vs "FOMC
+# Minutes (July 28-29 meeting)" vs slovensky preklad...) - viz
+# _save_flagged_macro_event nizsie, dedup teraz podla casovej blizkosti
+# namiesto presneho mena.
+_DUPLICATE_EVENT_WINDOW_HOURS = 3
+
+
 def _save_flagged_macro_event(event: dict | None, symbol: str, session) -> None:
     """Ak Claude tento cyklus vratil upcoming_macro_event (viz claude_analyst
     DECISION_TOOL/POSITION_HEALTH_TOOL - vyznamna nadchadzajuca udalost, ktoru
@@ -337,6 +345,25 @@ def _save_flagged_macro_event(event: dict | None, symbol: str, session) -> None:
     target_symbol = None if event.get("scope") == "all_assets" else symbol
     key = (f"{event['name']}_{dt.date().isoformat()}" if target_symbol is None
            else f"{event['name']}_{dt.date().isoformat()}_{target_symbol}")
+
+    # 2026-08-19 produkcny nalez (FOMC minutes 19.8. zaznacene 8x pod roznymi
+    # nazvami, vycerpalo hodinovy trigger limit takmer okamzite): povodny
+    # dedup cez presny event_key retazec nechytil rozne pomenovania TEJ ISTEJ
+    # udalosti. Teraz najprv skontrolujeme, ci uz existuje flagnuta udalost s
+    # ROVNAKYM scope (target_symbol) a datetime_utc do _DUPLICATE_EVENT_WINDOW_HOURS
+    # od tejto - ak ano, ide takmer isto o tu istu realnu udalost pod inym
+    # menom, preskocime (prvy zaznamenany nazov/riadok "vyhrava").
+    dt_naive = dt.replace(tzinfo=None)
+    near_duplicate = (
+        session.query(FlaggedMacroEvent.id)
+        .filter(FlaggedMacroEvent.flagged_by_symbol == target_symbol)
+        .filter(FlaggedMacroEvent.datetime_utc >= dt_naive - timedelta(hours=_DUPLICATE_EVENT_WINDOW_HOURS))
+        .filter(FlaggedMacroEvent.datetime_utc <= dt_naive + timedelta(hours=_DUPLICATE_EVENT_WINDOW_HOURS))
+        .first()
+    )
+    if near_duplicate:
+        return
+
     exists = session.query(FlaggedMacroEvent.id).filter(FlaggedMacroEvent.event_key == key).first()
     if exists:
         return
