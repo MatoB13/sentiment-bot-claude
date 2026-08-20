@@ -140,3 +140,34 @@ def notify_trade_closed(symbol: str, closed_trade: dict) -> None:
         }]
     }
     _post_webhook(payload, "Notifikacia o zatvoreni")
+
+
+def notify_ready_for_production(asset_name: str, sl_pct: float, tp_pct: float,
+                                 atr_pct: float, bars_used: int) -> None:
+    """Zavola sa PRESNE RAZ na symbol (viz sl_calibration._maybe_auto_apply
+    guard) - ked ticker, ktorý zatiaľ LEN zbieral cenovú históriu (žiadny
+    externý fallback zdroj, viz assets.py MINIMAX/UNITREE), prvýkrát dosiahne
+    dosť vlastných barov na spoľahlivú ATR-based SL/TP kalibráciu AJ
+    plnohodnotnú TA (pre tieto konkrétne tickery je to ten istý okamih - viz
+    modulový docstring sl_calibration.py). SL/TP sa AUTOMATICKY aplikuje ako
+    RiskOverride (rovnaký mechanizmus ako ručné "Nastaviť ako default"), túto
+    notifikáciu dostaneš, aby si vedel z telefónu bez počítača, že stačí
+    zvážiť ENABLE_{TICKER}=true (a prípadne maržu) na Railway - SL/TP už nie
+    je slepý odhad."""
+    if not config.DISCORD_WEBHOOK_URL:
+        return
+    headline = f"READY {asset_name}"
+    payload = {
+        "content": f"{headline} {_EVERYONE_PING}",
+        "embeds": [{
+            "title": f"{headline} - pripravený na produkciu (SL/TP auto-prekalibrované)",
+            "color": 3066993,
+            "fields": [
+                {"name": "Nové SL", "value": f"{sl_pct:.2f}%", "inline": True},
+                {"name": "Nové TP", "value": f"{tp_pct:.2f}%", "inline": True},
+                {"name": "ATR14", "value": f"{atr_pct:.3f}%", "inline": True},
+                {"name": "Barov použitých", "value": str(bars_used), "inline": True},
+            ],
+        }]
+    }
+    _post_webhook(payload, "Notifikacia o pripravenosti na produkciu")

@@ -25,6 +25,10 @@ QUERIES = {
     "MINIMAX": '("MiniMax Group" OR "MiniMax AI") lang:en -is:retweet',
     "ZEC": '($ZEC OR "Zcash" OR "Zcash shielded") lang:en -is:retweet',
     "GOOGL": '($GOOGL OR $GOOG OR Alphabet OR "Google Cloud" OR Gemini) lang:en -is:retweet',
+    # Pridane 2026-08-20 (E2E kontrola pred zvazovanym zapnutim) - predtym tu
+    # UNITREE chybalo, takze by .get() fallback ticho pouzil NAS100 dopyt
+    # (nekriticke pokial ENABLE_TWITTER=false, ale realna diera do buducna).
+    "UNITREE": '("Unitree Robotics" OR "Unitree Technology") lang:en -is:retweet',
 }
 
 

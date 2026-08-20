@@ -33,11 +33,30 @@ from datetime import datetime, timezone
 import pandas_ta as ta
 
 import assets
+import discord_client
 import market_data
 import risk_overrides
-from db import AtrCalibration, get_session
+from db import AtrCalibration, RiskOverride, RiskOverrideHistory, get_session
 
 _K_CANDIDATES = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0]
+
+# 2026-08-20, na ziadost pouzivatela (odcestovany, bez pocitaca/CLI pristupu
+# pocas cesty) - MINIMAX/UNITREE su JEDINE tickery bez akehokolvek externeho
+# fallback zdroja (yfinance/CoinGecko, viz assets.py) - market_data.
+# get_price_history() pre ne vrati PRAZDNY DataFrame, kym nemaju aspon
+# market_data.MIN_OWN_BARS (210) vlastnych price_bars, cim padne aj tento
+# vypocet ("ziadne OHLC data, preskakujem" nizsie). Preto je pre TIETO DVA
+# tickery "dost dat na ATR" a "dost dat na plnu produkcnu TA" TEN ISTY
+# okamih (na rozdiel od tickerov s fallbackom, kde by ATR mohol byt hotovy
+# skor). Ked sa to stane prvykrat (source=="own_bars"), automaticky
+# aplikujeme navrhnute SL/TP ako RiskOverride (rovnaky mechanizmus ako rucne
+# "Nastavit ako default") a posleme Discord notifikaciu - pouzivatel tak z
+# telefonu vie, ze stavi ENABLE_{TICKER}=true zvazit, SL/TP uz nie je slepy
+# odhad. Ziadne Claude/LLM volanie, cista uz aj tak vypocitana aritmetika.
+# Guard proti opakovanemu re-aplikovaniu kazdy den: preskoci, ak uz existuje
+# RiskOverride so source=AUTO_APPLY_SOURCE pre dany symbol.
+AUTO_APPLY_SYMBOLS = {"MINIMAX-USD", "UNITREE-USD"}
+AUTO_APPLY_SOURCE = "auto_atr_recalibration"
 
 # ~1 den - priblizne zodpoveda typickej dobe drzania pred POSITION_MAX_HOURS
 # force-close, teda relevantne okno na to, ci by SL/TP realne stihli rozhodnut.
@@ -111,6 +130,52 @@ def _sweep_k(df, ratio: float) -> tuple[float, dict]:
     return chosen["k"], chosen
 
 
+def _maybe_auto_apply(asset: dict, symbol: str, suggested_sl: float, suggested_tp: float,
+                       atr_pct: float, bars_used: int, source: str, session) -> None:
+    """Viz AUTO_APPLY_SYMBOLS docstring vyssie - LEN pre symboly v tomto
+    zozname, LEN raz (guard cez existujuci RiskOverride.source), LEN ked je
+    zdroj dat 'own_bars' (nie fallback - pri fallbacku by "MIN_OWN_BARS"
+    podmienka ani nebola splnena, viz volajuci, ale explicitna kontrola
+    nezaskodi ak sa niekedy zmeni get_price_history logika)."""
+    if symbol not in AUTO_APPLY_SYMBOLS or source != "own_bars":
+        return
+    already_applied = (
+        session.query(RiskOverride.symbol)
+        .filter(RiskOverride.symbol == symbol, RiskOverride.source == AUTO_APPLY_SOURCE)
+        .first()
+    )
+    if already_applied:
+        return
+
+    override = session.query(RiskOverride).filter(RiskOverride.symbol == symbol).first()
+    if override is None:
+        override = RiskOverride(symbol=symbol)
+        session.add(override)
+    override.sl_pct = suggested_sl
+    override.tp_pct = suggested_tp
+    override.source = AUTO_APPLY_SOURCE
+    override.updated_at = datetime.now(timezone.utc)
+
+    note = (
+        f"Automaticky aplikovane (2026-08-20 mechanizmus, na ziadost pouzivatela) - "
+        f"prvy raz, ked {asset['name']} dosiahol dost vlastnych barov ({bars_used}) na "
+        f"spolahlivu ATR-based kalibraciu (ATR14={atr_pct:.3f}%). Ziadne "
+        f"Claude/LLM volanie, cista deterministicka aritmetika z sl_calibration.py "
+        f"grid-search sweepu."
+    )
+    session.add(RiskOverrideHistory(
+        symbol=symbol, sl_pct=suggested_sl, tp_pct=suggested_tp,
+        source=AUTO_APPLY_SOURCE, note=note, applied_at=datetime.now(timezone.utc),
+    ))
+    print(f"[sl_calibration] [{asset['name']}] AUTO-APLIKOVANE SL={suggested_sl:.3f}%/"
+          f"TP={suggested_tp:.3f}% (prve dost dat, {bars_used} barov) + Discord notifikacia.")
+    try:
+        discord_client.notify_ready_for_production(asset["name"], suggested_sl, suggested_tp,
+                                                     atr_pct, bars_used)
+    except Exception as e:
+        print(f"[sl_calibration] [{asset['name']}] Discord notifikacia zlyhala (neblokujuce): {e}")
+
+
 def _compute_for_asset(asset: dict, session) -> None:
     name = asset["name"]
     symbol = asset["strike_symbol"]
@@ -153,6 +218,8 @@ def _compute_for_asset(asset: dict, session) -> None:
         configured_sl_pct=sl_pct, configured_tp_pct=tp_pct,
         suggested_sl_pct=suggested_sl, suggested_tp_pct=suggested_tp,
     ))
+
+    _maybe_auto_apply(asset, symbol, suggested_sl, suggested_tp, latest_atr_pct, len(df), source, session)
 
 
 def compute_all() -> None:
