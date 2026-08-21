@@ -199,6 +199,16 @@ HEALTH_CHECK_ESCALATION_COOLDOWN_HOURS = _float("HEALTH_CHECK_ESCALATION_COOLDOW
 # potvrdenie druhym cyklom (confidence cislo uz JE kalibrovana miera istoty).
 # Plati pre VSETKY tickery rovnako (na ziadost pouzivatela).
 AI_EARLY_CLOSE_CONFIDENCE_THRESHOLD = _float("AI_EARLY_CLOSE_CONFIDENCE_THRESHOLD", 50)
+
+# 2026-08-21 (na ziadost pouzivatela, pred cestou bez pocitaca) - "je bot
+# nazivo?" Discord hlasenie, viz heartbeat_check.py pre plny kontext a
+# DOLEZITE OBMEDZENIE (zachyti len "proces zije, ale zaseknuty", nie uplny
+# pad procesu). HEARTBEAT_CHECK_ENABLED explicitny vypinac (na ziadost
+# pouzivatela) - ak by davat vela false-positive alertov (napr. Strike API
+# ma bezny kratky vypadok), da sa cez Railway env rychlo vypnut bez potreby
+# menit kod.
+HEARTBEAT_CHECK_ENABLED = _bool("HEARTBEAT_CHECK_ENABLED", "true")
+HEARTBEAT_STALE_THRESHOLD_MINUTES = _float("HEARTBEAT_STALE_THRESHOLD_MINUTES", 15)
 # 2026-08-21 (na ziadost pouzivatela, ZEC nalez) - TP je "take_profit_limit"
 # (pasivna, plni sa postupne - viz strike_client.open_bracket_position), takze
 # moze ostat DLHO ciastocne vyplnena, ak sa cena po ciastocnom naplneni stiahne

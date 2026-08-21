@@ -199,3 +199,25 @@ def notify_bracket_leg_restored(symbol: str, leg: str, price: float) -> None:
         }]
     }
     _post_webhook(payload, "Notifikacia o obnovenej bracket nohe")
+
+
+def notify_heartbeat_stale(stale_minutes: float) -> None:
+    """2026-08-21 (viz heartbeat_check.py pre plne obmedzenia/kontext) - "bot
+    nemusi zit" hlasenie. Rovnako ako notify_bracket_leg_restored VZDY s
+    @everyone (anomalia)."""
+    if not config.DISCORD_WEBHOOK_URL:
+        return
+    headline = "HEARTBEAT stale"
+    payload = {
+        "content": f"{headline} {_EVERYONE_PING}",
+        "embeds": [{
+            "title": f"{headline} - bot mozno nezije alebo je zaseknuty",
+            "description": (
+                f"Ucet sa neaktualizoval {stale_minutes:.0f} minut (normalne kazdu minutu). "
+                "Skontroluj Railway - ak proces spadol, skus Restart/Redeploy, prip. rollback na "
+                "staršiu verziu. Existujuce SL/TP na burze zostavaju zive nezavisle od tohto bota."
+            ),
+            "color": 15158332,  # cervena
+        }]
+    }
+    _post_webhook(payload, "Notifikacia o zastaranom heartbeate")

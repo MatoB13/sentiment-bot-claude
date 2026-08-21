@@ -8,6 +8,7 @@ import assets
 import coinmarketcal_client
 import config
 import funding_tracker
+import heartbeat_check
 import position_monitor
 import price_poller
 import sl_calibration
@@ -113,6 +114,15 @@ def main():
                        minutes=1,
                        next_run_time=now + timedelta(minutes=1),
                        id="price_poller")
+    # 2026-08-21 (na ziadost pouzivatela, pred cestou bez pocitaca) - "je bot
+    # nazivo?" kontrola, viz heartbeat_check.py pre plny kontext a DOLEZITE
+    # OBMEDZENIE (zachyti len zaseknuty proces, nie uplny pad - ten sa neda
+    # zachytit zvnutra toho isteho procesu). 5 min interval pri 15 min prahu
+    # dava rozumne rozlisenie bez zbytocneho zatazenia.
+    scheduler.add_job(heartbeat_check.check_heartbeat, "interval",
+                       minutes=5,
+                       next_run_time=now + timedelta(minutes=5),
+                       id="heartbeat_check")
     # Denne (2026-08-19) - ATR-zalozena SL/TP kalibracia (viz sl_calibration.py).
     # Ziadne Claude volanie, len OHLC + aritmetika - lacne ako funding_tracker.
     # Vysledok je LEN navrh (db.AtrCalibration), nic sa tu automaticky nemeni.
