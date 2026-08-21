@@ -75,6 +75,7 @@ NAS100 = {
     "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "QQQ"},
+    "effort": config.NAS100_EFFORT,
 }
 
 NVDA = {
@@ -98,6 +99,7 @@ NVDA = {
     "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "NVDA"},
+    "effort": config.NVDA_EFFORT,
 }
 
 ADA = {
@@ -155,6 +157,7 @@ GOLD = {
     "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "GLD"},
+    "effort": config.GOLD_EFFORT,
 }
 
 WTI = {
@@ -183,6 +186,7 @@ WTI = {
     "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "USO"},
+    "effort": config.WTI_EFFORT,
     "needs_eia_data": True,
 }
 
@@ -222,6 +226,7 @@ NIGHT = {
     # naozivo 2026-07-31). "Midnight" + entity_types=cryptocurrency davaju ciste
     # relevantne vysledky (Cardano Midnight sidechain, Wanchain bridge hack a pod).
     "marketaux_query": {"search": "Midnight", "entity_types": "cryptocurrency"},
+    "effort": config.NIGHT_EFFORT,
 }
 
 BTC = {
@@ -248,6 +253,7 @@ BTC = {
     "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "BTCUSD"},
+    "effort": config.BTC_EFFORT,
 }
 
 HYPE = {
@@ -286,6 +292,7 @@ HYPE = {
     # NIKDY holé "HYPE" (bezne anglicke slovo) - viz social_sentiment.py/
     # marketaux_client rovnaky vzor ako NIGHT.
     "marketaux_query": {"search": "Hyperliquid", "entity_types": "cryptocurrency"},
+    "effort": config.HYPE_EFFORT,
 }
 
 SKHYNIX = {
@@ -335,6 +342,7 @@ SKHYNIX = {
     "trading_hours_start_utc": config.SKHYNIX_TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.SKHYNIX_TRADING_HOURS_END_UTC,
     "marketaux_query": {"search": "SK Hynix"},
+    "effort": config.SKHYNIX_EFFORT,
 }
 
 AAOI = {
@@ -360,6 +368,7 @@ AAOI = {
     "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "AAOI"},
+    "effort": config.AAOI_EFFORT,
 }
 
 MINIMAX = {
@@ -399,6 +408,7 @@ MINIMAX = {
     # nedava (MiniMax nie je cryptocurrency ani listovana equity, ziadna
     # Marketaux kategoria nesedi presne).
     "marketaux_query": {"search": "MiniMax Group"},
+    "effort": config.MINIMAX_EFFORT,
 }
 
 ZEC = {
@@ -429,6 +439,7 @@ ZEC = {
     "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "ZECUSD"},
+    "effort": config.ZEC_EFFORT,
 }
 
 GOOGL = {
@@ -453,6 +464,7 @@ GOOGL = {
     "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "GOOGL"},
+    "effort": config.GOOGL_EFFORT,
 }
 
 UNITREE = {
@@ -490,6 +502,7 @@ UNITREE = {
     # zive overene 2026-08-19 (holy aj viacslovny dopyt), oba cisto relevantne,
     # nulove falosne zhody, viacero clankov mladsich nez 25h (IPO prave dnes).
     "marketaux_query": {"search": "Unitree"},
+    "effort": config.UNITREE_EFFORT,
 }
 
 ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX, AAOI, MINIMAX, ZEC, GOOGL, UNITREE]

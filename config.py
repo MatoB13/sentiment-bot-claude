@@ -28,9 +28,27 @@ CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-5")
 # Volitelny per-ticker override output_config.effort (low/medium/high/xhigh/max) -
 # prazdny retazec (default) = output_config sa vobec neposle, API pouzije svoj
 # vlastny default ("high" na Sonnet 5). Pridane 2026-08-14 na obmedzeny test
-# vyssej hlbky reasoningu LEN pre ADA (nastav ADA_EFFORT=xhigh na Railway),
-# bez akehokolvek vplyvu na ostatnych 8 tickerov (viz assets.py ADA["effort"]).
+# vyssej hlbky reasoningu LEN pre ADA (nastav ADA_EFFORT=xhigh na Railway).
+# ROZSIRENE 2026-08-20 (na ziadost pouzivatela) na VSETKY tickery - predtym
+# malo len ADA v assets.py "effort" kluc, takze napr. SKHYNIX_EFFORT=xhigh na
+# Railway by nemalo ZIADNY ucinok (ziadny kod by ho vobec necital). Kazdy
+# ticker teraz ma vlastnu {TICKER}_EFFORT premennu, defaultne prazdnu (=
+# API default "high", ziadna zmena sucasneho spravania, kym niekto explicitne
+# nenastavi Railway var).
 ADA_EFFORT = os.getenv("ADA_EFFORT", "")
+NAS100_EFFORT = os.getenv("NAS100_EFFORT", "")
+NVDA_EFFORT = os.getenv("NVDA_EFFORT", "")
+GOLD_EFFORT = os.getenv("GOLD_EFFORT", "")
+WTI_EFFORT = os.getenv("WTI_EFFORT", "")
+NIGHT_EFFORT = os.getenv("NIGHT_EFFORT", "")
+BTC_EFFORT = os.getenv("BTC_EFFORT", "")
+HYPE_EFFORT = os.getenv("HYPE_EFFORT", "")
+SKHYNIX_EFFORT = os.getenv("SKHYNIX_EFFORT", "")
+AAOI_EFFORT = os.getenv("AAOI_EFFORT", "")
+MINIMAX_EFFORT = os.getenv("MINIMAX_EFFORT", "")
+ZEC_EFFORT = os.getenv("ZEC_EFFORT", "")
+GOOGL_EFFORT = os.getenv("GOOGL_EFFORT", "")
+UNITREE_EFFORT = os.getenv("UNITREE_EFFORT", "")
 
 # Strike
 STRIKE_API_PRIVATE_KEY = os.getenv("STRIKE_API_PRIVATE_KEY", "")
