@@ -483,10 +483,13 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
     (2026-08 spatna vazba pouzivatela: chcel Claudeho priebezny nazor na
     otvorenu poziciu, nie len zahltenu historiu signalov bez obsahu) spustime
     'position health check' - Claude posudi, ci povodne kluc. predpoklady este
-    platia a ci by mal pouzivatel zvazit rucne zatvorenie (kill-switch tlacidlo
-    v monitor-web). Bot SAM poziciu nezatvara ani nemeni SL/TP - je to len
-    opinion pre cloveka. Bezi na rovnakom _is_due() intervale ako bezny
-    otvaraci cyklus (ziadny samostatny interval navyse)."""
+    platia. Bot SAM nikdy nemeni SL/TP na burze. Zatvorenie: PRI BEZNEJ
+    (recommendation="hold" alebo consider_closing s nizsou istotou) je to len
+    opinion pre cloveka (kill-switch tlacidlo v monitor-web). PRI VYSOKEJ istote
+    (consider_closing + close_confidence >= config.AI_EARLY_CLOSE_CONFIDENCE_THRESHOLD,
+    2026-08-21 na ziadost pouzivatela po NAS100 SL incidente) bot poziciu zatvori
+    SAM - viz _maybe_ai_early_close. Bezi na rovnakom _is_due() intervale ako
+    bezny otvaraci cyklus (ziadny samostatny interval navyse)."""
     name = asset["name"]
     symbol = asset["strike_symbol"]
     print(f"[{name}] Otvorena pozicia (trade_id={open_trade.id}) - position health check namiesto skipu.")
@@ -668,6 +671,59 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
 
     if pending_stats:
         _save_pending_retrospective(name, symbol, pending_stats, health, session)
+
+    _maybe_ai_early_close(asset, open_trade, health, session)
+
+
+# 2026-08-21 (na ziadost pouzivatela, po NAS100 SL incidente - Claude odporucil
+# consider_closing s close_confidence=50 hodinu pred SL, pouzivatel to
+# neposluchol a o hodinu padol SL) - vid tiez docstring _run_position_health_check
+# vyssie, ktory teraz uz NIE JE cely presny ("bot sam poziciu nezatvara" platilo
+# len DOTERAZ). Zamerne LEN presna zhoda (recommendation="consider_closing" A
+# cislo >= config.AI_EARLY_CLOSE_CONFIDENCE_THRESHOLD) - chybajuce/nespravne
+# typovane close_confidence (napr. poskodena tool-call odpoved, viz
+# claude_analyst._recover_malformed_fields) NIKDY nespusti akciu (fail-safe,
+# nie fail-open). Rovnaky bezpecny uzatvaraci vzor ako existujuci timeout-close
+# v position_monitor.py (cancel_all_orders + close_position_market), len tu v
+# trade_cycle.py - ZIVU velkost pozicie si preto zisti cerstvo z burzy, nespolieha
+# sa na (potencialne zastaranu) DB hodnotu Trade.size. NEVOLA _apply_exact_close/
+# review/notifikaciu priamo (trade_cycle.py by musel importovat position_monitor,
+# co by sposobilo cyklicky import - position_monitor uz importuje trade_cycle) -
+# rovnaky vzor ako watch_monitor.py kill-switch: len nastavi status/close_reason/
+# closed_at, zvysok (presny PnL, post-close review, Discord notifikacia, SL/TP
+# recompute) doplni _backfill_missing_exact_data na najblizsom position_monitor
+# tiku (do ~1 min).
+def _maybe_ai_early_close(asset: dict, trade: Trade, health: dict, session) -> None:
+    close_confidence = health.get("close_confidence")
+    if health.get("recommendation") != "consider_closing" or not isinstance(close_confidence, (int, float)):
+        return
+    if close_confidence < config.AI_EARLY_CLOSE_CONFIDENCE_THRESHOLD:
+        return
+
+    name = asset["name"]
+    symbol = asset["strike_symbol"]
+    print(f"[{name}] KRITICKE: Claude odporucil consider_closing s close_confidence="
+          f"{close_confidence} (prah {config.AI_EARLY_CLOSE_CONFIDENCE_THRESHOLD}) - "
+          "zatvaram poziciu automaticky.")
+    try:
+        live_positions = strike_client.get_positions(symbol)
+        live = next((p for p in live_positions if p.get("symbol") == symbol), None)
+        if live is None:
+            print(f"[{name}] AI early-close: pozicia uz nie je na burze (medzicasom uz zatvorena "
+                  "inym mechanizmom) - preskakujem.")
+            return
+        strike_client.cancel_all_orders(symbol)
+        strike_client.close_position_market(trade.direction, float(live["size"]), symbol)
+    except Exception as e:
+        print(f"[{name}] AI early-close zlyhal (pozicia ostava otvorena, skusi sa znova "
+              f"na dalsom cykle): {e}")
+        return
+
+    trade.status = "closed_by_ai"
+    trade.close_reason = "ai_early_close"
+    trade.closed_at = datetime.now(timezone.utc)
+    session.add(trade)
+    session.commit()
 
 
 def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,

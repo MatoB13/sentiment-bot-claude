@@ -189,6 +189,15 @@ HEALTH_CHECK_LOSS_TRIGGER_FRACTION = _float("HEALTH_CHECK_LOSS_TRIGGER_FRACTION"
 # _run_position_health_check. NEOVPLYVNUJE skutocnu ochranu (SL/TP na burze
 # bezi nezavisle), len frekvenciu placenych Claude "opinion" volani.
 HEALTH_CHECK_ESCALATION_COOLDOWN_HOURS = _float("HEALTH_CHECK_ESCALATION_COOLDOWN_HOURS", 3)
+# 2026-08-21 (na ziadost pouzivatela, po NAS100 SL incidente - Claude odporucil
+# consider_closing s close_confidence=50 hodinu pred SL, nikdy sa nezasiahlo) -
+# ked position health check vrati recommendation="consider_closing" A
+# close_confidence >= tento prah, bot uz NIE JE len "opinion pre cloveka"
+# (povodne spravanie), ale poziciu SAM zatvori (market order, viz
+# trade_cycle._run_position_health_check) - JEDNORAZOVO, bez cakania na
+# potvrdenie druhym cyklom (confidence cislo uz JE kalibrovana miera istoty).
+# Plati pre VSETKY tickery rovnako (na ziadost pouzivatela).
+AI_EARLY_CLOSE_CONFIDENCE_THRESHOLD = _float("AI_EARLY_CLOSE_CONFIDENCE_THRESHOLD", 50)
 # Preventivna poistka proti scale-mismatch dat (2026-08-09, po SKHYNIX
 # incidente - viz market_data.get_price_history/assets.py yf_volume_only) -
 # porovnava TA last_price (z akehokolvek zdroja - vlastne price_bars alebo

@@ -106,6 +106,7 @@ _CLOSE_REASON_LABELS = {
     "stop_loss": "Stop-loss",
     "liquidation": "Likvidacia",
     "force_closed_by_bot": "Timeout (max. doba drzania)",
+    "ai_early_close": "AI predcasne zatvorenie (vysoka istota)",
 }
 
 

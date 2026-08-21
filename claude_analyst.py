@@ -12,6 +12,7 @@ validny podla schemy, cim odpada cela trieda bugov s pokazenym volnym JSON
 textom (markdown fence, zle escapovane znaky, bludiace znaky a pod. - vsetko
 sa to v praxi stalo, kym sme parsovali text rucne)."""
 import json
+import re
 import time
 from datetime import datetime, timezone
 
@@ -1658,6 +1659,60 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
     return decision, web_search_log, usage
 
 
+# 2026-08-21 (na ziadost pouzivatela, po NAS100 SL incidente) - realny produkcny
+# nalez: v ojedinelom cykle Claude namiesto cisteho tool_use JSON vratil
+# reasoning pole obsahujuce VLASTNY dalsi text vo formate
+# "...prozny text.</reasoning>\n<parameter name=\"key_assumptions\">...</parameter>
+# ...\n<parameter name=\"close_confidence\">50" - key_assumptions aj
+# close_confidence tak v DB ostali NULL, hoci Claude ich hodnotu realne
+# vygeneroval (len nespravne, ako sucast reasoning stringu namiesto vlastnych
+# JSON poli). Toto je KRITICKE presne pre close_confidence, kedze naprogramovane
+# rozhodnutie automaticky zatvorit poziciu (viz trade_cycle._run_position_health_check)
+# stoji cele na tomto cisle - fail-safe by ho bez tejto opravy proste preskocil
+# (chybajuce pole nikdy nespusti akciu), ale radsej sa pokusime hodnotu naozaj
+# zachranit, aby fail-safe nebol jedinou ochranou.
+# Uzatvaracia znacka nasledujuca po hodnote nie je konzistentna - v realnom
+# zachytenom pripade to bolo </key_assumptions> (podla nazvu pola), nie
+# univerzalne </parameter> - preto lookahead prijme HOCIJAKU uzatvaraciu
+# znacku, dalsi <parameter, alebo koniec textu.
+_MALFORMED_FIELD_RE = re.compile(
+    r'<parameter name="(\w+)">(.*?)(?=(?:</\w+>)|(?:<parameter name=")|$)',
+    re.DOTALL,
+)
+_TRAILING_TAG_RE = re.compile(r"</\w+>\s*$")
+
+
+def _recover_malformed_fields(decision: dict, asset_name: str) -> dict:
+    """Ak niektore z ocakavanych textovych poli (reasoning) obsahuje stopy
+    poskodenej tool-call odpovede (viz komentar vyssie), skusi z neho
+    dodatocne vytiahnut key_assumptions/close_confidence (LEN ak uz nie su
+    v decision inak vyplnene - nikdy neprepisuje spravne prisle pole).
+    Nema vplyv na normalne (nepoškodene) odpovede - tie ziadny <parameter
+    znacku neobsahuju, regex nenajde zhodu, decision sa vrati bezo zmeny."""
+    reasoning = decision.get("reasoning")
+    if not reasoning or "<parameter name=" not in reasoning:
+        return decision
+
+    print(f"[claude_analyst] [{asset_name}] POZOR: reasoning obsahuje stopy poskodenej "
+          "tool-call odpovede (viz _recover_malformed_fields) - skusam zachranit polia.")
+    clean_reasoning = reasoning.split("<parameter name=")[0].split("</reasoning>")[0].strip()
+    if clean_reasoning:
+        decision["reasoning"] = clean_reasoning
+
+    for name, value in _MALFORMED_FIELD_RE.findall(reasoning):
+        value = _TRAILING_TAG_RE.sub("", value).strip()
+        if decision.get(name):
+            continue  # spravne prislo pole sa nikdy neprepisuje
+        if name == "close_confidence":
+            try:
+                decision[name] = int(value)
+            except ValueError:
+                pass
+        elif value:
+            decision[name] = value
+    return decision
+
+
 def _call_claude(asset: dict, system_blocks: list[dict], user_prompt: str,
                   tool: dict, tool_name: str) -> tuple[dict, list[dict], dict]:
     """Spolocna request/retry/pause_turn loop pre analyze() aj analyze_position_health()
@@ -1782,7 +1837,7 @@ def _call_claude(asset: dict, system_blocks: list[dict], user_prompt: str,
             "output_tokens": total_usage["output_tokens"],
             "effort": effort or None,
         }
-        return decision_block["input"], web_search_log, usage_record
+        return _recover_malformed_fields(decision_block["input"], asset["name"]), web_search_log, usage_record
 
     raise RuntimeError("Claude neposkytol finalnu odpoved po pause_turn pokracovani")
 

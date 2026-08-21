@@ -36,19 +36,22 @@ _CLOSE_REASON_BY_TYPE = {"stop": "stop_loss", "take_profit_limit": "take_profit"
 # okamziteho re-entry) je takto vyriesenej - bot moze znova vstupit len pri
 # najblizsom BEZNOM cykle, nikdy ako priama reakcia na stop-out.
 _TRIGGER_REVIEW_REASONS = {"take_profit", "force_closed_by_bot", "manual_kill_switch",
-                            "stop_loss", "liquidation"}
+                            "stop_loss", "liquidation", "ai_early_close"}
 
 # Podmnozina vyssie - tieto dovody spustaju review LEN na vyhodnotenie (viz
 # _build_closed_trade_context nizsie, ktora tento flag vlozi do closed_trade
-# dictu pre trade_cycle.py).
-_EVALUATION_ONLY_CLOSE_REASONS = {"stop_loss", "liquidation"}
+# dictu pre trade_cycle.py). ai_early_close (2026-08-21, viz
+# trade_cycle._maybe_ai_early_close) je tu z rovnakeho dovodu ako SL/likvidacia -
+# vyhne sa impulzivnemu okamzitemu re-entry priamo po tom, co bot sam proaktivne
+# usudil, ze povodna teza je vyvratena.
+_EVALUATION_ONLY_CLOSE_REASONS = {"stop_loss", "liquidation", "ai_early_close"}
 
 # Discord notifikacia o zatvoreni (2026-08-15, na ziadost pouzivatela) - TP/SL/
 # likvidacia/timeout, ale ZAMERNE NIE manual_kill_switch (to uz pouzivatel
 # vyvolal sam, netreba mu to pripominat). Nezavisle od _TRIGGER_REVIEW_REASONS
 # vyssie - iny ucel, iny filter (SL/likvidacia tu SU zahrnute, hoci review ich
 # vedome vynechava).
-_NOTIFY_CLOSE_REASONS = {"take_profit", "stop_loss", "liquidation", "force_closed_by_bot"}
+_NOTIFY_CLOSE_REASONS = {"take_profit", "stop_loss", "liquidation", "force_closed_by_bot", "ai_early_close"}
 
 # Kolko minut NAVYSE po POSITION_MAX_HOURS sa cakalo pred SL/TP grid-search
 # prepoctom (2026-08-19, na ziadost pouzivatela) - vid _check_and_queue_recompute
@@ -212,12 +215,15 @@ def _apply_exact_close(trade: Trade, fallback_close_reason: str) -> None:
     to skusi znova pri buducom behu namiesto toho, aby sme sa navzdy vzdali."""
     exact = _lookup_exact_close(trade)
     if exact:
-        # manual_kill_switch je zname so 100% istotou uz v momente zatvorenia
-        # (viz watch_monitor._check_manual_close_requests) - burza vidi len
-        # "nasa reduce_only objednavka mimo TP/SL bracket nôh", nevie odlisit
-        # manualny kill-switch od timeout force-close, takze by ho tu
-        # prepisala na menej presne (a zavadzajuce) "force_closed_by_bot".
-        if trade.close_reason != "manual_kill_switch":
+        # manual_kill_switch/ai_early_close su zname so 100% istotou uz v
+        # momente zatvorenia (viz watch_monitor._check_manual_close_requests
+        # a trade_cycle._maybe_ai_early_close) - burza vidi len "nasa
+        # reduce_only objednavka mimo TP/SL bracket nôh", nevie ich odlisit od
+        # obycajneho timeout force-close, takze by ich tu prepisala na menej
+        # presne (a pre ai_early_close zavadzajuce - vyzeralo by to ako
+        # mechanicky POSITION_MAX_HOURS timeout, nie ako Claudeho vlastne
+        # rozhodnutie) "force_closed_by_bot".
+        if trade.close_reason not in ("manual_kill_switch", "ai_early_close"):
             trade.close_reason = exact["close_reason"]
         trade.entry_fill_price = exact["entry_fill_price"]
         trade.close_fill_price = exact["close_fill_price"]
@@ -445,7 +451,8 @@ def _backfill_missing_exact_data(session, pending_reviews: list, pending_notific
     obycajne TP/SL/timeout tu nizsie) - preto je to (spolu s dvoma inline
     vetvami v check_open_trades()) spravne miesto na _check_and_queue_recompute."""
     pending = session.query(Trade).filter(
-        Trade.status.in_(["closed_by_exchange", "closed_by_timeout", "closed_by_safety", "closed_by_user"]),
+        Trade.status.in_(["closed_by_exchange", "closed_by_timeout", "closed_by_safety",
+                           "closed_by_user", "closed_by_ai"]),
         Trade.pnl_usd.is_(None),
     ).all()
     if not pending:
@@ -459,6 +466,13 @@ def _backfill_missing_exact_data(session, pending_reviews: list, pending_notific
         _check_and_queue_recompute(trade)
 
 
+# Relativna tolerancia pri porovnavani nevyplnenej velkosti SL objednavky
+# voci zivej velkosti pozicie (2026-08-21, ZEC nalez - viz nizsie) - male
+# zaokruhlovacie/step-size odchylky (burza kazdy symbol zaokruhluje na vlastny
+# order_*_step_size) nesmu spustat zbytocne prekreslovanie pri kazdom tiku.
+_SL_SIZE_TOLERANCE = 0.02
+
+
 def _check_and_reheal_bracket_legs(trade: Trade, live: dict) -> None:
     """2026-08-21 (na ziadost pouzivatela, po ADA incidente) - zivy SL objednavky
     otvorenej ADA pozicie sa na burzi sama "expirovala" (status="expired",
@@ -468,12 +482,27 @@ def _check_and_reheal_bracket_legs(trade: Trade, live: dict) -> None:
     at-open) sa nespustil, teda anomalia je na strane burzy, nie naseho kodu.
 
     Kazdy tik (1x/min) overi cez get_open_orders (LIVE stav, nie historicky
-    log), ci su OBE bracket nohy (TP aj SL) stale medzi zivymi objednavkami
-    pre tento symbol - NEZAVISLE od seba (moze chybat jedna, alebo teoreticky
-    aj obe naraz). Chybajucu nohu znovu nastavi presne na hodnotu ulozenu v
-    Trade.stop_loss_price/take_profit_price (nemenne od otvorenia pozicie -
-    presne to, co bolo pri otvoreni schvalene, ziadny novy vypocet). NIKDY
-    nezatvara ani inak nemeni samotnu poziciu, len doplna chybajucu ochranu."""
+    log), ci je TP noha stale medzi zivymi objednavkami. TP svoju vyplnenu
+    cast sleduje SAMA (Filled pole tej istej objednavky), takze jej
+    "outstanding" (Size-Filled) prirodzene kopiruje scvrkavajucu sa ziva
+    poziciu bez naseho zasahu - kontrolujeme len PRITOMNOST, nie velkost.
+
+    SL noha je naopak SAMOSTATNA, este nevyplnena objednavka - jej Size
+    ostava "zamrznuty" na hodnote z okamihu vytvorenia/poslednej opravy. Ak
+    TP medzitym dalej CIASTOCNE plni (2026-08-21, ZEC nalez: TP sa vykonava
+    postupne po castiach, kazdy ciastocny fill mohol znova spustit tu istu
+    burzovu anomaliu a zrusit SL), stara SL sa vzdy LEN preddimenzuje voci
+    aktualnej zivej pozicii (bezpecne vdaka reduce_only - nikdy sa nevyplni
+    na viac nez skutocne otvorenu poziciu, teda nikdy nie poddimenzuje, lebo
+    pozicia moze len klesat cez TP fill, nikdy rast). Pre presnost ju napriek
+    tomu prepocitame, ak sa odchylka od zivej velkosti stane vyznamna.
+
+    Ak treba prekreslit HOCIKTORU nohu (chybajuca, alebo SL so zastaralou
+    velkostou), cancel_all_orders (jediny dostupny nastroj - ziadne single-
+    order cancel v strike_client) zrusi OBE a znovu sa nastavia OBE na
+    aktualnu zivu velkost - zarucuje konzistentny vysledny stav bez ohladu
+    na to, ktora noha bola povodne zla. NIKDY nezatvara ani inak nemeni
+    samotnu poziciu, len doplna/opravuje chranu."""
     try:
         open_orders = strike_client.get_open_orders(trade.symbol)
     except Exception as e:
@@ -481,39 +510,58 @@ def _check_and_reheal_bracket_legs(trade: Trade, live: dict) -> None:
               f"nacitat openOrders na kontrolu bracket noh (skusim znova o {config.WATCH_INTERVAL_MINUTES} min): {e}")
         return
 
-    has_tp = any(
-        (o.get("OriginType") == "take_profit_limit" or o.get("Type") == "take_profit_limit")
-        and o.get("Status") in ("open", "untriggered")
-        for o in open_orders
+    live_orders = [o for o in open_orders if o.get("Status") in ("open", "untriggered")]
+    tp_order = next((o for o in live_orders
+                      if o.get("OriginType") == "take_profit_limit" or o.get("Type") == "take_profit_limit"),
+                     None)
+    sl_order = next((o for o in live_orders if o.get("Type") == "stop"), None)
+
+    live_size = float(live["size"])
+    sl_outstanding = (
+        float(sl_order.get("Size") or 0) - float(sl_order.get("Filled") or 0)
+        if sl_order is not None else None
     )
-    has_sl = any(
-        o.get("Type") == "stop" and o.get("Status") in ("open", "untriggered")
-        for o in open_orders
-    )
-    if has_tp and has_sl:
+    sl_stale = sl_outstanding is not None and live_size > 0 and \
+        abs(sl_outstanding - live_size) > max(live_size * _SL_SIZE_TOLERANCE, 1e-9)
+
+    tp_missing = tp_order is None and trade.take_profit_price is not None
+    sl_needs_fix = (sl_order is None or sl_stale) and trade.stop_loss_price is not None
+    if not tp_missing and not sl_needs_fix:
+        return
+
+    reason = []
+    if tp_missing:
+        reason.append("chyba TP noha")
+    if sl_order is None:
+        reason.append("chyba SL noha")
+    elif sl_stale:
+        reason.append(f"SL velkost zastarala ({sl_outstanding} vs ziva pozicia {live_size})")
+    print(f"[position_monitor] KRITICKE: Trade {trade.id} [{trade.symbol}]: {', '.join(reason)} - "
+          f"prekreslujem obe nohy na aktualnu velkost {live_size}.")
+
+    try:
+        strike_client.cancel_all_orders(trade.symbol)
+    except Exception as e:
+        print(f"[position_monitor] Trade {trade.id} [{trade.symbol}]: cancel_all_orders pred "
+              f"obnovou bracket noh zlyhalo (skusim znova o {config.WATCH_INTERVAL_MINUTES} min): {e}")
         return
 
     close_side = "sell" if trade.direction == "Long" else "buy"
-    size = float(live["size"])
 
-    if not has_sl and trade.stop_loss_price:
-        print(f"[position_monitor] KRITICKE: Trade {trade.id} [{trade.symbol}] nema SL nohu "
-              f"na burzi - obnovujem na {trade.stop_loss_price}.")
+    if trade.take_profit_price:
         try:
-            strike_client.place_stop_order(trade.symbol, close_side, size, trade.stop_loss_price)
-            discord_client.notify_bracket_leg_restored(trade.symbol, "SL", trade.stop_loss_price)
-        except Exception as e:
-            print(f"[position_monitor] Trade {trade.id} [{trade.symbol}]: obnovenie SL zlyhalo "
-                  f"(skusim znova o {config.WATCH_INTERVAL_MINUTES} min): {e}")
-
-    if not has_tp and trade.take_profit_price:
-        print(f"[position_monitor] KRITICKE: Trade {trade.id} [{trade.symbol}] nema TP nohu "
-              f"na burzi - obnovujem na {trade.take_profit_price}.")
-        try:
-            strike_client.place_take_profit_order(trade.symbol, close_side, size, trade.take_profit_price)
+            strike_client.place_take_profit_order(trade.symbol, close_side, live_size, trade.take_profit_price)
             discord_client.notify_bracket_leg_restored(trade.symbol, "TP", trade.take_profit_price)
         except Exception as e:
             print(f"[position_monitor] Trade {trade.id} [{trade.symbol}]: obnovenie TP zlyhalo "
+                  f"(skusim znova o {config.WATCH_INTERVAL_MINUTES} min): {e}")
+
+    if trade.stop_loss_price:
+        try:
+            strike_client.place_stop_order(trade.symbol, close_side, live_size, trade.stop_loss_price)
+            discord_client.notify_bracket_leg_restored(trade.symbol, "SL", trade.stop_loss_price)
+        except Exception as e:
+            print(f"[position_monitor] Trade {trade.id} [{trade.symbol}]: obnovenie SL zlyhalo "
                   f"(skusim znova o {config.WATCH_INTERVAL_MINUTES} min): {e}")
 
 
