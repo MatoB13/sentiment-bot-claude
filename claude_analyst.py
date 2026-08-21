@@ -152,6 +152,19 @@ DECISION_TOOL = {
                     "viz jeho popis)."
                 ),
             },
+            "watch_rationale": {
+                "type": "string",
+                "description": (
+                    "POVINNE vzdy, ked vyplnas watch_price/watch_direction (alebo _2 variant) - "
+                    "1-2 vety, PRECO teraz cakas namiesto vstupu (napr. 'cena je ~3 ATR nad "
+                    "Bollingerom po vertikalnom pohybe, chase by mal zly risk/reward, cakam na "
+                    "retest/potvrdenie'). Ked sa tato uroven neskor spusti, DOSTANES TENTO TEXT "
+                    "SPAT v buducom cykle ako pripomienku vlastneho predchadzajuceho rozhodnutia - "
+                    "ak vtedy zvolis iny smer/confidence nez teraz, budes musiet vyslovne "
+                    "zdovodnit, co konkretne sa oproti tomuto dovodu cakania zmenilo. Pis to preto "
+                    "tak, aby to bolo pouzitelne aj o par minut/hodin neskor, nie len formalitu."
+                ),
+            },
             "watch_price_2": {
                 "type": "number",
                 "description": (
@@ -1128,6 +1141,7 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                         marketaux_news: list[dict] | None = None,
                         confidence_streak: dict | None = None,
                         watch_retrigger_streak: dict | None = None,
+                        watch_set_context: dict | None = None,
                         open_position: dict | None = None,
                         closed_trade: dict | None = None,
                         macro_event: str | None = None,
@@ -1284,6 +1298,37 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                 "watch_price/watch_direction sa tento cyklus nepoužije.\n"
             )
 
+    # 2026-08-21 (na ziadost pouzivatela, po ZEC 09:33->09:34 rozpore: "zlý "
+    # risk/reward, nechasoval by som" -> o minútu LONG bez zmienky o zmene
+    # názoru) - na rozdiel od watch_retrigger_block vyssie (ktory vyzaduje
+    # STREAK >=1 PREDCHADZAJUCICH watch-triggered cyklov) tento blok sa
+    # zobrazi VZDY, ked je TENTO beh watch-triggered, bez ohladu na to, ci
+    # cyklus, ktory watch nastavil, bol sam watch-triggered (post-close review
+    # nikdy nie je - viz trade_cycle._get_watch_set_context vs
+    # _get_watch_retrigger_streak). Ukazuje VLASTNE zdovodnenie cakania
+    # (watch_rationale), nie len cisla ako watch_retrigger_block.
+    watch_set_context_block = ""
+    if watch_set_context:
+        wsc = watch_set_context
+        elapsed_min = None
+        if wsc.get("created_at"):
+            elapsed_min = round((datetime.now(timezone.utc) - wsc["created_at"]).total_seconds() / 60)
+        rationale_line = (
+            f"s odôvodnením čakania: \"{wsc['watch_rationale']}\""
+            if wsc.get("watch_rationale") else "(bez zaznamenaného odôvodnenia)"
+        )
+        watch_set_context_block = (
+            f"\n## Toto rozhodnutie bolo vyvolané TVOJOU VLASTNOU watch podmienkou"
+            f"{f' (pred {elapsed_min} min)' if elapsed_min is not None else ''}\n"
+            f"V predchádzajúcom cykle si pri cene {wsc.get('live_price')} zvolil "
+            f"direction='{wsc.get('direction')}' (confidence={wsc.get('confidence')}) a nastavil watch "
+            f"{wsc.get('watch_direction')} {wsc.get('watch_price')} {rationale_line}.\n"
+            f"Cena teraz túto úroveň dosiahla/prekročila. Ak TERAZ voliš iný smer/confidence než vtedy, "
+            f"v reasoningu VÝSLOVNE napíš, čo konkrétne sa oproti tomuto dôvodu čakania zmenilo (nová "
+            f"cenová akcia, potvrdenie/vyvrátenie signálu a pod.) - nezopakuj len novú analýzu bez "
+            f"odkazu na predchádzajúce rozhodnutie.\n"
+        )
+
     marketaux_block = ""
     if marketaux_news:
         # 2026-08-19 (na ziadost pouzivatela) - predtym LEN titulok (Claude
@@ -1358,6 +1403,7 @@ Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/sp
 {prev_block}
 {streak_block}
 {watch_retrigger_block}
+{watch_set_context_block}
 {retro_block}"""
 
     macro_event_block = ""
@@ -1535,7 +1581,8 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
             closed_trade: dict | None = None,
             macro_event: str | None = None,
             coinmarketcal_events: list[dict] | None = None,
-            watch_retrigger_streak: dict | None = None) -> tuple[dict, list[dict], dict]:
+            watch_retrigger_streak: dict | None = None,
+            watch_set_context: dict | None = None) -> tuple[dict, list[dict], dict]:
     """Vrati (decision, web_search_log, usage). web_search_log je zoznam
     {"query": str, "sources": [{"title", "url", "page_age"}]} pre kazde
     vyhladavanie, ktore Claude spravil - sluzi na audit (co realne citas,
@@ -1563,7 +1610,8 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
                                       btc_proxy, prev_assumptions, prev_cycle_time,
                                       retrospective_reflection, new_stats_text,
                                       fred_macro, eia_data, marketaux_news,
-                                      confidence_streak, watch_retrigger_streak, open_position=None,
+                                      confidence_streak, watch_retrigger_streak, watch_set_context,
+                                      open_position=None,
                                       closed_trade=closed_trade, macro_event=macro_event,
                                       coinmarketcal_events=coinmarketcal_events)
     decision, web_search_log, usage = _call_claude(asset, system_blocks, user_prompt,

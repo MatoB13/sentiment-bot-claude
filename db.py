@@ -146,6 +146,15 @@ class CycleLog(Base):
     watch_price = Column(Float, nullable=True)
     watch_direction = Column(String, nullable=True)  # "above" | "below"
 
+    # 2026-08-21 (na ziadost pouzivatela) - PRECO cyklus caka na watch_price/
+    # watch_direction vyssie (1-2 vety), analogicke key_assumptions. Ked sa
+    # tento watch neskor spusti, _get_watch_set_context v trade_cycle.py ho
+    # najde a vlozi do promptu NASLEDUJUCEHO (watch-triggered) cyklu - inak ten
+    # cyklus nema ako vediet, PRECO predtym nechcel vstupit, a nemoze sa k
+    # tomu vyslovne vyjadrit (viz diskusia s pouzivatelom o ZEC 09:33->09:34
+    # rozpore: "zly risk/reward" -> o minutu LONG, bez zmienky o zmene nazoru).
+    watch_rationale = Column(String, nullable=True)
+
     # Pridane 2026-08-15 - ak direction=long/short A confidence padla do pasma
     # tesne pod prahom na otvorenie (config.WATCH_CONFIDENCE_MARGIN), Claude
     # sem VZDY explicitne napise, pri akej cene by (cisto technicky) confidence

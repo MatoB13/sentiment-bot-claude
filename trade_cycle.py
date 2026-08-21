@@ -256,6 +256,33 @@ def _get_watch_retrigger_streak(symbol: str, session) -> dict | None:
     }
 
 
+def _get_watch_set_context(symbol: str, session) -> dict | None:
+    """Najde najnovsi CycleLog, ktory nastavil watch_price/watch_direction pre
+    tento symbol - POUZIVA SA LEN ked je AKTUALNY beh watch-triggered, aby
+    Claude videl VLASTNE odovodnenie (watch_rationale) cakania spred spustenia.
+
+    Na rozdiel od _get_watch_retrigger_streak vyssie NEVYZADUJE, aby predosly
+    zaznam sam mal triggered_by_watch=True - cyklus, ktory watch NASTAVI
+    (napr. post-close review po TP/SL), sam typicky watch-triggered NIE JE
+    (bol vyvolany zatvorenim pozicie, nie watchom), takze by ho retrigger-streak
+    funkcia hned na zaciatku preskocila a tento kontext by sa nikdy nezobrazil
+    (viz diskusia s pouzivatelom o ZEC 09:33->09:34 rozpore)."""
+    log = (
+        session.query(CycleLog)
+        .filter(CycleLog.symbol == symbol, CycleLog.watch_price.isnot(None))
+        .order_by(CycleLog.created_at.desc())
+        .first()
+    )
+    if not log:
+        return None
+    return {
+        "created_at": log.created_at, "live_price": log.live_price,
+        "direction": log.direction, "confidence": log.confidence,
+        "watch_price": log.watch_price, "watch_direction": log.watch_direction,
+        "watch_rationale": log.watch_rationale,
+    }
+
+
 def _get_confidence_streak(symbol: str, min_confidence: int, session) -> dict | None:
     """Zisti, kolko POSLEDNYCH cyklov za sebou Claude navrhol ROVNAKY smer
     (long/short) s confidence POD prahom (teda kazdy z nich by bol zamietnuty)
@@ -756,6 +783,13 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             print(f"[{name}] Vypocet watch retrigger streak zlyhal (pokracujem bez neho): {e}")
             watch_retrigger_streak = None
 
+        watch_set_context = None
+        if watch_triggered:
+            try:
+                watch_set_context = _get_watch_set_context(symbol, session)
+            except Exception as e:
+                print(f"[{name}] Vypocet watch set contextu zlyhal (pokracujem bez neho): {e}")
+
         try:
             retrospective_reflection, new_stats_text, pending_stats = _get_retrospective_context(asset, session)
         except Exception as e:
@@ -801,6 +835,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 confidence_streak, closed_trade, macro_event,
                 coinmarketcal_events=coinmarketcal_events,
                 watch_retrigger_streak=watch_retrigger_streak,
+                watch_set_context=watch_set_context,
             )
         except Exception as e:
             print(f"[{name}] Claude analyza zlyhala, preskakujem cyklus: {e}")
@@ -831,13 +866,14 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
         watch_direction = decision.get("watch_direction")
         watch_price_2 = decision.get("watch_price_2")
         watch_direction_2 = decision.get("watch_direction_2")
+        watch_rationale = decision.get("watch_rationale")
         if (watch_triggered and watch_retrigger_streak
                 and watch_retrigger_streak["count"] >= _WATCH_RETRIGGER_HARD_LIMIT
                 and (watch_price is not None or watch_price_2 is not None)):
             print(f"[{name}] Watch retrigger streak ({watch_retrigger_streak['count']}) dosiahol limit "
                   f"({_WATCH_RETRIGGER_HARD_LIMIT}) - mazem novo navrhnutu watch uroven, "
                   "padam spat na bezny interval.")
-            watch_price = watch_direction = watch_price_2 = watch_direction_2 = None
+            watch_price = watch_direction = watch_price_2 = watch_direction_2 = watch_rationale = None
 
         cycle_log = CycleLog(
             symbol=symbol, live_price=live_price, ta=ta, cross_market=cross_market,
@@ -853,6 +889,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             watch_direction=watch_direction,
             watch_price_2=watch_price_2,
             watch_direction_2=watch_direction_2,
+            watch_rationale=watch_rationale,
             confidence_threshold_note=decision.get("confidence_threshold_note"),
             data_issue=decision.get("data_issue"),
             reviewed_trade_id=closed_trade["trade_id"] if closed_trade else None,
