@@ -49,6 +49,7 @@ MINIMAX_EFFORT = os.getenv("MINIMAX_EFFORT", "")
 ZEC_EFFORT = os.getenv("ZEC_EFFORT", "")
 GOOGL_EFFORT = os.getenv("GOOGL_EFFORT", "")
 UNITREE_EFFORT = os.getenv("UNITREE_EFFORT", "")
+NEAR_EFFORT = os.getenv("NEAR_EFFORT", "")
 
 # Strike
 STRIKE_API_PRIVATE_KEY = os.getenv("STRIKE_API_PRIVATE_KEY", "")
@@ -349,6 +350,11 @@ ENABLE_GOOGL = _bool("ENABLE_GOOGL", "true")
 # UNITREE pridany 2026-08-19, default FALSE - rovnaky "len zbiera historiu"
 # vzor ako AAOI/MINIMAX vyssie (viz UNITREE sekcia nizsie pre kontext).
 ENABLE_UNITREE = _bool("ENABLE_UNITREE", "false")
+# NEAR pridany 2026-08-21 na ziadost pouzivatela - rovnaky "aktivny hned" vzor
+# ako ZEC/GOOGL (NIE "len zbiera historiu" ako AAOI/MINIMAX/UNITREE) - ma uz
+# overene realne data (yfinance NEAR-USD + Binance NEARUSDT), viz NEAR sekcia
+# nizsie pre plne zdovodnenie SL/TP.
+ENABLE_NEAR = _bool("ENABLE_NEAR", "true")
 
 # Presny symbol/asset identifikator zisti cez strike_client.get_markets() - toto
 # su len predpoklady podla existujuceho NAS100-USD pomenovacieho vzoru, okrem
@@ -364,6 +370,8 @@ STRIKE_HYPE_SYMBOL = os.getenv("STRIKE_HYPE_SYMBOL", "HYPE-USD")
 STRIKE_SKHYNIX_SYMBOL = os.getenv("STRIKE_SKHYNIX_SYMBOL", "SKHYNIX-USD")
 # ZEC-USD overene naozivo v /v2/markets (2026-08-15).
 STRIKE_ZEC_SYMBOL = os.getenv("STRIKE_ZEC_SYMBOL", "ZEC-USD")
+# NEAR-USD overene naozivo v /v2/markets (2026-08-21).
+STRIKE_NEAR_SYMBOL = os.getenv("STRIKE_NEAR_SYMBOL", "NEAR-USD")
 
 # ============================== NAS100 ==============================
 # Prve/povodne assety pred multi-asset refaktorom - tieto premenne su nove
@@ -606,6 +614,35 @@ ZEC_TP_PCT = _float("ZEC_TP_PCT", 5.25)
 ZEC_TRADE_INTERVAL_HOURS = _float("ZEC_TRADE_INTERVAL_HOURS", ADA_TRADE_INTERVAL_HOURS)
 ZEC_OFF_HOURS_INTERVAL_HOURS = _float("ZEC_OFF_HOURS_INTERVAL_HOURS", ZEC_TRADE_INTERVAL_HOURS)
 ZEC_WEEKEND_INTERVAL_HOURS = _float("ZEC_WEEKEND_INTERVAL_HOURS", ZEC_TRADE_INTERVAL_HOURS)
+
+# ============================== NEAR ==============================
+# Pridany 2026-08-21 na ziadost pouzivatela - Near Protocol (L1 smart-contract
+# platforma, 2026 AI-infra naratv; vybrany aj ako najnizsie-korelovany Strike
+# ticker voci existujucemu portfoliu, viz korelacna analyza tej istej session).
+# SL/TP odvodene z REALNYCH hodinovych OHLC dat (yfinance NEAR-USD, 60 dni /
+# 1411 barov) rovnakou ATR metodikou ako ostatne tickery - NIE skopirovane z
+# "podobneho" tickera (viz feedback_new_ticker_sl_tp_derivation policy).
+# POZOR: posledny (v momente pridania) hodinovy ATR14 = 2.08% bol vyrazne NAD
+# typickou hodnotou pre tento ticker (median rolling ATR14 za celych 60 dni =
+# 1.01%, teda ~2x) - 21.8.2026 bol zjavne nezvycajne volatilny den naprieč
+# celym krypto trhom (viz aj sucasny BTC risk-on rally kontext). Kotva preto
+# ZAMERNE NIE posledna hodnota, ale 75. percentil ROLLING ATR14 (1.28%) -
+# odolnejsi voci jednorazovemu dnesnemu vychylku, s primeranou rezervou nad
+# median (nie najtesnejsie mozne cislo). 2.34x ATR (rovnaky pomer ako ostatne
+# tickery) = SL~3.01%, zaokruhlene na 3.0/4.5 (1:1.5 pomer).
+# Ide priamo do produkcie (NIE disabled/collecting ako MINIMAX/UNITREE pri ich
+# pridani) - na ziadost pouzivatela, kedze uz ma overene realne data (yfinance
+# aj Binance NEARUSDT, obe overene naozivo 2026-08-21).
+NEAR_MIN_CONFIDENCE = _int("NEAR_MIN_CONFIDENCE", MIN_CONFIDENCE)
+NEAR_MARGIN_USD = _float("NEAR_MARGIN_USD", 50)
+NEAR_LEVERAGE = _int("NEAR_LEVERAGE", 6)
+NEAR_LIQUIDATION_CUSHION_MULTIPLE = _float("NEAR_LIQUIDATION_CUSHION_MULTIPLE", LIQUIDATION_CUSHION_MULTIPLE)
+NEAR_SL_PCT = _float("NEAR_SL_PCT", 3.0)
+NEAR_TP_PCT = _float("NEAR_TP_PCT", 4.5)
+# 24/7 krypto - vsetky tri intervaly defaultne rovnake ako ADA/ZEC.
+NEAR_TRADE_INTERVAL_HOURS = _float("NEAR_TRADE_INTERVAL_HOURS", ADA_TRADE_INTERVAL_HOURS)
+NEAR_OFF_HOURS_INTERVAL_HOURS = _float("NEAR_OFF_HOURS_INTERVAL_HOURS", NEAR_TRADE_INTERVAL_HOURS)
+NEAR_WEEKEND_INTERVAL_HOURS = _float("NEAR_WEEKEND_INTERVAL_HOURS", NEAR_TRADE_INTERVAL_HOURS)
 
 # ============================== GOOGL (Alphabet) ==============================
 # Pridany 2026-08-18 na ziadost pouzivatela - Strike pridal GOOGL-USD (Alphabet

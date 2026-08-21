@@ -29,6 +29,9 @@ QUERIES = {
     # UNITREE chybalo, takze by .get() fallback ticho pouzil NAS100 dopyt
     # (nekriticke pokial ENABLE_TWITTER=false, ale realna diera do buducna).
     "UNITREE": '("Unitree Robotics" OR "Unitree Technology") lang:en -is:retweet',
+    # Pridane 2026-08-21 hned pri pridani tickera (nie az dodatocne ako
+    # UNITREE vyssie) - poucenie z UNITREE naleze.
+    "NEAR": '($NEAR OR "Near Protocol") lang:en -is:retweet',
 }
 
 

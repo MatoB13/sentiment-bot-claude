@@ -505,7 +505,36 @@ UNITREE = {
     "effort": config.UNITREE_EFFORT,
 }
 
-ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX, AAOI, MINIMAX, ZEC, GOOGL, UNITREE]
+NEAR = {
+    "name": "NEAR",
+    "asset_class": "crypto",
+    "strike_symbol": config.STRIKE_NEAR_SYMBOL,
+    "yf_symbol": "NEAR-USD",
+    "yf_fallback": None,
+    "sl_pct": config.NEAR_SL_PCT,
+    "tp_pct": config.NEAR_TP_PCT,
+    "leverage": config.NEAR_LEVERAGE,
+    "liquidation_cushion_multiple": config.NEAR_LIQUIDATION_CUSHION_MULTIPLE,
+    "margin_usd": config.NEAR_MARGIN_USD,
+    "min_confidence": config.NEAR_MIN_CONFIDENCE,
+    "enabled": config.ENABLE_NEAR,
+    # Rovnaky dovod ako ADA/NIGHT/BTC/ZEC (24/7 krypto, dava zmysel porovnavat
+    # sa voci sirsiemu krypto trhu).
+    "needs_btc_proxy": True,
+    # Overene naozivo 2026-08-21 (yfinance NEAR-USD + Binance NEARUSDT obe
+    # funguju bez problemov) - rovnaky spolahlivy volume zdroj ako ADA/NIGHT/ZEC.
+    "include_volume": True,
+    "binance_volume_symbol": "NEARUSDT",
+    "trade_interval_hours": config.NEAR_TRADE_INTERVAL_HOURS,
+    "off_hours_interval_hours": config.NEAR_OFF_HOURS_INTERVAL_HOURS,
+    "weekend_interval_hours": config.NEAR_WEEKEND_INTERVAL_HOURS,
+    "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
+    "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
+    "marketaux_query": {"symbols": "NEARUSD"},
+    "effort": config.NEAR_EFFORT,
+}
+
+ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX, AAOI, MINIMAX, ZEC, GOOGL, UNITREE, NEAR]
 
 
 def enabled_assets() -> list[dict]:

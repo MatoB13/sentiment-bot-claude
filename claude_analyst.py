@@ -858,6 +858,18 @@ ASSET_TEXT = {
         ),
         "macro_rules": _UNITREE_MACRO_RULES,
     },
+    "NEAR": {
+        "label": "krypto NEAR (Near Protocol, L1 smart-contract platforma s 2026 AI-infra naratívom) perpetuál",
+        "news_focus": (
+            'správach o Near Protocol ekosystéme (SPICE protokolový upgrad - separácia konsenzu/'
+            'exekúcie, NEAR Intents cross-chain naratv, developer/ekosystémové granty), governance '
+            'kontroverziách (tokenomika presadená napriek zlyhanému hlasovaniu komunity - overuj, '
+            'či sa neopakuje podobný precedens), regulačnom/burzovom prostredí (SEC postoj ku krypto '
+            'L1 tokenom, listingy/delistingy), a širšom krypto naratíve (BTC dominance, risk-on/off '
+            'sentiment, AI-blockchain sektorový sentiment, veľké likvidácie na trhu)'
+        ),
+        "macro_rules": _CRYPTO_MACRO_RULES,
+    },
 }
 
 # System prompt je rozdeleny na 2 cache_control bloky (viz _system_prompt_blocks nizsie):
