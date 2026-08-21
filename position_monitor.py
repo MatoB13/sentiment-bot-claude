@@ -129,6 +129,61 @@ def _reclassify_by_close_price(trade: Trade, close_price: float) -> str | None:
     return None
 
 
+def _lookup_entry_fill(trade: Trade) -> float | None:
+    """2026-08-21 (na ziadost pouzivatela, dashboard nerealizovane PnL nalez) -
+    Trade.entry_price je cena z OKAMIHU ROZHODNUTIA (pred realnym vykonanim
+    market objednavky), nie skutocna cena vyplnenia - pri vacsom notional/
+    pake sklz vie byt vyznamny (naozivo najdeny pripad: BTC 32x paka, sklz
+    ~143 bodov = ~$18 rozdiel v PnL pri prepocte). Doteraz sa presna
+    entry_fill_price dopĺňala LEN pri zatvoreni (_lookup_exact_close) - pre
+    STALE OTVORENE pozicie teda dashboard padal spat na nepresny odhad.
+
+    Analogicke k entry-casti _lookup_exact_close, ale BEZ zavislosti na
+    closed_at (pozicia moze byt stale otvorena) - okno je tesne okolo
+    opened_at, kedze vstupna market objednavka sa vykona/zaindexuje v ramci
+    sekund/minut, nie neskor. Vrati None, ak sa fill este nenasiel (skusi sa
+    znova na buducom tiku) - NIKDY nevyvola vynimku volajucemu."""
+    opened_at = trade.opened_at
+    if opened_at.tzinfo is None:
+        opened_at = opened_at.replace(tzinfo=timezone.utc)
+    start_ms = int(opened_at.timestamp() * 1000) - 60_000
+    end_ms = int(opened_at.timestamp() * 1000) + 300_000
+
+    try:
+        orders = strike_client.get_order_history(trade.symbol, start_ms=start_ms, end_ms=end_ms, limit=100)
+        fills = strike_client.get_fill_history(trade.symbol, start_ms=start_ms, end_ms=end_ms, limit=200)
+    except Exception as e:
+        print(f"[position_monitor] Trade {trade.id}: nepodarilo sa nacitat entry order/fill history: {e}")
+        return None
+
+    entry_order = next(
+        (o for o in orders if o.get("strategy_id") == trade.strategy_id and o.get("is_primary")),
+        None,
+    )
+    if entry_order is None:
+        return None
+    entry_agg = _sum_fills(fills, entry_order.get("id"))
+    return entry_agg["avg_price"] if entry_agg else None
+
+
+def _backfill_missing_entry_fill_price(session) -> None:
+    """Kazdy tik (viz check_open_trades) - pre VSETKY stale OTVORENE obchody
+    bez entry_fill_price skusi presnu vyplnenu vstupnu cenu dohladat (viz
+    _lookup_entry_fill). Sebalimitujuce - akonahle sa raz najde, pole uz
+    nikdy nie je NULL, takze tento obchod sa dalej neopakuje (podobny vzor
+    ako _backfill_missing_exact_data pre zatvorene obchody)."""
+    open_trades = session.query(Trade).filter(
+        Trade.status == "open", Trade.entry_fill_price.is_(None),
+    ).all()
+    for trade in open_trades:
+        price = _lookup_entry_fill(trade)
+        if price is not None:
+            trade.entry_fill_price = price
+            session.add(trade)
+            print(f"[position_monitor] Trade {trade.id} [{trade.symbol}]: presna entry_fill_price "
+                  f"dohladana ({price}, povodny odhad {trade.entry_price}).")
+
+
 def _lookup_exact_close(trade: Trade) -> dict | None:
     """Presne (NIE odhadovane) udaje o zatvoreni priamo z burzy. Vrati
     {close_reason, entry_fill_price, close_fill_price, fees_usd, pnl_usd}
@@ -659,6 +714,9 @@ def check_open_trades():
     pending_recompute: set = set()
     try:
         _backfill_missing_exact_data(session, pending_reviews, pending_notifications)
+        # 2026-08-21 - analogicke k vyssie, ale pre OTVORENE obchody (presna
+        # entry_fill_price, viz jej docstring) namiesto zatvorenych.
+        _backfill_missing_entry_fill_price(session)
         # Kazdy tik, nezavisle od toho, ci prave teraz nieco zatvara - viz
         # _fire_due_recomputes docstring.
         _fire_due_recomputes(session, pending_recompute)
