@@ -32,6 +32,10 @@ import market_data
 _RETRYABLE_STATUS = {429, 502, 503, 504, 520, 521, 522, 523, 524, 529}
 _MAX_API_RETRIES = 2
 _API_RETRY_DELAY_SECONDS = 60
+# Zvysene z povodnych 300s (2026-08-20, po ADA timeout produkcnom naleze -
+# effort=xhigh/max s extended thinking + viacerymi web_search volaniami obcas
+# genuinne potrebuje viac nez 5 min na odpoved, nie len prechodnu sietovu chybu).
+_REQUEST_TIMEOUT_SECONDS = 480
 
 # Zdielane medzi DECISION_TOOL a POSITION_HEALTH_TOOL - Claudom priebezne
 # udrziavany doplnok k rucne udrzovanemu macro_calendar.py (FOMC/CPI/NFP,
@@ -1654,16 +1658,37 @@ def _call_claude(asset: dict, system_blocks: list[dict], user_prompt: str,
             payload["output_config"] = {"effort": effort}
 
         for attempt in range(_MAX_API_RETRIES + 1):
-            resp = requests.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": config.ANTHROPIC_API_KEY,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json=payload,
-                timeout=300,
-            )
+            # 2026-08-20 produkcny nalez (ADA post-close review na TP zatvoreni
+            # #57 - Read timed out, ZIADNY retry, reflexia navzdy stratena):
+            # requests.post() mimo try/except znamenalo, ze retry loop nizsie
+            # (na retryable STATUS KOD) sa nikdy nedostal ku slovu, ak spojenie
+            # zlyhalo/vyprsalo skor, nez prislo VOBEC nejake HTTP telo - vynimka
+            # (ReadTimeout/ConnectionError) prebublala rovno von. ADA bezi na
+            # effort=xhigh (extended thinking + web_search), co obcas genuinne
+            # potrebuje viac nez povodnych 300s. Preto: (1) timeout zvyseny na
+            # _REQUEST_TIMEOUT_SECONDS (viac priestoru pre genuinne pomalu
+            # odpoved), (2) network-level vynimka teraz TIEZ prechadza rovnakym
+            # retry mechanizmom ako retryable status kody (rovnaky pocet
+            # pokusov/pauza, ziadny novy tuning parameter).
+            try:
+                resp = requests.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": config.ANTHROPIC_API_KEY,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json=payload,
+                    timeout=_REQUEST_TIMEOUT_SECONDS,
+                )
+            except requests.exceptions.RequestException as e:
+                if attempt < _MAX_API_RETRIES:
+                    print(f"[claude_analyst] [{asset['name']}] POST /v1/messages zlyhalo "
+                          f"({e.__class__.__name__}: {e}) - skusam znova o "
+                          f"{_API_RETRY_DELAY_SECONDS}s ({attempt + 1}/{_MAX_API_RETRIES})...")
+                    time.sleep(_API_RETRY_DELAY_SECONDS)
+                    continue
+                raise
             if resp.status_code in _RETRYABLE_STATUS and attempt < _MAX_API_RETRIES:
                 print(f"[claude_analyst] [{asset['name']}] POST /v1/messages -> {resp.status_code} "
                       f"(prechodna chyba), skusam znova o {_API_RETRY_DELAY_SECONDS}s "
