@@ -1128,6 +1128,12 @@ _CLOSE_REASON_PROMPT_LABELS = {
     "manual_kill_switch": "rucne zatvorene pouzivatelom (kill-switch)",
     "stop_loss": "stop-loss",
     "liquidation": "likvidacia burzou",
+    # 2026-08-21 (produkcny nalez, GOOGL) - predtym chybal zaznam, takze Claude
+    # dostal len surovy retazec "ai_early_close" bez vysvetlenia + action_note
+    # nizsie ho vobec neodlisoval od SL/likvidacie (viz jej komentar) - reflexia
+    # tak vobec neriesila TO, co sa realne stalo (vlastne predcasne rozhodnutie
+    # zatvorit), len vseobecnu SL-timing otazku.
+    "ai_early_close": "TY SÁM si túto pozíciu predčasne zatvoril (vysoká istota consider_closing)",
 }
 
 
@@ -1313,7 +1319,15 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
         wsc = watch_set_context
         elapsed_min = None
         if wsc.get("created_at"):
-            elapsed_min = round((datetime.now(timezone.utc) - wsc["created_at"]).total_seconds() / 60)
+            # CycleLog.created_at je Column(DateTime) BEZ timezone=True - Postgres
+            # ho teda uklada/vracia ako tz-naive, aj ked bol pri zapise vytvoreny s
+            # tzinfo=utc (SQLAlchemy tzinfo ticho zahodi). Bez tejto normalizacie
+            # tu padalo "can't subtract offset-naive and offset-aware datetimes" -
+            # realny produkcny nalez (viackrat naprieč roznymi tickermi 2026-08-21).
+            wsc_created_at = wsc["created_at"]
+            if wsc_created_at.tzinfo is None:
+                wsc_created_at = wsc_created_at.replace(tzinfo=timezone.utc)
+            elapsed_min = round((datetime.now(timezone.utc) - wsc_created_at).total_seconds() / 60)
         rationale_line = (
             f"s odôvodnením čakania: \"{wsc['watch_rationale']}\""
             if wsc.get("watch_rationale") else "(bez zaznamenaného odôvodnenia)"
@@ -1448,7 +1462,39 @@ TY, len odporúčaš človeku, ktorý sa rozhodne sám."""
         # Claude to musi vediet VOPRED (nie len fakt, ze sa to potom zahodi) -
         # inak by mohol citit tlak "musim navrhnut dalsi obchod hned teraz",
         # co je presne ten revenge-trading impulz, ktoremu sa chceme vyhnut.
-        if ct.get("evaluation_only"):
+        if ct.get("evaluation_only") and ct.get("close_reason") == "ai_early_close":
+            # 2026-08-21 (na ziadost pouzivatela, po GOOGL naleze) - predtym sa
+            # tato vetva vobec neodlisovala od SL/likvidacie nizsie, takze
+            # dostal SL-timing/entry-quality otazku namiesto tej relevantnej -
+            # ci bolo SPRAVNE, ze si sam poziciu zatvoril na zaklade
+            # consider_closing s vysokou istotou (viz trade_cycle._maybe_ai_early_close).
+            action_note = (
+                "Toto je mimoriadny cyklus spustený HNEĎ po tom, čo si TY SÁM zatvoril túto pozíciu "
+                "trhovým príkazom - nie SL/TP/timeout, ale TVOJE VLASTNÉ rozhodnutie v predchádzajúcom "
+                "position health checku, kde si odporučil consider_closing s dostatočne vysokou istotou "
+                "(close_confidence), že to systém automaticky vykonal (nie len ako opinion pre "
+                "používateľa - viz config.AI_EARLY_CLOSE_CONFIDENCE_THRESHOLD). Cez closed_trade_reflection "
+                "VÝSLOVNE zhodnoť TOTO KONKRÉTNE rozhodnutie: bola tvoja vtedajšia téza (že sa pôvodný "
+                "dôvod pozície vyvrátil) v spätnom pohľade správna? Pohla sa cena odvtedy v smere, ktorý "
+                "by potvrdil, že zatvorenie bolo správne, alebo naopak pozícia pokračovala priaznivo a "
+                "zatvorenie bolo predčasné/zbytočne opatrné? DÔLEŽITÉ: tvoje direction/confidence "
+                "rozhodnutie nižšie sa v TOMTO behu NEVYKONÁ - žiadna nová pozícia sa z neho priamo "
+                "neotvorí, aj keby confidence prešla prahom. Je to zámerné (aby okamžitý re-entry po "
+                "stop-oute nebol poznačený túžbou 'dohnať stratu') - bot môže znova vstúpiť pri "
+                "najbližšom bežnom cykle na základe čerstvej analýzy. Nástroj polia "
+                "direction/confidence/SL/TP aj tak vyžaduje, tak ich vyplň ako svoj aktuálny názor - "
+                "berie sa len ako záznam, nie príkaz.\n\n"
+                "VÝNIMKA - rýchly re-entry PODMIENENÝ potvrdením cenou: ak ide o prudký pohyb "
+                "(crash/run-up) a očakávaš, že sa trh RÝCHLO pohne ďalej smerom, ktorý by opodstatnil "
+                "skorší re-entry než bežný interval, použi pole watch_price/watch_direction nižšie "
+                "(prípad (3) v jeho popise) - nastav cenovú úroveň, ktorej REÁLNE prekročenie by tento "
+                "predpoklad potvrdilo. Systém ju bude kontrolovať každých pár sekúnd počas najbližších "
+                "minút, a ak sa splní, spustí sa ČERSTVÝ plný cyklus (s aktuálnymi dátami, nie len "
+                "touto úvahou) - to je JEDINÝ spôsob, ako môže tento post-SL cyklus reálne viesť k "
+                "novej pozícii skôr než bežný interval. Použi to len ak je to naozaj opodstatnené, nie "
+                "mechanicky pri každom SL zatvorení."
+            )
+        elif ct.get("evaluation_only"):
             action_note = (
                 "Toto je mimoriadny cyklus spustený HNEĎ po zatvorení tejto pozície na SL/likvidáciou "
                 "(nie bežný interval). Cez closed_trade_reflection zhodnoť, či bol vstup/SL nastavený "
