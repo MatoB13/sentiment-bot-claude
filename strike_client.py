@@ -235,6 +235,44 @@ def open_bracket_position(direction: str, size: float, leverage: int,
     return _request("POST", "/v2/order/strategy", body)
 
 
+def get_open_orders(symbol: str | None = None) -> list[dict]:
+    """/v2/openOrders - PRAVE TERAZ zive visiace objednavky (na rozdiel od
+    get_order_history, ktore vracia HISTORICKY log vratane uz expirovanych/
+    zrusenych zaznamov - tu je dolezite vediet presne, co je REALNE na burzi
+    tento okamih). Pouziva position_monitor._check_and_reheal_bracket_legs
+    (2026-08-21, po ADA incidente - SL noha bracket objednavky sa sama
+    "expirovala" na burzi, close_reason "order_strategy_secondary_oco", BEZ
+    vyplnenia a bez akehokolvek zasahu z nasej strany, pozicia ostala
+    docasne nechranena)."""
+    path = f"/v2/openOrders?symbol={symbol}" if symbol else "/v2/openOrders"
+    result = _request("GET", path)
+    return result if isinstance(result, list) else result.get("orders", [])
+
+
+def place_stop_order(symbol: str, side: str, size: float, stop_price: float) -> dict:
+    """Samostatna reduce-only SL (stop) objednavka - DOPLNENIE chybajucej SL
+    nohy na uz existujucej pozicii (viz _check_and_reheal_bracket_legs), nie
+    otvorenie novej pozicie (tam open_bracket_position, oba nohy naraz cez
+    /v2/order/strategy). Rovnaky tvar poli ako vnoreny sl_order vyssie."""
+    body = {
+        "symbol": symbol, "side": side, "type": "stop",
+        "size": str(size), "stop_price": str(stop_price),
+        "reduce_only": True,
+    }
+    return _request("POST", "/v2/order", body)
+
+
+def place_take_profit_order(symbol: str, side: str, size: float, price: float) -> dict:
+    """Samostatna reduce-only TP (take_profit_limit) objednavka - DOPLNENIE
+    chybajucej TP nohy, analogicke place_stop_order vyssie."""
+    body = {
+        "symbol": symbol, "side": side, "type": "take_profit_limit",
+        "size": str(size), "stop_price": str(price), "price": str(price),
+        "reduce_only": True,
+    }
+    return _request("POST", "/v2/order", body)
+
+
 def cancel_all_orders(symbol: str = None) -> dict:
     symbol = symbol or config.STRIKE_NAS100_SYMBOL
     return _request("DELETE", "/v2/order/cancel-all", {"symbol": symbol})

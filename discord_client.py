@@ -171,3 +171,30 @@ def notify_ready_for_production(asset_name: str, sl_pct: float, tp_pct: float,
         }]
     }
     _post_webhook(payload, "Notifikacia o pripravenosti na produkciu")
+
+
+def notify_bracket_leg_restored(symbol: str, leg: str, price: float) -> None:
+    """2026-08-21 (po ADA incidente, na ziadost pouzivatela) - zavola sa,
+    ked position_monitor._check_and_reheal_bracket_legs zisti a znovu doplni
+    CHYBAJUCU TP alebo SL nohu uz otvorenej pozicie (burza ju z nejakeho
+    dovodu "stratila" - viz strike_client.get_open_orders docstring). Toto je
+    vzdy anomalia (za normalnych okolnosti sa toto nikdy nemalo stat) - preto
+    VZDY s @everyone, na rozdiel od bezneho notify_trade_opened/closed."""
+    if not config.DISCORD_WEBHOOK_URL:
+        return
+    headline = f"REPAIR {_short_ticker(symbol)}"
+    payload = {
+        "content": f"{headline} {_EVERYONE_PING}",
+        "embeds": [{
+            "title": f"{headline} - chýbajúca {leg} noha automaticky obnovená",
+            "description": (
+                f"Burza stratila {leg} objednávku otvorenej pozície bez akéhokoľvek "
+                "nášho zásahu (anomália na strane burzy) - bot ju práve teraz znovu "
+                "nastavil na pôvodnú hodnotu. Over si prosím na Strike, že je to "
+                "v poriadku."
+            ),
+            "color": 15105570,  # oranzova - anomalia, nie bezna udalost
+            "fields": [{"name": f"Obnovená {leg}", "value": str(price), "inline": True}],
+        }]
+    }
+    _post_webhook(payload, "Notifikacia o obnovenej bracket nohe")

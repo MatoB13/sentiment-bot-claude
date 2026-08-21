@@ -459,6 +459,64 @@ def _backfill_missing_exact_data(session, pending_reviews: list, pending_notific
         _check_and_queue_recompute(trade)
 
 
+def _check_and_reheal_bracket_legs(trade: Trade, live: dict) -> None:
+    """2026-08-21 (na ziadost pouzivatela, po ADA incidente) - zivy SL objednavky
+    otvorenej ADA pozicie sa na burzi sama "expirovala" (status="expired",
+    close_reason="order_strategy_secondary_oco") BEZ vyplnenia, cim ostala
+    pozicia docasne nechranena zdola - potvrdene, ze ani jeden z troch
+    cancel_all_orders volani v tomto kode (kill-switch/timeout/emergency-close-
+    at-open) sa nespustil, teda anomalia je na strane burzy, nie naseho kodu.
+
+    Kazdy tik (1x/min) overi cez get_open_orders (LIVE stav, nie historicky
+    log), ci su OBE bracket nohy (TP aj SL) stale medzi zivymi objednavkami
+    pre tento symbol - NEZAVISLE od seba (moze chybat jedna, alebo teoreticky
+    aj obe naraz). Chybajucu nohu znovu nastavi presne na hodnotu ulozenu v
+    Trade.stop_loss_price/take_profit_price (nemenne od otvorenia pozicie -
+    presne to, co bolo pri otvoreni schvalene, ziadny novy vypocet). NIKDY
+    nezatvara ani inak nemeni samotnu poziciu, len doplna chybajucu ochranu."""
+    try:
+        open_orders = strike_client.get_open_orders(trade.symbol)
+    except Exception as e:
+        print(f"[position_monitor] Trade {trade.id} [{trade.symbol}]: nepodarilo sa "
+              f"nacitat openOrders na kontrolu bracket noh (skusim znova o {config.WATCH_INTERVAL_MINUTES} min): {e}")
+        return
+
+    has_tp = any(
+        (o.get("OriginType") == "take_profit_limit" or o.get("Type") == "take_profit_limit")
+        and o.get("Status") in ("open", "untriggered")
+        for o in open_orders
+    )
+    has_sl = any(
+        o.get("Type") == "stop" and o.get("Status") in ("open", "untriggered")
+        for o in open_orders
+    )
+    if has_tp and has_sl:
+        return
+
+    close_side = "sell" if trade.direction == "Long" else "buy"
+    size = float(live["size"])
+
+    if not has_sl and trade.stop_loss_price:
+        print(f"[position_monitor] KRITICKE: Trade {trade.id} [{trade.symbol}] nema SL nohu "
+              f"na burzi - obnovujem na {trade.stop_loss_price}.")
+        try:
+            strike_client.place_stop_order(trade.symbol, close_side, size, trade.stop_loss_price)
+            discord_client.notify_bracket_leg_restored(trade.symbol, "SL", trade.stop_loss_price)
+        except Exception as e:
+            print(f"[position_monitor] Trade {trade.id} [{trade.symbol}]: obnovenie SL zlyhalo "
+                  f"(skusim znova o {config.WATCH_INTERVAL_MINUTES} min): {e}")
+
+    if not has_tp and trade.take_profit_price:
+        print(f"[position_monitor] KRITICKE: Trade {trade.id} [{trade.symbol}] nema TP nohu "
+              f"na burzi - obnovujem na {trade.take_profit_price}.")
+        try:
+            strike_client.place_take_profit_order(trade.symbol, close_side, size, trade.take_profit_price)
+            discord_client.notify_bracket_leg_restored(trade.symbol, "TP", trade.take_profit_price)
+        except Exception as e:
+            print(f"[position_monitor] Trade {trade.id} [{trade.symbol}]: obnovenie TP zlyhalo "
+                  f"(skusim znova o {config.WATCH_INTERVAL_MINUTES} min): {e}")
+
+
 def check_open_trades():
     print(f"\n=== [position_monitor] {datetime.now(timezone.utc).isoformat()} ===")
     session = get_session()
@@ -532,6 +590,7 @@ def check_open_trades():
                 else:
                     print(f"[position_monitor] Trade {trade.id} stale otvoreny "
                           f"(expiruje {expires_at.isoformat()}).")
+                    _check_and_reheal_bracket_legs(trade, live)
             except Exception as e:
                 # 2026-08-16 stress-test nalez: bez tejto izolacie by neocakavana
                 # vynimka pri SPRACOVANI JEDNEHO obchodu (napr. nezvycajny tvar
