@@ -554,6 +554,23 @@ def check_open_trades():
 
                 if live is None:
                     # uz nie je medzi otvorenymi poziciami na burze -> zatvorena (TP/SL/likvidacia)
+                    #
+                    # 2026-08-21 (na ziadost pouzivatela, po ADA incidente) - PRED
+                    # _check_and_reheal_bracket_legs vyssie tu ODPADOK NIKDY nemohol
+                    # ostat (OCO strategy vzdy zrusila sesterku niohu automaticky).
+                    # Teraz vsak reheal moze doplnit SAMOSTATNU (nie strategy-linked)
+                    # nohu - ked sa pozicia neskor zatvori DRUHOU (povodnou OCO) nohou,
+                    # tato nova samostatna noha uz NEMA OCO partnera, ktory by ju
+                    # zrusil, a ostala by visiet ako sirota (reduce_only bez pozicie
+                    # na redukciu). cancel_all_orders je bezpecny aj ked ziadne
+                    # visiace objednavky nie su (no-op) - preto sa vola VZDY tu,
+                    # nie len podmienene.
+                    try:
+                        strike_client.cancel_all_orders(trade.symbol)
+                    except Exception as e:
+                        print(f"[position_monitor] Trade {trade.id} [{trade.symbol}]: "
+                              f"upratanie zvysnych objednavok po zatvoreni zlyhalo "
+                              f"(neblokujuce, skusi sa znova nabuduce): {e}")
                     trade.status = "closed_by_exchange"
                     trade.closed_at = now
                     _apply_exact_close(trade, "not_found_in_open_positions (TP/SL/liquidation)")
