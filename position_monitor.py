@@ -75,12 +75,7 @@ def _sum_closing_fills(fills: list[dict], entry_order_id, close_side: str | None
     NESKOR uplne samostatnou objednavkou - viz _maybe_sweep_dust_position) -
     povodna verzia (sum len jednej "closing_order_id") by v takom pripade
     stratila zisk/stratu z prvej (vacsinovej) casti."""
-    matched = [
-        f for f in fills
-        if f.get("order_id") != entry_order_id
-        and (close_side is None or f.get("side") == close_side)
-    ]
-    return _aggregate_fills(matched)
+    return _aggregate_fills(_closing_fills(fills, entry_order_id, close_side))
 
 
 def _aggregate_fills(matched: list[dict]) -> dict | None:
@@ -90,7 +85,19 @@ def _aggregate_fills(matched: list[dict]) -> dict | None:
     avg_price = sum(float(f["size"]) * float(f["price"]) for f in matched) / total_size
     total_fee = sum(float(f.get("fee") or 0) for f in matched)
     total_realized_pnl = sum(float(f.get("realized_pnl") or 0) for f in matched)
-    return {"avg_price": avg_price, "fee": total_fee, "realized_pnl": total_realized_pnl}
+    return {"avg_price": avg_price, "fee": total_fee, "realized_pnl": total_realized_pnl, "size": total_size}
+
+
+def _closing_fills(fills: list[dict], entry_order_id, close_side: str | None) -> list[dict]:
+    """Vsetky uzatvaracie (opacna strana od vstupu) fills v okne, bez ohladu
+    na to, ku ktorej konkretnej objednavke patria - zdielane medzi
+    _sum_closing_fills (PnL agregacia) a _lookup_exact_close (majority-volume
+    klasifikacia dovodu zatvorenia, viz jej komentar)."""
+    return [
+        f for f in fills
+        if f.get("order_id") != entry_order_id
+        and (close_side is None or f.get("side") == close_side)
+    ]
 
 
 # Tolerancia pri porovnavani realnej ceny zatvorenia s SL/TP urovnou pozicie
@@ -149,23 +156,48 @@ def _lookup_exact_close(trade: Trade) -> dict | None:
     strategy_orders = [o for o in orders if o.get("strategy_id") == trade.strategy_id]
     entry_order = next((o for o in strategy_orders if o.get("is_primary")), None)
     bracket_legs = [o for o in strategy_orders if not o.get("is_primary")]
-    filled_leg = next((o for o in bracket_legs if o.get("status") == "filled"), None)
+    if entry_order is None:
+        return None
+    entry_order_id = entry_order.get("id")
 
-    entry_side = entry_order.get("side") if entry_order else None
+    entry_side = entry_order.get("side")
     close_side = "sell" if entry_side == "buy" else "buy" if entry_side == "sell" else None
 
-    close_reason = None
-    if filled_leg is not None:
-        close_reason = _CLOSE_REASON_BY_TYPE.get(filled_leg.get("type"), filled_leg.get("type"))
+    entry_agg = _sum_fills(fills, entry_order_id)
+    matched_closing = _closing_fills(fills, entry_order_id, close_side)
+    close_agg = _aggregate_fills(matched_closing)
+    if entry_agg is None or close_agg is None:
+        return None
+
+    # 2026-08-21 (na ziadost pouzivatela, ZEC "dust" nalez) - dovod zatvorenia
+    # CELEJ pozicie urcujeme podla toho, KTORY TYP objednavky (TP/SL) zodpoveda
+    # VACSINE zatvoreneho objemu - NIE podla poslednej/nahodne najdenej
+    # uzatvaracej objednavky (povodne spravanie). Bez toho pozicia zatvorena
+    # napr. 82% cez TP a len 18% cez dust-sweep/timeout/kill-switch/AI-zavretie
+    # dostala nespravnu nalepku "timeout"/"AI zatvorenie" namiesto "take-profit" -
+    # presne to, co sa stalo naozivo (ZEC trade #64, 21.8.2026). order_type_by_id
+    # zahrna VSETKY objednavky v okne (nie len bracket-linked), takze zachyti aj
+    # TP/SL noha znovu-vytvorena reheal mechanizmom (viz _check_and_reheal_bracket_legs)
+    # pod novym order_id bez povodneho strategy_id.
+    order_type_by_id = {o.get("id"): o.get("type") for o in orders}
+    tp_size = sum(float(f.get("size") or 0) for f in matched_closing
+                  if order_type_by_id.get(f.get("order_id")) == "take_profit_limit")
+    sl_size = sum(float(f.get("size") or 0) for f in matched_closing
+                  if order_type_by_id.get(f.get("order_id")) == "stop")
+    total_size = close_agg["size"]
+
+    if tp_size > total_size / 2:
+        close_reason = "take_profit"
+    elif sl_size > total_size / 2:
+        close_reason = "stop_loss"
     else:
-        # Ani jedna nasa TP/SL bracket noha sa NEVYKONALA CELA (staci na
-        # urcenie DOVODU zatvorenia - viz close_agg agregacia nizsie, ktora uz
-        # nezavisi od TOHTO vetvenia) - bud sme poziciu zatvorili sami (timeout/
-        # dust-sweep force-close cez close_position_market, samostatna
-        # objednavka BEZ strategy_id), alebo isla do likvidacie (burzou
-        # generovana objednavka, tiez bez naseho strategy_id). Najdeme ju
-        # sirsim hladanim: opacna strana od vstupu, reduce_only, filled,
-        # najneskorsia v okne (najblizsie k realnemu zatvoreniu).
+        # Ani TP ani SL nezodpoveda vacsine objemu - poziciu prevazne zatvorila
+        # INA (force-close typu) objednavka: nas vlastny timeout/dust-sweep/
+        # kill-switch/AI-zavretie, alebo burzova likvidacia (bez naseho
+        # strategy_id). Najdeme ju sirsim hladanim: opacna strana od vstupu,
+        # reduce_only, filled, najneskorsia v okne (najblizsie k realnemu
+        # zatvoreniu) - vynechavajuc bracket nohy (tie uz zapocitane vyssie).
+        close_reason = None
         bracket_ids = {leg.get("id") for leg in bracket_legs}
         candidates = [
             o for o in orders
@@ -176,52 +208,38 @@ def _lookup_exact_close(trade: Trade) -> dict | None:
         if candidates:
             closing = max(candidates, key=lambda o: o.get("event_timestamp") or 0)
             close_reason = "liquidation" if closing.get("auto_close_type") else "force_closed_by_bot"
-        elif entry_order is not None:
+        elif matched_closing:
             # 2026-08-18 produkcny nalez: /v2/history/order niekedy STALE (aj po
             # 9+ opakovanych pokusoch cez viac minut) nevrati zatvaraciu
             # objednavku, hoci jej FILLS uz su v /v2/history/fill indexovane
             # (overene naozivo - XAU timeout close, fill.order_id vobec nebol
             # medzi vratenymi orders). Bez tejto vetvy close_reason ostane
-            # navzdy na surovom fallback stringu volajuceho (napr.
-            # "max_hold_24.0h_reached"), ktory NESEDI so ziadnou hodnotou v
-            # _TRIGGER_REVIEW_REASONS/_NOTIFY_CLOSE_REASONS - review aj
-            # notifikacia by sa tak NIKDY nespustili. Rovnaka logika ako vyssie
-            # (opacna strana, najneskorsi fill), len zdroj su rovno fills, nie
-            # orders.
-            entry_order_id = entry_order.get("id")
-            fill_candidates = [
-                f for f in fills
-                if f.get("order_id") != entry_order_id
-                and (close_side is None or f.get("side") == close_side)
-            ]
-            if fill_candidates:
-                closing_fill = max(fill_candidates, key=lambda f: f.get("timestamp") or 0)
-                close_reason = "liquidation" if closing_fill.get("auto_close_type") else "force_closed_by_bot"
+            # navzdy na surovom fallback stringu volajuceho, ktory NESEDI so
+            # ziadnou hodnotou v _TRIGGER_REVIEW_REASONS/_NOTIFY_CLOSE_REASONS -
+            # review aj notifikacia by sa tak NIKDY nespustili.
+            closing_fill = max(matched_closing, key=lambda f: f.get("timestamp") or 0)
+            close_reason = "liquidation" if closing_fill.get("auto_close_type") else "force_closed_by_bot"
 
-    if entry_order is None or close_reason is None:
+        # 2026-08-19 produkcny nalez (ZEC trade #46, "timeout" flag na zjavnom TP
+        # hite): rovnaky /v2/history/order staleness problem sa moze tykat aj
+        # samotnej TP/SL bracket nohy - dorefinujeme podla skutocnej PRIEMERNEJ
+        # ceny zatvorenia (s malou tolerantnostou na slippage/zaokruhlenie).
+        if close_reason == "force_closed_by_bot":
+            reclassified = _reclassify_by_close_price(trade, close_agg["avg_price"])
+            if reclassified:
+                close_reason = reclassified
+            elif trade.close_reason in ("manual_kill_switch", "ai_early_close"):
+                # Nase VLASTNE uz spolahlivo zname dovody z okamihu zatvorenia
+                # (viz watch_monitor._check_manual_close_requests a
+                # trade_cycle._maybe_ai_early_close) - presnejsie nez
+                # generalny fallback "force_closed_by_bot", KEDZE sme sa do
+                # tejto vetvy dostali len preto, ze ani TP ani SL nezodpoveda
+                # vacsine objemu (teda poziciu naozaj PREVAZNE zatvorila prave
+                # TATO konkretna akcia).
+                close_reason = trade.close_reason
+
+    if close_reason is None:
         return None
-
-    entry_agg = _sum_fills(fills, entry_order.get("id"))
-    # 2026-08-21 (ZEC "dust" nalez) - ZAMERNE agregujeme VSETKY uzatvaracie
-    # fills v okne (viz _sum_closing_fills), nie len fills JEDNEJ konkretnej
-    # objednavky - pozicia sa moze zatvorit cez viac objednavok naraz (napr.
-    # TP ciastocne vyplnil, zvysny "dust" market-zatvoreny neskor uplne
-    # samostatnou objednavkou) a PnL musi zahrnat OBE casti, nie len poslednu.
-    close_agg = _sum_closing_fills(fills, entry_order.get("id"), close_side)
-    if entry_agg is None or close_agg is None:
-        return None
-
-    # 2026-08-19 produkcny nalez (ZEC trade #46, "timeout" flag na zjavnom TP
-    # hite): rovnaky /v2/history/order staleness problem ako 2026-08-18
-    # komentar vyssie (XAU) sa moze tykat aj samotnej TP/SL bracket nohy, nie
-    # len timeout/likvidacnej objednavky - potom ju fallback vyssie najde cez
-    # siroke hladanie a OMYLOM oznaci "force_closed_by_bot", hoci realna
-    # cena zatvorenia je zjavne pri TP/SL urovni tejto pozicie. Preto tu, LEN
-    # pre tento neisty fallback (nie pre uz spolahlivo urcenu "liquidation"),
-    # este dorefinujeme podla skutocnej ceny zatvorenia - ak sedi na TP/SL
-    # (s malou tolerantnostou na slippage), pouzijeme presnejsi dovod.
-    if close_reason == "force_closed_by_bot":
-        close_reason = _reclassify_by_close_price(trade, close_agg["avg_price"]) or close_reason
 
     fees_usd = entry_agg["fee"] + close_agg["fee"]
     return {
@@ -239,16 +257,12 @@ def _apply_exact_close(trade: Trade, fallback_close_reason: str) -> None:
     to skusi znova pri buducom behu namiesto toho, aby sme sa navzdy vzdali."""
     exact = _lookup_exact_close(trade)
     if exact:
-        # manual_kill_switch/ai_early_close su zname so 100% istotou uz v
-        # momente zatvorenia (viz watch_monitor._check_manual_close_requests
-        # a trade_cycle._maybe_ai_early_close) - burza vidi len "nasa
-        # reduce_only objednavka mimo TP/SL bracket nôh", nevie ich odlisit od
-        # obycajneho timeout force-close, takze by ich tu prepisala na menej
-        # presne (a pre ai_early_close zavadzajuce - vyzeralo by to ako
-        # mechanicky POSITION_MAX_HOURS timeout, nie ako Claudeho vlastne
-        # rozhodnutie) "force_closed_by_bot".
-        if trade.close_reason not in ("manual_kill_switch", "ai_early_close"):
-            trade.close_reason = exact["close_reason"]
+        # 2026-08-21: _lookup_exact_close uz SAMA vnutorne rozhoduje, kedy
+        # zachovat trade.close_reason (manual_kill_switch/ai_early_close) -
+        # LEN v pripade, ze ani TP ani SL nezodpoveda vacsine zatvoreneho
+        # objemu (viz jej komentar o ZEC "dust" naleze) - takze tu uz VZDY
+        # bez podmienky pouzijeme, co vratila.
+        trade.close_reason = exact["close_reason"]
         trade.entry_fill_price = exact["entry_fill_price"]
         trade.close_fill_price = exact["close_fill_price"]
         trade.fees_usd = exact["fees_usd"]
