@@ -63,6 +63,27 @@ def _sum_fills(fills: list[dict], order_id) -> dict | None:
     """Velkostou-vazeny priemer ceny + sucet poplatku/realized_pnl VSETKYCH
     fills patriacich danej objednavke (moze sa vykonat po castiach)."""
     matched = [f for f in fills if f.get("order_id") == order_id]
+    return _aggregate_fills(matched)
+
+
+def _sum_closing_fills(fills: list[dict], entry_order_id, close_side: str | None) -> dict | None:
+    """Ako _sum_fills vyssie, ale NIE pre jednu konkretnu objednavku - agreguje
+    VSETKY uzatvaracie (opacna strana od vstupu) fills v okne bez ohladu na
+    to, ku ktorej KONKRETNEJ objednavke patria. 2026-08-21 (ZEC "dust" nalez):
+    pozicia sa moze zatvorit cez VIAC objednavok (napr. TP ciastocne vyplnil
+    cez vlastnu pasivnu limitnu objednavku, zvysny "dust" market-zatvoreny
+    NESKOR uplne samostatnou objednavkou - viz _maybe_sweep_dust_position) -
+    povodna verzia (sum len jednej "closing_order_id") by v takom pripade
+    stratila zisk/stratu z prvej (vacsinovej) casti."""
+    matched = [
+        f for f in fills
+        if f.get("order_id") != entry_order_id
+        and (close_side is None or f.get("side") == close_side)
+    ]
+    return _aggregate_fills(matched)
+
+
+def _aggregate_fills(matched: list[dict]) -> dict | None:
     total_size = sum(float(f["size"]) for f in matched)
     if total_size <= 0:
         return None
@@ -130,21 +151,21 @@ def _lookup_exact_close(trade: Trade) -> dict | None:
     bracket_legs = [o for o in strategy_orders if not o.get("is_primary")]
     filled_leg = next((o for o in bracket_legs if o.get("status") == "filled"), None)
 
+    entry_side = entry_order.get("side") if entry_order else None
+    close_side = "sell" if entry_side == "buy" else "buy" if entry_side == "sell" else None
+
     close_reason = None
-    closing_order_id = None
     if filled_leg is not None:
         close_reason = _CLOSE_REASON_BY_TYPE.get(filled_leg.get("type"), filled_leg.get("type"))
-        closing_order_id = filled_leg.get("id")
     else:
-        # Ani jedna nasa TP/SL bracket noha sa nevykonala - bud sme poziciu
-        # zatvorili sami (timeout force-close cez close_position_market, ktora
-        # posiela SAMOSTATNU objednavku BEZ strategy_id), alebo isla do
-        # likvidacie (burzou generovana objednavka, tiez bez naseho
-        # strategy_id). Najdeme ju sirsim hladanim v ramci toho isteho
-        # symbolu/okna: opacna strana od vstupu, reduce_only, filled,
+        # Ani jedna nasa TP/SL bracket noha sa NEVYKONALA CELA (staci na
+        # urcenie DOVODU zatvorenia - viz close_agg agregacia nizsie, ktora uz
+        # nezavisi od TOHTO vetvenia) - bud sme poziciu zatvorili sami (timeout/
+        # dust-sweep force-close cez close_position_market, samostatna
+        # objednavka BEZ strategy_id), alebo isla do likvidacie (burzou
+        # generovana objednavka, tiez bez naseho strategy_id). Najdeme ju
+        # sirsim hladanim: opacna strana od vstupu, reduce_only, filled,
         # najneskorsia v okne (najblizsie k realnemu zatvoreniu).
-        entry_side = entry_order.get("side") if entry_order else None
-        close_side = "sell" if entry_side == "buy" else "buy" if entry_side == "sell" else None
         bracket_ids = {leg.get("id") for leg in bracket_legs}
         candidates = [
             o for o in orders
@@ -154,7 +175,6 @@ def _lookup_exact_close(trade: Trade) -> dict | None:
         ]
         if candidates:
             closing = max(candidates, key=lambda o: o.get("event_timestamp") or 0)
-            closing_order_id = closing.get("id")
             close_reason = "liquidation" if closing.get("auto_close_type") else "force_closed_by_bot"
         elif entry_order is not None:
             # 2026-08-18 produkcny nalez: /v2/history/order niekedy STALE (aj po
@@ -167,7 +187,7 @@ def _lookup_exact_close(trade: Trade) -> dict | None:
             # _TRIGGER_REVIEW_REASONS/_NOTIFY_CLOSE_REASONS - review aj
             # notifikacia by sa tak NIKDY nespustili. Rovnaka logika ako vyssie
             # (opacna strana, najneskorsi fill), len zdroj su rovno fills, nie
-            # orders - fill.order_id je vsetko, co _sum_fills nizsie potrebuje.
+            # orders.
             entry_order_id = entry_order.get("id")
             fill_candidates = [
                 f for f in fills
@@ -176,14 +196,18 @@ def _lookup_exact_close(trade: Trade) -> dict | None:
             ]
             if fill_candidates:
                 closing_fill = max(fill_candidates, key=lambda f: f.get("timestamp") or 0)
-                closing_order_id = closing_fill.get("order_id")
                 close_reason = "liquidation" if closing_fill.get("auto_close_type") else "force_closed_by_bot"
 
-    if entry_order is None or closing_order_id is None:
+    if entry_order is None or close_reason is None:
         return None
 
     entry_agg = _sum_fills(fills, entry_order.get("id"))
-    close_agg = _sum_fills(fills, closing_order_id)
+    # 2026-08-21 (ZEC "dust" nalez) - ZAMERNE agregujeme VSETKY uzatvaracie
+    # fills v okne (viz _sum_closing_fills), nie len fills JEDNEJ konkretnej
+    # objednavky - pozicia sa moze zatvorit cez viac objednavok naraz (napr.
+    # TP ciastocne vyplnil, zvysny "dust" market-zatvoreny neskor uplne
+    # samostatnou objednavkou) a PnL musi zahrnat OBE casti, nie len poslednu.
+    close_agg = _sum_closing_fills(fills, entry_order.get("id"), close_side)
     if entry_agg is None or close_agg is None:
         return None
 
@@ -565,6 +589,54 @@ def _check_and_reheal_bracket_legs(trade: Trade, live: dict) -> None:
                   f"(skusim znova o {config.WATCH_INTERVAL_MINUTES} min): {e}")
 
 
+def _maybe_sweep_dust_position(trade: Trade, live: dict, now, session,
+                                pending_reviews: list, pending_notifications: list,
+                                pending_recompute: set) -> bool:
+    """2026-08-21 (na ziadost pouzivatela, ZEC nalez) - TP je pasivna
+    take_profit_limit objednavka (viz strike_client.open_bracket_position),
+    ktora sa moze plnit postupne - ak sa cena po CIASTOCNOM naplneni stiahne
+    spat pod TP uroven, zvysny "dust" moze ostat otvoreny dlho (kym sa cena
+    nevrati, alebo do plneho POSITION_MAX_HOURS timeoutu), pricom blokuje
+    symbol pre novy plnohodnotny cyklus (bot drzi max 1 poziciu naraz).
+
+    Ak ziva velkost klesne pod config.DUST_POSITION_MAX_REMAINING_PCT
+    povodnej Trade.size, rovno market-zatvorime zvysok - rovnaky bezpecny
+    cancel_all_orders+close_position_market vzor ako existujuci timeout-close
+    nizsie, len skorsie. PnL sa vdaka opravenej _sum_closing_fills (viz
+    _lookup_exact_close) spravne zapocita AJ z uz skor vyplnenej TP casti, nie
+    len z tejto poslednej "dust" objednavky.
+
+    Vracia True, ak tento tik poziciu naozaj zatvorila (volajuci potom
+    preskoci dalsie spracovanie tohto trade v tomto behu - uz nie je otvoreny)."""
+    if not trade.size or trade.size <= 0:
+        return False
+    live_size = float(live["size"])
+    remaining_pct = live_size / trade.size
+    if remaining_pct <= 0 or remaining_pct >= config.DUST_POSITION_MAX_REMAINING_PCT:
+        return False
+
+    print(f"[position_monitor] Trade {trade.id} [{trade.symbol}]: zostava len "
+          f"{remaining_pct * 100:.1f}% povodnej velkosti ({live_size} z {trade.size}) - "
+          "zametam zvysok (dust sweep) namiesto cakania na plny timeout.")
+    try:
+        strike_client.cancel_all_orders(trade.symbol)
+        strike_client.close_position_market(trade.direction, live_size, trade.symbol)
+    except Exception as e:
+        print(f"[position_monitor] Trade {trade.id} [{trade.symbol}]: dust sweep zlyhal "
+              f"(skusim znova na dalsom tiku): {e}")
+        return False
+
+    trade.status = "closed_by_timeout"
+    trade.closed_at = now
+    _apply_exact_close(trade, "dust_sweep_remaining_position")
+    session.add(trade)
+    _check_and_queue_review(trade, session, pending_reviews)
+    _check_and_queue_close_notification(trade, pending_notifications)
+    _check_and_queue_recompute(trade)
+    watch_monitor.mark_hot(trade.symbol)
+    return True
+
+
 def check_open_trades():
     print(f"\n=== [position_monitor] {datetime.now(timezone.utc).isoformat()} ===")
     session = get_session()
@@ -655,7 +727,10 @@ def check_open_trades():
                 else:
                     print(f"[position_monitor] Trade {trade.id} stale otvoreny "
                           f"(expiruje {expires_at.isoformat()}).")
-                    _check_and_reheal_bracket_legs(trade, live)
+                    if not _maybe_sweep_dust_position(trade, live, now, session,
+                                                       pending_reviews, pending_notifications,
+                                                       pending_recompute):
+                        _check_and_reheal_bracket_legs(trade, live)
             except Exception as e:
                 # 2026-08-16 stress-test nalez: bez tejto izolacie by neocakavana
                 # vynimka pri SPRACOVANI JEDNEHO obchodu (napr. nezvycajny tvar

@@ -198,6 +198,15 @@ HEALTH_CHECK_ESCALATION_COOLDOWN_HOURS = _float("HEALTH_CHECK_ESCALATION_COOLDOW
 # potvrdenie druhym cyklom (confidence cislo uz JE kalibrovana miera istoty).
 # Plati pre VSETKY tickery rovnako (na ziadost pouzivatela).
 AI_EARLY_CLOSE_CONFIDENCE_THRESHOLD = _float("AI_EARLY_CLOSE_CONFIDENCE_THRESHOLD", 50)
+# 2026-08-21 (na ziadost pouzivatela, ZEC nalez) - TP je "take_profit_limit"
+# (pasivna, plni sa postupne - viz strike_client.open_bracket_position), takze
+# moze ostat DLHO ciastocne vyplnena, ak sa cena po ciastocnom naplneni stiahne
+# spat pod TP uroven. Ked zostavajuca ziva velkost pozicie klesne pod tento
+# podiel PÔVODNEJ velkosti (Trade.size), position_monitor ju rovno market-
+# zatvori namiesto cakania na plny POSITION_MAX_HOURS timeout - inak by
+# ekonomicky bezvyznamny "dust" zvysok blokoval symbol (max 1 pozicia naraz)
+# potencialne cely zvysok 24h.
+DUST_POSITION_MAX_REMAINING_PCT = _float("DUST_POSITION_MAX_REMAINING_PCT", 0.20)
 # Preventivna poistka proti scale-mismatch dat (2026-08-09, po SKHYNIX
 # incidente - viz market_data.get_price_history/assets.py yf_volume_only) -
 # porovnava TA last_price (z akehokolvek zdroja - vlastne price_bars alebo
