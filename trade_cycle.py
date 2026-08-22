@@ -726,6 +726,31 @@ def _maybe_ai_early_close(asset: dict, trade: Trade, health: dict, session) -> N
     session.commit()
 
 
+# Zamok DRZANY POCAS CELEHO run_cycle_for_asset behu (nielen "je uz otvoreny
+# obchod?" kontrola na jeho zaciatku) - 2026-08-22 produkcny nalez (live peniaze):
+# bezny naplanovany cyklus a watch-triggered cyklus (dispatch_triggered_check,
+# samostatne vlakno) pre TEN ISTY symbol mohli bezat suvbezne. Kontrola "Trade uz
+# otvoreny?" (nizsie) je len jednorazovy DB dotaz na zaciatku - kym prebieha
+# zvysok cyklu (Claude + web_search, 30-90+ sekund), Trade este NIE JE
+# commitnuty, takze druhy suvbezny beh pre ten isty symbol touto kontrolou
+# prejde tiez a NEZAVISLE otvori DRUHU poziciu. Strike vsak nema koncept
+# "dvoch pozicii" pre jeden symbol - obe sa interne zlucia do jednej
+# agregovanej pozicie, co rozbije per-trade SL/TP aj nasledny PnL vypocet
+# (viz ADA #82/#83 - dvojnasobne pripisana strata na dashboarde). Non-blocking
+# acquire: ak je symbol prave "v lete", tento beh radsej preskocime (skusi sa
+# znova nabuduce/o hodinu), nez aby scheduled beh cakal a blokoval spracovanie
+# ostatnych tickerov v run_all_cycles.
+_symbol_run_locks_guard = threading.Lock()
+_symbol_run_locks: dict[str, threading.Lock] = {}
+
+
+def _get_symbol_run_lock(symbol: str) -> threading.Lock:
+    with _symbol_run_locks_guard:
+        if symbol not in _symbol_run_locks:
+            _symbol_run_locks[symbol] = threading.Lock()
+        return _symbol_run_locks[symbol]
+
+
 def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                          btc_proxy: dict | None, fred_macro: dict | None = None,
                          skip_due_check: bool = False,
@@ -768,6 +793,25 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
     a pouzije sa na _get_watch_retrigger_streak (viz jej docstring vyssie)."""
     name = asset["name"]
     symbol = asset["strike_symbol"]
+
+    lock = _get_symbol_run_lock(symbol)
+    if not lock.acquire(blocking=False):
+        print(f"[{name}] Iny beh pre {symbol} prave prebieha (subezny cyklus) - "
+              f"preskakujem, aby sme predisli duplicitnemu otvoreniu (viz ADA "
+              f"#82/#83 incident 2026-08-22).")
+        skip_session = get_session()
+        try:
+            skip_session.add(CycleLog(
+                symbol=symbol,
+                config_snapshot=_config_snapshot(asset),
+                outcome="skipped_concurrent_cycle",
+                reject_reason="iny beh pre tento symbol uz prebieha",
+            ))
+            skip_session.commit()
+        finally:
+            skip_session.close()
+        return
+
     print(f"\n--- [{name}] ---")
     session = get_session()
     try:
@@ -1106,6 +1150,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             discord_client.notify_trade_opened(asset, sized)
     finally:
         session.close()
+        lock.release()
 
 
 def run_triggered_check(asset: dict, closed_trade: dict | None = None,
