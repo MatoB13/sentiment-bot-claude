@@ -1866,6 +1866,28 @@ def _recover_malformed_fields(decision: dict, asset_name: str) -> dict:
     return decision
 
 
+# 2026-08-22 (na ziadost pouzivatela, po dalsom "co su tie XML tagy?" screenshote,
+# tentokrat ADA) - odlisny jav nez _recover_malformed_fields vyssie: Claude
+# obcas cituje web_search zdroj priamo v reasoning ako
+# <cite index="N-M">citovany text</cite> - vlastny format na oznacenie povodu
+# tvrdenia (nikde v nasej scheme/prompte takto nedefinovany - grep. potvrdil).
+# NEJDE o poskodenu tool-call odpoved: over. cez DB - 22 vyskytov naprieč 8
+# tickermi od 2026-07-24 (skoro cely mesiac, od zaciatku zaznamov), VZDY len v
+# reasoning (nikdy v key_assumptions/watch_rationale), vsetky ostatne polia
+# vzdy spravne vyplnene. Ciste kozmeticky artefakt v zobrazenom texte, preto
+# samostatna jednoducha funkcia (nie sucast recovery vyssie, ktora rieši
+# skutocnu stratu dat).
+_CITE_TAG_RE = re.compile(r"<cite[^>]*>(.*?)</cite>", re.DOTALL)
+
+
+def _strip_citation_tags(decision: dict) -> dict:
+    for field in ("reasoning", "key_assumptions", "watch_rationale"):
+        value = decision.get(field)
+        if value and "<cite" in value:
+            decision[field] = _CITE_TAG_RE.sub(r"\1", value)
+    return decision
+
+
 def _call_claude(asset: dict, system_blocks: list[dict], user_prompt: str,
                   tool: dict, tool_name: str) -> tuple[dict, list[dict], dict]:
     """Spolocna request/retry/pause_turn loop pre analyze() aj analyze_position_health()
@@ -2001,7 +2023,8 @@ def _call_claude(asset: dict, system_blocks: list[dict], user_prompt: str,
             "output_tokens": total_usage["output_tokens"],
             "effort": effort or None,
         }
-        return _recover_malformed_fields(decision_block["input"], asset["name"]), web_search_log, usage_record
+        cleaned = _strip_citation_tags(_recover_malformed_fields(decision_block["input"], asset["name"]))
+        return cleaned, web_search_log, usage_record
 
     raise RuntimeError("Claude neposkytol finalnu odpoved po pause_turn pokracovani")
 
