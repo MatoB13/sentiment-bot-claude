@@ -1797,10 +1797,21 @@ def _call_claude(asset: dict, system_blocks: list[dict], user_prompt: str,
     # rozpocet moze vyrazne zvacsit (Anthropic odporuca max_tokens >= 64000), povodnych
     # 8192 by pri hlbsom uvazovani mohlo orezat odpoved este PRED tool-use blokom
     # (submit_trade_decision by sa vobec nezavolal) - preto pri xhigh/max zvysujeme strop.
+    #
+    # 2026-08-22 produkcny nalez (AAOI + 7 predoslych vyskytov naprieč tickermi za
+    # ~2.5 tyzdna, vzdy "" alebo "high" effort): aj pri obycajnom "high" obcas viacero
+    # volitelnych reflection poli naraz (closed_trade_reflection/sl_tp_calibration_verdict/
+    # summary_reflection/watch_rationale) + web_search obsah zapln celych 8192 tokenov
+    # PRED povinnym polom (typicky "reasoning" na konci) - cyklus sa bezpecne, ale
+    # zbytocne zahodi (_validate_decision). "low"/"medium" (momentalne nikde nepouzite)
+    # ostavaju pri povodnom strope.
     effort = asset.get("effort")
-    max_tokens = 8192
     if effort in ("xhigh", "max"):
         max_tokens = 24000
+    elif effort in ("low", "medium"):
+        max_tokens = 8192
+    else:
+        max_tokens = 16000
 
     # server-side web_search moze pri velmi dlhom hladani vratit stop_reason=pause_turn -
     # v takom pripade treba poslat konverzaciu znova a nechat ju dokoncit (max 1 pokracovanie).
