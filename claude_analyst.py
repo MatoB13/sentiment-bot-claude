@@ -1739,16 +1739,66 @@ _MALFORMED_FIELD_RE = re.compile(
 )
 _TRAILING_TAG_RE = re.compile(r"</\w+>\s*$")
 
+# 2026-08-22 dalsi variant (NIGHT, watch-triggered cyklus) - namiesto
+# <parameter name="X">..</parameter> Claude tentokrat cely dalsi obsah
+# (key_assumptions/watch_price/watch_direction/watch_rationale) vratil ako
+# JEDNODUCHE <X>..</X> tagy s nazvom pola priamo, este aj s falosnym
+# zaverecnym </invoke> - vyzera to ako echo staršieho XML-tool-call stylu
+# (nikde v NASOM systemovom prompte taky priklad nie je, over. cez grep).
+# Bez tejto opravy zostali watch_price/watch_direction v DB NULL, hoci ich
+# Claude realne vygeneroval - watch_monitor.py cita VZDY najnovsi CycleLog
+# riadok pre symbol, takze cely watch mechanizmus pre ten ticker do dalsieho
+# beznho cyklu tichy prestal fungovat. Obmedzene na ZNAME nazvy poli (nie
+# hocijaky tag), aby sa nikdy neomylom "zachranilo" nieco iné.
+_PLAIN_TAG_FIELDS = (
+    "key_assumptions", "watch_price", "watch_direction", "watch_price_2",
+    "watch_direction_2", "watch_rationale", "confidence_threshold_note",
+    "data_issue", "daily_reflection", "summary_reflection",
+    "closed_trade_reflection", "sl_tp_calibration_verdict",
+    "close_confidence", "recommendation", "expected_direction",
+)
+_PLAIN_TAG_FIELD_RE = re.compile(
+    r"<(" + "|".join(_PLAIN_TAG_FIELDS) + r")>(.*?)</\1>", re.DOTALL,
+)
+_NUMERIC_FIELDS = {"watch_price", "watch_price_2"}
+_DIRECTION_FIELDS = {"watch_direction", "watch_direction_2"}
+
+
+def _coerce_field_value(name: str, value: str):
+    """Spolocna konverzia pre oba zachranne formaty nizsie - vrati None, ak je
+    hodnota prazdna alebo (pre cisla/watch_direction enum) neplatna, aby
+    volajuci taku hodnotu jednoducho preskocil namiesto zapisu odpadu."""
+    value = value.strip()
+    if not value:
+        return None
+    if name == "close_confidence":
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    if name in _NUMERIC_FIELDS:
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    if name in _DIRECTION_FIELDS:
+        return value if value in ("above", "below") else None
+    return value
+
 
 def _recover_malformed_fields(decision: dict, asset_name: str) -> dict:
     """Ak niektore z ocakavanych textovych poli (reasoning) obsahuje stopy
-    poskodenej tool-call odpovede (viz komentar vyssie), skusi z neho
-    dodatocne vytiahnut key_assumptions/close_confidence (LEN ak uz nie su
-    v decision inak vyplnene - nikdy neprepisuje spravne prisle pole).
-    Nema vplyv na normalne (nepoškodene) odpovede - tie ziadny <parameter
-    znacku neobsahuju, regex nenajde zhodu, decision sa vrati bezo zmeny."""
+    poskodenej tool-call odpovede (viz komentare vyssie), skusi z neho
+    dodatocne vytiahnut chybajuce polia (LEN ak uz nie su v decision inak
+    vyplnene - nikdy neprepisuje spravne prisle pole). Nema vplyv na normalne
+    (nepoškodene) odpovede - tie ziadnu z dvoch znackovych stop neobsahuju,
+    regexy nenajdu zhodu, decision sa vrati bezo zmeny."""
     reasoning = decision.get("reasoning")
-    if not reasoning or "<parameter name=" not in reasoning:
+    if not reasoning:
+        return decision
+    has_parameter_style = "<parameter name=" in reasoning
+    has_plain_tag_style = "</reasoning>" in reasoning
+    if not has_parameter_style and not has_plain_tag_style:
         return decision
 
     print(f"[claude_analyst] [{asset_name}] POZOR: reasoning obsahuje stopy poskodenej "
@@ -1757,17 +1807,23 @@ def _recover_malformed_fields(decision: dict, asset_name: str) -> dict:
     if clean_reasoning:
         decision["reasoning"] = clean_reasoning
 
-    for name, value in _MALFORMED_FIELD_RE.findall(reasoning):
-        value = _TRAILING_TAG_RE.sub("", value).strip()
-        if decision.get(name):
-            continue  # spravne prislo pole sa nikdy neprepisuje
-        if name == "close_confidence":
-            try:
-                decision[name] = int(value)
-            except ValueError:
-                pass
-        elif value:
-            decision[name] = value
+    if has_parameter_style:
+        for name, value in _MALFORMED_FIELD_RE.findall(reasoning):
+            value = _TRAILING_TAG_RE.sub("", value)
+            if decision.get(name):
+                continue  # spravne prislo pole sa nikdy neprepisuje
+            coerced = _coerce_field_value(name, value)
+            if coerced is not None:
+                decision[name] = coerced
+
+    if has_plain_tag_style:
+        for name, value in _PLAIN_TAG_FIELD_RE.findall(reasoning):
+            if decision.get(name):
+                continue
+            coerced = _coerce_field_value(name, value)
+            if coerced is not None:
+                decision[name] = coerced
+
     return decision
 
 
