@@ -534,7 +534,32 @@ NEAR = {
     "effort": config.NEAR_EFFORT,
 }
 
-ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX, AAOI, MINIMAX, ZEC, GOOGL, UNITREE, NEAR]
+AAPL = {
+    "name": "AAPL",
+    "asset_class": "stock",
+    "strike_symbol": config.STRIKE_AAPL_SYMBOL,
+    "yf_symbol": "AAPL",
+    "yf_fallback": None,
+    "sl_pct": config.AAPL_SL_PCT,
+    "tp_pct": config.AAPL_TP_PCT,
+    "leverage": config.AAPL_LEVERAGE,
+    "liquidation_cushion_multiple": config.AAPL_LIQUIDATION_CUSHION_MULTIPLE,
+    "margin_usd": config.AAPL_MARGIN_USD,
+    "min_confidence": config.AAPL_MIN_CONFIDENCE,
+    "enabled": config.ENABLE_AAPL,
+    "needs_btc_proxy": False,
+    # Realny NASDAQ mega-cap titul, rovnaky spolahlivy yfinance zdroj ako NVDA/GOOGL/AAOI.
+    "include_volume": True,
+    "trade_interval_hours": config.AAPL_TRADE_INTERVAL_HOURS,
+    "off_hours_interval_hours": config.AAPL_OFF_HOURS_INTERVAL_HOURS,
+    "weekend_interval_hours": config.AAPL_WEEKEND_INTERVAL_HOURS,
+    "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
+    "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
+    "marketaux_query": {"symbols": "AAPL"},
+    "effort": config.AAPL_EFFORT,
+}
+
+ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX, AAOI, MINIMAX, ZEC, GOOGL, UNITREE, NEAR, AAPL]
 
 
 def enabled_assets() -> list[dict]:

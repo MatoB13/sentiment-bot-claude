@@ -865,6 +865,17 @@ ASSET_TEXT = {
         ),
         "macro_rules": _UNITREE_MACRO_RULES,
     },
+    "AAPL": {
+        "label": "akciu AAPL (Apple)",
+        "news_focus": (
+            'správach o Apple samotnom (iPhone predaje/guidance podľa regiónu, Services segment '
+            'rast a marže, Apple Intelligence/AI stratégia a jej prijatie oproti konkurencii, '
+            'kapex a nové produkty), dodávateľskom reťazci (Foxconn, TSMC, čínska výroba, '
+            'diverzifikácia mimo Číny - India/Vietnam), regulačnom/antitrustovom tlaku (App Store '
+            'provízie, EU DMA vynucovanie, US DOJ spory), a Fed/makro dátach (CPI, PPI, NFP, FOMC)'
+        ),
+        "macro_rules": _EQUITY_MACRO_RULES,
+    },
     "NEAR": {
         "label": "krypto NEAR (Near Protocol, L1 smart-contract platforma s 2026 AI-infra naratívom) perpetuál",
         "news_focus": (

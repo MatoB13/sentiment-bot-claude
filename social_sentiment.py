@@ -32,6 +32,10 @@ QUERIES = {
     # Pridane 2026-08-21 hned pri pridani tickera (nie az dodatocne ako
     # UNITREE vyssie) - poucenie z UNITREE naleze.
     "NEAR": '($NEAR OR "Near Protocol") lang:en -is:retweet',
+    # Pridane 2026-08-22 hned pri pridani tickera (rovnaky vzor ako NEAR
+    # vyssie - poucenie z UNITREE naleze). $AAPL uz je pouzite v NAS100
+    # dopyte vyssie ako sirsi index-komponent - tu ide o VLASTny AAPL-specificky dopyt.
+    "AAPL": '($AAPL OR "Apple Inc" OR "iPhone" OR "Tim Cook") lang:en -is:retweet',
 }
 
 

@@ -50,6 +50,7 @@ ZEC_EFFORT = os.getenv("ZEC_EFFORT", "")
 GOOGL_EFFORT = os.getenv("GOOGL_EFFORT", "")
 UNITREE_EFFORT = os.getenv("UNITREE_EFFORT", "")
 NEAR_EFFORT = os.getenv("NEAR_EFFORT", "")
+AAPL_EFFORT = os.getenv("AAPL_EFFORT", "")
 
 # Strike
 STRIKE_API_PRIVATE_KEY = os.getenv("STRIKE_API_PRIVATE_KEY", "")
@@ -713,3 +714,37 @@ UNITREE_TP_PCT = _float("UNITREE_TP_PCT", 9.0)
 UNITREE_TRADE_INTERVAL_HOURS = _float("UNITREE_TRADE_INTERVAL_HOURS", TRADE_INTERVAL_HOURS)
 UNITREE_OFF_HOURS_INTERVAL_HOURS = _float("UNITREE_OFF_HOURS_INTERVAL_HOURS", OFF_HOURS_INTERVAL_HOURS)
 UNITREE_WEEKEND_INTERVAL_HOURS = _float("UNITREE_WEEKEND_INTERVAL_HOURS", WEEKEND_INTERVAL_HOURS)
+
+# ============================== AAPL (NEAKTIVNE - Strike este nema market) ==============================
+# Pridany 2026-08-22 na ziadost pouzivatela (Strike mal Apple pridat "tento
+# tyzden", pouzivatel odchadza a nechce cakat na aktivaciu naziva) - infra
+# pripravena VOPRED presne ako GOOGL (rovnaky realny NASDAQ mega-cap titul,
+# rovnaky spolahlivy yfinance zdroj), ale ENABLE_AAPL default FALSE, kedze
+# Strike /v2/markets ESTE AAPL-USD nevracia (overene naozivo 2026-08-22,
+# get_markets() ho nevratil). NA ROZDIEL od AAOI/MINIMAX/UNITREE (skutocne
+# "zbiera historiu" tickery) tu nejde o cakanie na korelacnu historiu - Apple
+# ma bohatu vlastnu yfinance historiu uz teraz, jedina prekazka je, ze Strike
+# symbol proste este neexistuje. Kym nebude, price_poller/funding_tracker
+# (oba iteruju ALL_ASSETS, nie len enabled_assets()) tento symbol jednoducho
+# kazdy tik preskocia (uz existujuci "chyba v /v2/markets odpovedi" fallback,
+# viz price_poller.poll_prices) - ZIADNY risk padu procesu. Ked Strike AAPL-USD
+# prida, pouzivatel len nastavi ENABLE_AAPL=true na Railway (a STRIKE_AAPL_SYMBOL,
+# ak by realny listing pouzival iny presny nazov symbolu nez predpokladany default).
+STRIKE_AAPL_SYMBOL = os.getenv("STRIKE_AAPL_SYMBOL", "AAPL-USD")
+ENABLE_AAPL = _bool("ENABLE_AAPL", "false")
+AAPL_MIN_CONFIDENCE = _int("AAPL_MIN_CONFIDENCE", MIN_CONFIDENCE)
+AAPL_MARGIN_USD = _float("AAPL_MARGIN_USD", 100)
+AAPL_LEVERAGE = _int("AAPL_LEVERAGE", 10)  # DEAD - viz risk_manager._leverage_from_cushion, skutocna paka sa odvodzuje z cushion multiple nizsie
+AAPL_LIQUIDATION_CUSHION_MULTIPLE = _float("AAPL_LIQUIDATION_CUSHION_MULTIPLE", LIQUIDATION_CUSHION_MULTIPLE)
+# Hodinovy ATR (60d, yfinance, MEDIAN cez cele okno - nie posledna hodnota,
+# rovnaky dovod ako pri NEAR: posledna hodnota 0.66% bola v case vypoctu POD
+# medianom 0.78%, teda by podhodnotila typicku volatilitu) = 0.78% z ceny.
+# Rovnaky SL/ATR pomer (~2.34x) ako uz naladeny NVDA/GOOGL (rovnaky NASDAQ
+# mega-cap profil). NIE empiricky backtestovane na vlastnych datach (ziadna
+# historia, Strike market este neexistuje), prehodnotit po zozbierani realnych
+# cyklov (rovnaky caveat ako GOOGL malo pri svojom zavedeni).
+AAPL_SL_PCT = _float("AAPL_SL_PCT", 1.8)
+AAPL_TP_PCT = _float("AAPL_TP_PCT", 2.7)
+AAPL_TRADE_INTERVAL_HOURS = _float("AAPL_TRADE_INTERVAL_HOURS", TRADE_INTERVAL_HOURS)
+AAPL_OFF_HOURS_INTERVAL_HOURS = _float("AAPL_OFF_HOURS_INTERVAL_HOURS", OFF_HOURS_INTERVAL_HOURS)
+AAPL_WEEKEND_INTERVAL_HOURS = _float("AAPL_WEEKEND_INTERVAL_HOURS", WEEKEND_INTERVAL_HOURS)
