@@ -1775,11 +1775,34 @@ _DIRECTION_FIELDS = {"watch_direction", "watch_direction_2"}
 # format uniku - chceme sa o tom dozvediet z logu hned, nie az znova zo
 # screenshotu od pouzivatela.
 _RESIDUAL_TAG_RE = re.compile(r"</?\w+>")
-# Strukturalny "sum" oboch ZNAMYCH formatov (hranicna znacka </reasoning>,
-# </parameter> zvysky, prip. cely <invoke>/</invoke> obal) - toto sa NEMA
-# pocitat ako "novy neznamy tag", odstran skor, nez sa kontroluje zvysok.
+# Strukturalny "sum" znamych formatov (</parameter> zvysky, prip. cely
+# <invoke>/</invoke> obal) - toto sa NEMA pocitat ako "novy neznamy tag",
+# odstran skor, nez sa kontroluje zvysok. Hranicna znacka hostitelskeho pola
+# (napr. </reasoning>, </key_assumptions>) sa odstranuje OSOBITNE nizsie
+# (viz self_close_marker v _recover_malformed_fields), kedze zavisi od toho,
+# ktore pole je prave hostitelom.
 _KNOWN_NOISE_TAG_RE = re.compile(
-    r'</reasoning>|</?parameter(?:\s+name="\w+")?>|</?invoke(?:\s+name="[^"]*")?>'
+    r'</?parameter(?:\s+name="\w+")?>|</?invoke(?:\s+name="[^"]*")?>'
+)
+# Realny zachyteny pripad (#901/XAU) ukazal aj HYBRIDNY format: pole otvorene
+# ako <parameter name="X">, ale zatvorene ako </X> namiesto </parameter> -
+# _MALFORMED_FIELD_RE hodnotu aj tak spravne vytiahne (jej lookahead prijme
+# hociaku </\w+> znacku), len samotna </X> znacka potom zostane v chvoste ako
+# "neznamy" zvysok. Kedze X je uz ZNAME meno pola (_PLAIN_TAG_FIELDS), takato
+# uzatvaracia znacka nie je novy problem - odstran ju rovnako ako ostatny sum.
+_KNOWN_FIELD_CLOSE_TAG_RE = re.compile(
+    r"</(" + "|".join(_PLAIN_TAG_FIELDS) + r")>"
+)
+# 2026-08-22 (na ziadost pouzivatela, po dalsom naleze - #707/ADA, #901/XAU,
+# #2832/NAS100) - poskodena odpoved sa NEMUSI vzdy prejavit prave v reasoning
+# (povodny predpoklad tejto funkcie) - v tychto pripadoch skoncil zvysok v
+# key_assumptions alebo data_issue namiesto reasoning. Kazde volne textove
+# pole z oboch tool schem (DECISION_TOOL/POSITION_HEALTH_TOOL) je teda
+# potencialnym hostitelom a musi sa skenovat rovnako.
+_HOST_FIELDS = (
+    "reasoning", "key_assumptions", "data_issue", "watch_rationale",
+    "confidence_threshold_note", "daily_reflection", "summary_reflection",
+    "closed_trade_reflection", "sl_tp_calibration_verdict",
 )
 
 
@@ -1806,62 +1829,67 @@ def _coerce_field_value(name: str, value: str):
 
 
 def _recover_malformed_fields(decision: dict, asset_name: str) -> dict:
-    """Ak niektore z ocakavanych textovych poli (reasoning) obsahuje stopy
+    """Ak niektore z volnych textovych poli (viz _HOST_FIELDS) obsahuje stopy
     poskodenej tool-call odpovede (viz komentare vyssie), skusi z neho
     dodatocne vytiahnut chybajuce polia (LEN ak uz nie su v decision inak
     vyplnene - nikdy neprepisuje spravne prisle pole). Nema vplyv na normalne
     (nepoškodene) odpovede - tie ziadnu z dvoch znackovych stop neobsahuju,
     regexy nenajdu zhodu, decision sa vrati bezo zmeny."""
-    reasoning = decision.get("reasoning")
-    if not reasoning:
-        return decision
-    has_parameter_style = "<parameter name=" in reasoning
-    has_plain_tag_style = "</reasoning>" in reasoning
-    if not has_parameter_style and not has_plain_tag_style:
-        return decision
+    for host_field in _HOST_FIELDS:
+        host_value = decision.get(host_field)
+        if not host_value:
+            continue
+        self_close_marker = f"</{host_field}>"
+        has_parameter_style = "<parameter name=" in host_value
+        has_plain_tag_style = self_close_marker in host_value
+        if not has_parameter_style and not has_plain_tag_style:
+            continue
 
-    print(f"[claude_analyst] [{asset_name}] POZOR: reasoning obsahuje stopy poskodenej "
-          "tool-call odpovede (viz _recover_malformed_fields) - skusam zachranit polia.")
-    prefix = reasoning.split("<parameter name=")[0].split("</reasoning>")[0]
-    clean_reasoning = prefix.strip()
-    # Odrezany "chvost" (vsetko za koncom cisteho reasoning, PRED strip()) -
-    # potrebny nizsie na kontrolu, ci po pokuse o zachranu nezostalo nieco
-    # NEROZPOZNANE (viz _RESIDUAL_TAG_RE nizsie), lebo samotny (uz vycisteny)
-    # decision["reasoning"] by taky zvysok nikdy neobsahoval - bol by z neho
-    # prave odrezany. Pouzitie NEstriphnuteho prefixu tu je zamerne presne -
-    # strip() by posunul hranicu chvosta o pripadny orezany biely znak.
-    tail = reasoning[len(prefix):]
-    if clean_reasoning:
-        decision["reasoning"] = clean_reasoning
+        print(f"[claude_analyst] [{asset_name}] POZOR: {host_field} obsahuje stopy poskodenej "
+              "tool-call odpovede (viz _recover_malformed_fields) - skusam zachranit polia.")
+        prefix = host_value.split("<parameter name=")[0].split(self_close_marker)[0]
+        clean_value = prefix.strip()
+        # Odrezany "chvost" (vsetko za koncom cisteho pola, PRED strip()) -
+        # potrebny nizsie na kontrolu, ci po pokuse o zachranu nezostalo nieco
+        # NEROZPOZNANE (viz _RESIDUAL_TAG_RE nizsie), lebo samotne (uz vycistene)
+        # decision[host_field] by taky zvysok nikdy neobsahovalo - bol by z neho
+        # prave odrezany. Pouzitie NEstriphnuteho prefixu tu je zamerne presne -
+        # strip() by posunul hranicu chvosta o pripadny orezany biely znak.
+        tail = host_value[len(prefix):]
+        if clean_value:
+            decision[host_field] = clean_value
 
-    if has_parameter_style:
-        for name, value in _MALFORMED_FIELD_RE.findall(reasoning):
-            value = _TRAILING_TAG_RE.sub("", value)
-            if decision.get(name):
-                continue  # spravne prislo pole sa nikdy neprepisuje
-            coerced = _coerce_field_value(name, value)
-            if coerced is not None:
-                decision[name] = coerced
+        if has_parameter_style:
+            for name, value in _MALFORMED_FIELD_RE.findall(host_value):
+                value = _TRAILING_TAG_RE.sub("", value)
+                if decision.get(name):
+                    continue  # spravne prislo pole sa nikdy neprepisuje
+                coerced = _coerce_field_value(name, value)
+                if coerced is not None:
+                    decision[name] = coerced
 
-    if has_plain_tag_style:
-        for name, value in _PLAIN_TAG_FIELD_RE.findall(reasoning):
-            if decision.get(name):
-                continue
-            coerced = _coerce_field_value(name, value)
-            if coerced is not None:
-                decision[name] = coerced
+        if has_plain_tag_style:
+            for name, value in _PLAIN_TAG_FIELD_RE.findall(host_value):
+                if decision.get(name):
+                    continue
+                coerced = _coerce_field_value(name, value)
+                if coerced is not None:
+                    decision[name] = coerced
 
-    # Preventivne (2026-08-22): odstran z chvosta vsetko, co uz obe zachranne
-    # cesty vyssie ROZPOZNALI, a preskusaj, ci nezostalo este nieco tagu-podobne -
-    # to by znamenalo TRETI, este neosetreny format uniku. Cielom je zachytit
-    # to v logu HNED nabuduce, nie az znova zo screenshotu od pouzivatela.
-    remainder = _MALFORMED_FIELD_RE.sub("", tail)
-    remainder = _PLAIN_TAG_FIELD_RE.sub("", remainder)
-    remainder = _KNOWN_NOISE_TAG_RE.sub("", remainder)
-    if _RESIDUAL_TAG_RE.search(remainder):
-        print(f"[claude_analyst] [{asset_name}] POZOR: aj po pokuse o zachranu zostavaju v "
-              f"odrezanom chvoste reasoning podozrive znacky - mozny NOVY, este neosetreny "
-              f"format uniku: {remainder.strip()[:400]!r}")
+        # Preventivne (2026-08-22): odstran z chvosta vsetko, co uz obe zachranne
+        # cesty vyssie ROZPOZNALI (aj vlastnu hranicnu znacku hostitela), a
+        # preskusaj, ci nezostalo este nieco tagu-podobne - to by znamenalo
+        # este dalsi, neosetreny format uniku. Cielom je zachytit to v logu
+        # HNED nabuduce, nie az znova zo screenshotu od pouzivatela.
+        remainder = _MALFORMED_FIELD_RE.sub("", tail)
+        remainder = _PLAIN_TAG_FIELD_RE.sub("", remainder)
+        remainder = remainder.replace(self_close_marker, "")
+        remainder = _KNOWN_NOISE_TAG_RE.sub("", remainder)
+        remainder = _KNOWN_FIELD_CLOSE_TAG_RE.sub("", remainder)
+        if _RESIDUAL_TAG_RE.search(remainder):
+            print(f"[claude_analyst] [{asset_name}] POZOR: aj po pokuse o zachranu zostavaju v "
+                  f"odrezanom chvoste {host_field} podozrive znacky - mozny NOVY, este neosetreny "
+                  f"format uniku: {remainder.strip()[:400]!r}")
 
     return decision
 
