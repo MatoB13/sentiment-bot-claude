@@ -877,11 +877,23 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             print(f"[{name}] Vypocet confidence streak zlyhal (pokracujem bez neho): {e}")
             confidence_streak = None
 
-        try:
-            watch_retrigger_streak = _get_watch_retrigger_streak(symbol, session)
-        except Exception as e:
-            print(f"[{name}] Vypocet watch retrigger streak zlyhal (pokracujem bez neho): {e}")
-            watch_retrigger_streak = None
+        # 2026-08-22 produkcny nalez (ADA data_issue false-alarm): predtym sa
+        # toto pocitalo VZDY, bez ohladu na to, ci JE TENTO beh watch-triggered -
+        # ak PREDOSLY cyklus bol watch-triggered, ale TENTO je len bezny
+        # naplanovany beh, watch_retrigger_block nizsie (claude_analyst.py) aj
+        # tak Claude-ovi tvrdil "toto je uz N. mimoriadny cyklus za sebou", hoci
+        # TENTO konkretny beh ziadny mimoriadny nebol - preukazatelne zavadzajuce
+        # (over. cez DB - 29x v historii). Rovnaky gate ako pri watch_set_context
+        # nizsie (ten isty princip: kontext o retazci ma zmysel LEN, ked je jeho
+        # SUCASTOU aj tento beh) - _WATCH_RETRIGGER_HARD_LIMIT kontrola pri
+        # otvoreni uz aj tak vyzaduje watch_triggered zvlast, takze toto nic
+        # nemeni na jej sprvani.
+        watch_retrigger_streak = None
+        if watch_triggered:
+            try:
+                watch_retrigger_streak = _get_watch_retrigger_streak(symbol, session)
+            except Exception as e:
+                print(f"[{name}] Vypocet watch retrigger streak zlyhal (pokracujem bez neho): {e}")
 
         watch_set_context = None
         if watch_triggered:
