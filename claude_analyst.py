@@ -89,7 +89,11 @@ DECISION_TOOL = {
     "description": (
         "Odovzdaj finalne obchodne rozhodnutie. Zavolaj tento nastroj VZDY ako "
         "posledny krok analyzy, po dokonceni pripadneho web_search prieskumu - "
-        "je to jediny sposob, ako rozhodnutie odovzdat."
+        "je to jediny sposob, ako rozhodnutie odovzdat. DOLEZITE: kazde pole "
+        "(reasoning, key_assumptions, watch_price, watch_rationale, ...) odovzdaj "
+        "VYHRADNE ako svoj vlastny samostatny kluc v tomto tool volani - nikdy "
+        "nepis obsah dalsich poli ako text/XML znacky vnutri ineho pola (napr. "
+        "vnutri reasoning)."
     ),
     "input_schema": {
         "type": "object",
@@ -287,7 +291,10 @@ POSITION_HEALTH_TOOL = {
     "description": (
         "Odovzdaj priebežné hodnotenie UŽ OTVORENEJ pozície (nie rozhodnutie o novom obchode - "
         "SL/TP na burze zostávajú nezmenené, toto je len opinion pre používateľa). Zavolaj tento "
-        "nástroj VŽDY ako posledný krok, po dokončení prípadného web_search overenia predpokladov."
+        "nástroj VŽDY ako posledný krok, po dokončení prípadného web_search overenia predpokladov. "
+        "DOLEŽITÉ: každé pole (reasoning, key_assumptions, close_confidence, ...) odovzdaj "
+        "VÝHRADNE ako svoj vlastný samostatný kľúč v tomto tool volaní - nikdy nepíš obsah "
+        "ďalších polí ako text/XML značky vnútri iného poľa (napr. vnútri reasoning)."
     ),
     "input_schema": {
         "type": "object",
@@ -1762,6 +1769,18 @@ _PLAIN_TAG_FIELD_RE = re.compile(
 )
 _NUMERIC_FIELDS = {"watch_price", "watch_price_2"}
 _DIRECTION_FIELDS = {"watch_direction", "watch_direction_2"}
+# Vseobecny "zostala tam nejaka znacka" sniff test - POUZE na logovanie
+# (viz koniec _recover_malformed_fields), nie na zachranu. Ak toto niekedy
+# chytí zvysok po znamych formatoch vyssie, je to TRETI, este neosetreny
+# format uniku - chceme sa o tom dozvediet z logu hned, nie az znova zo
+# screenshotu od pouzivatela.
+_RESIDUAL_TAG_RE = re.compile(r"</?\w+>")
+# Strukturalny "sum" oboch ZNAMYCH formatov (hranicna znacka </reasoning>,
+# </parameter> zvysky, prip. cely <invoke>/</invoke> obal) - toto sa NEMA
+# pocitat ako "novy neznamy tag", odstran skor, nez sa kontroluje zvysok.
+_KNOWN_NOISE_TAG_RE = re.compile(
+    r'</reasoning>|</?parameter(?:\s+name="\w+")?>|</?invoke(?:\s+name="[^"]*")?>'
+)
 
 
 def _coerce_field_value(name: str, value: str):
@@ -1803,7 +1822,15 @@ def _recover_malformed_fields(decision: dict, asset_name: str) -> dict:
 
     print(f"[claude_analyst] [{asset_name}] POZOR: reasoning obsahuje stopy poskodenej "
           "tool-call odpovede (viz _recover_malformed_fields) - skusam zachranit polia.")
-    clean_reasoning = reasoning.split("<parameter name=")[0].split("</reasoning>")[0].strip()
+    prefix = reasoning.split("<parameter name=")[0].split("</reasoning>")[0]
+    clean_reasoning = prefix.strip()
+    # Odrezany "chvost" (vsetko za koncom cisteho reasoning, PRED strip()) -
+    # potrebny nizsie na kontrolu, ci po pokuse o zachranu nezostalo nieco
+    # NEROZPOZNANE (viz _RESIDUAL_TAG_RE nizsie), lebo samotny (uz vycisteny)
+    # decision["reasoning"] by taky zvysok nikdy neobsahoval - bol by z neho
+    # prave odrezany. Pouzitie NEstriphnuteho prefixu tu je zamerne presne -
+    # strip() by posunul hranicu chvosta o pripadny orezany biely znak.
+    tail = reasoning[len(prefix):]
     if clean_reasoning:
         decision["reasoning"] = clean_reasoning
 
@@ -1823,6 +1850,18 @@ def _recover_malformed_fields(decision: dict, asset_name: str) -> dict:
             coerced = _coerce_field_value(name, value)
             if coerced is not None:
                 decision[name] = coerced
+
+    # Preventivne (2026-08-22): odstran z chvosta vsetko, co uz obe zachranne
+    # cesty vyssie ROZPOZNALI, a preskusaj, ci nezostalo este nieco tagu-podobne -
+    # to by znamenalo TRETI, este neosetreny format uniku. Cielom je zachytit
+    # to v logu HNED nabuduce, nie az znova zo screenshotu od pouzivatela.
+    remainder = _MALFORMED_FIELD_RE.sub("", tail)
+    remainder = _PLAIN_TAG_FIELD_RE.sub("", remainder)
+    remainder = _KNOWN_NOISE_TAG_RE.sub("", remainder)
+    if _RESIDUAL_TAG_RE.search(remainder):
+        print(f"[claude_analyst] [{asset_name}] POZOR: aj po pokuse o zachranu zostavaju v "
+              f"odrezanom chvoste reasoning podozrive znacky - mozny NOVY, este neosetreny "
+              f"format uniku: {remainder.strip()[:400]!r}")
 
     return decision
 
