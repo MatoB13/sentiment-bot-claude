@@ -713,7 +713,13 @@ def _maybe_ai_early_close(asset: dict, trade: Trade, health: dict, session) -> N
                   "inym mechanizmom) - preskakujem.")
             return
         strike_client.cancel_all_orders(symbol)
-        strike_client.close_position_market(trade.direction, float(live["size"]), symbol)
+        # abs() - Strike "size" je znamienkove (zaporne pre short), ale
+        # close_position_market ocakava absolutnu velkost (smer ide cez
+        # trade.direction) - rovnaka chyba a oprava ako position_monitor.py
+        # _check_and_reheal_bracket_legs (2026-08-22, NIGHT naked-position
+        # incident) - bez tohto by AI early-close pre KAZDU short poziciu
+        # vzdy zlyhal ("below minimum") a ticho sa vzdy len opakoval bez ucinku.
+        strike_client.close_position_market(trade.direction, abs(float(live["size"])), symbol)
     except Exception as e:
         print(f"[{name}] AI early-close zlyhal (pozicia ostava otvorena, skusi sa znova "
               f"na dalsom cykle): {e}")

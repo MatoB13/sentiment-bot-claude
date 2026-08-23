@@ -609,7 +609,14 @@ def _check_and_reheal_bracket_legs(trade: Trade, live: dict) -> None:
                      None)
     sl_order = next((o for o in live_orders if o.get("Type") == "stop"), None)
 
-    live_size = float(live["size"])
+    # 2026-08-22 produkcny nalez (NIGHT naked-position incident): Strike
+    # /v2/positions vracia "size" so ZNAMIENKOM (zaporne pre short), ale
+    # place_stop_order/place_take_profit_order (viz strike_client.py) ocakavaju
+    # VZDY absolutnu velkost (smer sa posiela zvlast cez "side") - bez abs()
+    # tu kazdy pokus o opravu SHORT pozicie posielal zaporny size, co Strike
+    # odmietol ("Order size is below minimum required"), takze sa TP/SL nikdy
+    # naozaj neobnovili napriek opakovanym "obnovena" Discord notifikaciam.
+    live_size = abs(float(live["size"]))
     sl_outstanding = (
         float(sl_order.get("Size") or 0) - float(sl_order.get("Filled") or 0)
         if sl_order is not None else None
@@ -679,7 +686,10 @@ def _maybe_sweep_dust_position(trade: Trade, live: dict, now, session,
     preskoci dalsie spracovanie tohto trade v tomto behu - uz nie je otvoreny)."""
     if not trade.size or trade.size <= 0:
         return False
-    live_size = float(live["size"])
+    # Rovnaka oprava ako _check_and_reheal_bracket_legs vyssie - Strike "size"
+    # je znamienkove (zaporne pre short), bez abs() by remaining_pct pre SHORT
+    # pozicie vyslo vzdy zaporne a dust sweep by pre ne nikdy nespustil.
+    live_size = abs(float(live["size"]))
     remaining_pct = live_size / trade.size
     if remaining_pct <= 0 or remaining_pct >= config.DUST_POSITION_MAX_REMAINING_PCT:
         return False
@@ -784,7 +794,9 @@ def check_open_trades():
                     print(f"[position_monitor] Trade {trade.id} presiahol {config.POSITION_MAX_HOURS}h, zatvaram.")
                     try:
                         strike_client.cancel_all_orders(trade.symbol)  # zrusi visiace TP/SL objednavky
-                        strike_client.close_position_market(trade.direction, float(live["size"]), trade.symbol)
+                        # abs() - viz komentar pri _check_and_reheal_bracket_legs (Strike "size"
+                        # je znamienkove pre short, close_position_market ocakava absolutnu velkost).
+                        strike_client.close_position_market(trade.direction, abs(float(live["size"])), trade.symbol)
                     except Exception as e:
                         print(f"[position_monitor] Chyba pri force-close: {e}")
                         continue

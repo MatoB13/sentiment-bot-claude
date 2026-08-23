@@ -84,7 +84,13 @@ def _check_manual_close_requests(session) -> None:
               "rucna ziadost o zatvorenie - zatvaram.")
         try:
             strike_client.cancel_all_orders(trade.symbol)
-            strike_client.close_position_market(trade.direction, float(live["size"]), trade.symbol)
+            # abs() - Strike "size" je znamienkove (zaporne pre short), ale
+            # close_position_market ocakava absolutnu velkost (smer ide cez
+            # trade.direction) - rovnaka chyba a oprava ako position_monitor.py
+            # _check_and_reheal_bracket_legs (2026-08-22, NIGHT naked-position
+            # incident) - bez tohto by kill-switch pre KAZDU short poziciu vzdy
+            # zlyhal ("below minimum") a ticho sa donekonecna len opakoval.
+            strike_client.close_position_market(trade.direction, abs(float(live["size"])), trade.symbol)
         except Exception as e:
             print(f"[watch_monitor] Kill-switch Trade {trade.id} [{trade.symbol}]: "
                   f"zatvorenie zlyhalo, skusim znova na dalsom tiku: {e}")
