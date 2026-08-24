@@ -749,6 +749,13 @@ def _maybe_ai_early_close(asset: dict, trade: Trade, health: dict, session) -> N
 _symbol_run_locks_guard = threading.Lock()
 _symbol_run_locks: dict[str, threading.Lock] = {}
 
+# 2026-08-24 - viz komentar pri closed_trade acquire nizsie v run_cycle_for_asset:
+# post-close review dostane bounded WAIT (nie okamzity vzdanie sa) namiesto
+# ciste non-blocking pokusu, kedze pre konkretny uz zatvoreny obchod ziadne
+# "skus znova nabuduce" neexistuje. 90s dava rozumnu rezervu voci beznemu
+# position_check/decision Claude volaniu, ktore ho mohlo predbehnut.
+_POST_CLOSE_REVIEW_LOCK_WAIT_SECONDS = 90
+
 
 def _get_symbol_run_lock(symbol: str) -> threading.Lock:
     with _symbol_run_locks_guard:
@@ -801,7 +808,20 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
     symbol = asset["strike_symbol"]
 
     lock = _get_symbol_run_lock(symbol)
-    if not lock.acquire(blocking=False):
+    # Post-close review (closed_trade nastavene) je JEDNORAZOVA prilezitost -
+    # na rozdiel od bezneho/watch cyklu, ktory jednoducho skusi znova na svojom
+    # dalsom pravidelnom tiku, pre KONKRETNY uz zatvoreny obchod ziadne
+    # "nabuduce" neexistuje. 2026-08-24 produkcny nalez (ZEC #96): bezna
+    # position_check kontrola drzala zamok pocas vlastneho Claude volania
+    # presne v momente, kedy prisla poziadavka na review prave zatvoreneho
+    # obchodu - povodny okamzity non-blocking pokus ju vtedy ticho a NATRVALO
+    # zahodil. Preto LEN pre closed_trade davame kratky bounded wait namiesto
+    # okamziteho vzdania - blokuje len TENTO dispatch-thread na pozadi
+    # (position_monitor svoj vlastny tik uz davno dokoncil, nic tym
+    # nezastavujeme), nie hlavny beh ostatnych tickerov.
+    acquired = lock.acquire(timeout=_POST_CLOSE_REVIEW_LOCK_WAIT_SECONDS) if closed_trade \
+        else lock.acquire(blocking=False)
+    if not acquired:
         print(f"[{name}] Iny beh pre {symbol} prave prebieha (subezny cyklus) - "
               f"preskakujem, aby sme predisli duplicitnemu otvoreniu (viz ADA "
               f"#82/#83 incident 2026-08-22).")
