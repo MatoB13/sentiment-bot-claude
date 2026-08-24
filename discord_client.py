@@ -4,6 +4,7 @@ Webhooks). Pouziva sa LEN na upozornenia (fire-and-forget) - zlyhanie NESMIE
 nikdy ovplyvnit skutocne obchodovanie, preto kazda funkcia tu ticho zlyha
 (vypise chybu do logu, nikdy nevyhodi vynimku volajucemu)."""
 import time
+from datetime import datetime, timezone
 
 import requests
 
@@ -174,16 +175,50 @@ def notify_ready_for_production(asset_name: str, sl_pct: float, tp_pct: float,
     _post_webhook(payload, "Notifikacia o pripravenosti na produkciu")
 
 
+# 2026-08-24 (MINIMAX nalez - burzova anomalia stracajuca TP/SL nohu sa
+# opakovala ~kazdu minutu takmer 3.5h, kazda oprava USPESNE prebehla, ale
+# kazda si aj tak vypytala vlastny @everyone ping - desiatky notifikacii pre
+# TU ISTU vec). Per-symbol cooldown: prva oprava v okne sa nahlasi VZDY hned
+# (ziadne oneskorenie prveho varovania), dalsie v ramci cooldownu sa LEN
+# pocitaju (ziadny Discord post) - az ked cooldown vyprsi a prava dalsia
+# oprava skutocne prijde, zahrnie sa do jej spravy aj "(+N potlacenych)".
+# In-memory (rovnaky vzor ako heartbeat_check._last_alert_at) - resetuje sa
+# pri restarte procesu, co je prijatelne (restart sam osebe je novy zaciatok).
+_REPAIR_ALERT_COOLDOWN_MINUTES = 20
+_last_repair_alert_at: dict[str, datetime] = {}
+_suppressed_repair_count: dict[str, int] = {}
+
+
 def notify_bracket_leg_restored(symbol: str, leg: str, price: float) -> None:
     """2026-08-21 (po ADA incidente, na ziadost pouzivatela) - zavola sa,
     ked position_monitor._check_and_reheal_bracket_legs zisti a znovu doplni
     CHYBAJUCU TP alebo SL nohu uz otvorenej pozicie (burza ju z nejakeho
     dovodu "stratila" - viz strike_client.get_open_orders docstring). Toto je
     vzdy anomalia (za normalnych okolnosti sa toto nikdy nemalo stat) - preto
-    VZDY s @everyone, na rozdiel od bezneho notify_trade_opened/closed."""
+    VZDY s @everyone, na rozdiel od bezneho notify_trade_opened/closed.
+
+    Cooldown (viz komentar vyssie) je LEN o frekvencii Discord notifikacii -
+    samotna oprava v position_monitor.py prebehne VZDY, bez ohladu na toto."""
     if not config.DISCORD_WEBHOOK_URL:
         return
+
+    now = datetime.now(timezone.utc)
+    last_alert = _last_repair_alert_at.get(symbol)
+    if last_alert is not None and (now - last_alert).total_seconds() < _REPAIR_ALERT_COOLDOWN_MINUTES * 60:
+        _suppressed_repair_count[symbol] = _suppressed_repair_count.get(symbol, 0) + 1
+        print(f"[discord_client] REPAIR {symbol} {leg} - cooldown aktivny, "
+              f"potlacam Discord alert (potlacenych spolu: {_suppressed_repair_count[symbol]}).")
+        return
+
+    suppressed = _suppressed_repair_count.pop(symbol, 0)
+    _last_repair_alert_at[symbol] = now
+
     headline = f"REPAIR {_short_ticker(symbol)}"
+    suppressed_note = (
+        f"\n\n_(+{suppressed} ďalších opakovaných opráv za posledných "
+        f"{_REPAIR_ALERT_COOLDOWN_MINUTES} min potlačených, aby toto nezaplavilo kanál)_"
+        if suppressed else ""
+    )
     payload = {
         "content": f"{headline} {_EVERYONE_PING}",
         "embeds": [{
@@ -192,7 +227,7 @@ def notify_bracket_leg_restored(symbol: str, leg: str, price: float) -> None:
                 f"Burza stratila {leg} objednávku otvorenej pozície bez akéhokoľvek "
                 "nášho zásahu (anomália na strane burzy) - bot ju práve teraz znovu "
                 "nastavil na pôvodnú hodnotu. Over si prosím na Strike, že je to "
-                "v poriadku."
+                f"v poriadku.{suppressed_note}"
             ),
             "color": 15105570,  # oranzova - anomalia, nie bezna udalost
             "fields": [{"name": f"Obnovená {leg}", "value": str(price), "inline": True}],
