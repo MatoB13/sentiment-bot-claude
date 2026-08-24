@@ -122,6 +122,15 @@ def compute_daily_stats(asset: dict, for_date: date, session) -> dict:
         "none_missed": [],
         "none_ambiguous_count": 0,
         "none_correctly_avoided_count": 0,
+        # 2026-08-24 (na ziadost pouzivatela, po NIGHT "opakovany vzor rovnakej
+        # chyby" postrehu) - closed_trade_reflection/sl_tp_calibration_verdict
+        # (viz claude_analyst.py DECISION_TOOL schema) sa doteraz zapisali LEN
+        # do CycleLog riadku dovodneho review cyklu a uz sa NIKDY necitali
+        # spat - kvalitativne poucenie z konkretneho zatvoreneho obchodu tak
+        # bolo stratene, kym ho Claude nahodou znova nezachytil z holych cisel
+        # nizsie. Teraz sa zbieraju tu, aby mal Claude sancu ich REALNE
+        # zapracovat do summary_reflection (viz format_stats_for_prompt).
+        "trade_reflections": [],
     }
     if not logs:
         return stats
@@ -138,6 +147,13 @@ def compute_daily_stats(asset: dict, for_date: date, session) -> dict:
         return price_df
 
     for log in logs:
+        if log.reviewed_trade_id and (log.closed_trade_reflection or log.sl_tp_calibration_verdict):
+            stats["trade_reflections"].append({
+                "trade_id": log.reviewed_trade_id,
+                "closed_trade_reflection": log.closed_trade_reflection,
+                "sl_tp_calibration_verdict": log.sl_tp_calibration_verdict,
+            })
+
         if log.direction == "none":
             if not log.live_price:
                 continue
@@ -330,5 +346,21 @@ def format_stats_for_prompt(stats: dict) -> str:
                 f"- 'None' (ziadny signal): {none_count}, ziadne z nich v spatnom pohlade nemalo byt "
                 f"long/short."
             )
+
+    reflections = stats.get("trade_reflections", [])
+    if reflections:
+        lines.append(
+            f"- Kvalitativne hodnotenia zatvorenych obchodov za tento den ({len(reflections)}) - "
+            "TOTO JE JEDINY MOMENT, kedy tieto konkretne postrehy este uvidis: uz sa nikdy znova "
+            "nezobrazia. Ak niektory obsahuje TRVALO uzitocne poucenie (nie jednorazovu nahodnu "
+            "okolnost), aktivne ho zapracuj do summary_reflection nizsie - inak sa strati navzdy:"
+        )
+        for r in reflections:
+            parts = []
+            if r.get("closed_trade_reflection"):
+                parts.append(f"hodnotenie: {r['closed_trade_reflection']}")
+            if r.get("sl_tp_calibration_verdict"):
+                parts.append(f"SL/TP verdikt: {r['sl_tp_calibration_verdict']}")
+            lines.append(f"  (trade #{r['trade_id']}) " + " | ".join(parts))
 
     return "\n".join(lines)
