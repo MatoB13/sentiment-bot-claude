@@ -22,7 +22,8 @@ import risk_manager
 import risk_overrides
 import social_sentiment
 import strike_client
-from db import CycleLog, DailyRetrospective, FlaggedMacroEvent, RollingRetrospective, Trade, get_session
+from db import (CycleLog, DailyRetrospective, FlaggedMacroEvent, PriceBar,
+                 RollingRetrospective, Trade, get_session)
 
 
 # Tolerancia na scheduler jitter/spracovanie predchadzajucich assetov v tom
@@ -517,6 +518,32 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
     is_long = (open_trade.direction or "").lower() == "long"
     pnl_pct = ((live_price - open_trade.entry_price) / open_trade.entry_price if is_long
                else (open_trade.entry_price - live_price) / open_trade.entry_price)
+
+    # 2026-08-26 produkcny nalez (ZEC) - Claude pri position health checku
+    # doteraz nevidel ZIADNY explicitny fakt o tom, ako blizko sa cena UZ
+    # DOSTALA k TP a ako dlho odvtedy len stagnuje/vratila sa spat - musel by
+    # si to sam vsimnut zo surovych sviecok, co pri stojacej teze (napr.
+    # "sell-the-news pokles") lahko prehliadne v prospech potvrdenia povodnej
+    # tezy. Najpriaznivejsia cena OD OTVORENIA (min low pre short, max high
+    # pre long) + ako davno nastala je teraz explicitny, mechanicky vypocitany
+    # fakt v prompte (viz claude_analyst.py position_block), nie nieco, co
+    # musi sam odhalit.
+    best_price_since_open = None
+    best_price_hours_ago = None
+    bars = (
+        session.query(PriceBar)
+        .filter(PriceBar.symbol == symbol, PriceBar.hour_start >= opened_at.replace(tzinfo=None))
+        .order_by(PriceBar.hour_start)
+        .all()
+    )
+    if bars:
+        best_bar = max(bars, key=lambda b: b.high) if is_long else min(bars, key=lambda b: b.low)
+        best_price_since_open = best_bar.high if is_long else best_bar.low
+        best_bar_time = best_bar.hour_start
+        if best_bar_time.tzinfo is None:
+            best_bar_time = best_bar_time.replace(tzinfo=timezone.utc)
+        best_price_hours_ago = (datetime.now(timezone.utc) - best_bar_time).total_seconds() / 3600
+
     open_position = {
         "direction": open_trade.direction,
         "entry_price": open_trade.entry_price,
@@ -528,6 +555,8 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         "hours_held": hours_held,
         "unrealized_pnl_usd": open_trade.margin_usd * open_trade.leverage * pnl_pct,
         "unrealized_pnl_pct": pnl_pct * 100,
+        "best_price_since_open": best_price_since_open,
+        "best_price_hours_ago": best_price_hours_ago,
     }
 
     escalation_reason = _mechanical_health_escalation(asset, ta, open_position)

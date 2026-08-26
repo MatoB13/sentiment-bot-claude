@@ -290,7 +290,10 @@ POSITION_HEALTH_TOOL = {
     "name": "submit_position_health_check",
     "description": (
         "Odovzdaj priebežné hodnotenie UŽ OTVORENEJ pozície (nie rozhodnutie o novom obchode - "
-        "SL/TP na burze zostávajú nezmenené, toto je len opinion pre používateľa). Zavolaj tento "
+        "SL/TP na burze zostávajú nezmenené TVOJÍM VOLANÍM SAMOTNÝM). Zvyčajne je to len opinion "
+        "pre používateľa, ALE pri recommendation=consider_closing a dostatočne vysokom "
+        "close_confidence systém pozíciu AUTOMATICKY zatvorí trhovým príkazom - ber to teda vážne, "
+        "nie ako neutrálne logovanie. Zavolaj tento "
         "nástroj VŽDY ako posledný krok, po dokončení prípadného web_search overenia predpokladov. "
         "DOLEŽITÉ: každé pole (reasoning, key_assumptions, close_confidence, ...) odovzdaj "
         "VÝHRADNE ako svoj vlastný samostatný kľúč v tomto tool volaní - nikdy nepíš obsah "
@@ -303,9 +306,14 @@ POSITION_HEALTH_TOOL = {
                 "type": "string", "enum": ["hold", "consider_closing"],
                 "description": (
                     "hold = pôvodné predpoklady držia, žiadny naliehavý dôvod na zásah. "
-                    "consider_closing = predpoklady sa výrazne oslabili alebo sa objavilo nové "
-                    "podstatné riziko - používateľ by mal zvážiť manuálne zatvorenie (rozhoduje "
-                    "človek cez kill-switch, TY pozíciu nezatváraš)."
+                    "consider_closing = DVA rovnocenné dôvody, oba platia rovnako (nie je to len "
+                    "o riziku): (1) predpoklady sa výrazne oslabili alebo sa objavilo nové podstatné "
+                    "riziko, ALEBO (2) pôvodná téza sa v podstate UŽ NAPLNILA a momentum viditeľne "
+                    "slabne/stagnuje (napr. cena už dosiahla alebo takmer dosiahla TP a odvtedy dlhšie "
+                    "nepostupuje ďalej, prípadne sa už čiastočne vrátila späť) - vtedy zváž zamknutie "
+                    "zisku, nečakaj mechanicky na presný TP zásah len preto, že sa ešte technicky "
+                    "nevykonal. Nizsie (close_confidence) POZOR: toto reálne spúšťa automatické "
+                    "zatvorenie pri dostatočnej istote, nie je to len opinion pre používateľa."
                 ),
             },
             "expected_direction": {
@@ -330,11 +338,12 @@ POSITION_HEALTH_TOOL = {
                     "obchodnom rozhodnutí)."
                 ),
             },
-            # Pridane 2026-08-17 (na ziadost pouzivatela) - EXPERIMENTALNE, LEN
-            # LOGOVANIE, ZATIAL BEZ AKEJKOLVEK AKCIE. Ciel: nazbierat data na
-            # kalibraciu ("ked je toto skore 80+, naozaj sa v spatnom pohlade
-            # ukazalo zatvorenie ako spravne?"), skor nez sa tomuto skore
-            # niekedy v buducnosti zveri skutocna moznost poziciu zatvorit.
+            # Pridane 2026-08-17, PLNE ZIVE od 2026-08-21 (viz
+            # trade_cycle._maybe_ai_early_close + config.AI_EARLY_CLOSE_CONFIDENCE_THRESHOLD,
+            # default 50) - NIE JE to uz len logovanie, popis nizsie to musi
+            # odrazat presne, inak Claude tomuto cislu neopravnene neprikladal
+            # vahu (2026-08-26 produkcny nalez, ZEC - zastarany popis tvrdil
+            # opak reality).
             "close_confidence": {
                 "type": "integer",
                 "description": (
@@ -343,10 +352,12 @@ POSITION_HEALTH_TOOL = {
                     "obchodná istota, ale konkrétne: keby si mal exekučnú právomoc, urobil by si "
                     "to hneď? 0-40 = skôr len opatrnosť/varovanie, sleduj ďalej. 40-70 = reálne "
                     "znepokojujúce, ale ešte nie jednoznačné. 70-100 = pôvodná téza je podľa teba "
-                    "prakticky vyvrátená, čakanie na mechanický SL/TP už nedáva zmysel. Buď "
-                    "úprimný a kalibrovaný - toto číslo sa teraz LEN zaznamenáva na spätné "
-                    "vyhodnotenie, nespúšťa žiadnu akciu, takže nemá zmysel ho umelo tlačiť "
-                    "hore ani dole."
+                    "prakticky vyvrátená ALEBO uz v podstate naplnena a momentum stagnuje - "
+                    "čakanie na mechanický SL/TP už nedáva zmysel. DÔLEŽITÉ: toto číslo REÁLNE "
+                    "SPÚŠŤA akciu - pri hodnote nad konfigurovaným prahom (aktuálne 50) systém "
+                    "pozíciu AUTOMATICKY zatvorí trhovým príkazom bez ďalšieho čakania na "
+                    "používateľa. Buď preto úprimný a kalibrovaný, nie umelo opatrný ani "
+                    "prehnane istý - toto sa NEPOUŽÍVA len na spätné hodnotenie."
                 ),
             },
             "upcoming_macro_event": _UPCOMING_MACRO_EVENT_PROPERTY,
@@ -1464,13 +1475,36 @@ vyhodnotením.
     if open_position:
         op = open_position
         direction_label = "LONG" if (op["direction"] or "").lower() == "long" else "SHORT"
+        is_long_pos = direction_label == "LONG"
         sign = "+" if op["unrealized_pnl_usd"] >= 0 else ""
+        # 2026-08-26 produkcny nalez (ZEC) - explicitny, mechanicky vypocitany
+        # fakt namiesto spoliehania sa na to, ze si Claude vsimne "cena tu uz
+        # bola" sam zo surovych sviecok (viz trade_cycle._run_position_health_check
+        # pre vypocet). Bez tohto pri stojacej teze lahko preveazi potvrdzovaci
+        # vzor ("korekcia pokracuje") nad tym, ze sa uz vlastne zastavila.
+        best_price_line = ""
+        if op.get("best_price_since_open") is not None and op.get("best_price_hours_ago") is not None:
+            best = op["best_price_since_open"]
+            live = op["live_price"]
+            # LONG: best = najvyssia cena (vrchol), nevyhodny pohyb = pokles OD nej -> (best-live)/best.
+            # SHORT: best = najnizsia cena (dno), nevyhodny pohyb = rast OD nej -> (live-best)/best.
+            pullback_pct = ((best - live) / best * 100) if is_long_pos else ((live - best) / best * 100)
+            pullback_note = (
+                f"odvtedy sa cena vrátila o {pullback_pct:.1f}% späť (nevýhodným smerom, TOTO NIE JE "
+                "pokračovanie pôvodného pohybu)"
+                if pullback_pct > 0.05 else
+                "cena je stále prakticky na tejto úrovni (žiadny návrat späť zatiaľ)"
+            )
+            best_price_line = (
+                f"Najpriaznivejšia cena od otvorenia: {best} (dosiahnutá pred "
+                f"{op['best_price_hours_ago']:.1f}h) - {pullback_note}.\n"
+            )
         position_block = f"""## OTVORENÁ POZÍCIA (toto NIE JE rozhodnutie o novom obchode - hodnotíš EXISTUJÚCU pozíciu)
 Smer: {direction_label} | Vstup: {op['entry_price']} | Aktuálna cena: {op['live_price']}
 Stop-loss: {op['stop_loss_price']} | Take-profit: {op['take_profit_price']} | Leverage: {op['leverage']}x
 Otvorená: {op['opened_at_str']} ({op['hours_held']:.1f}h dozadu)
 Nerealizované PnL: {sign}${op['unrealized_pnl_usd']:.2f} ({sign}{op['unrealized_pnl_pct']:.2f}% z marže)
-
+{best_price_line}
 Zhodnoť, či pôvodné kľúčové predpoklady (vyššie) stále platia, alebo sa niečo podstatné zmenilo -
 over si to cez web_search rovnako ako pri bežnom cykle (dotaz cielený na konkrétnu tému z
 predpokladov, nie len na cenu nástroja). Na základe toho posúď, či očakávaš, že sa cena bude naďalej
