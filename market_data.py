@@ -95,6 +95,23 @@ def compute_indicators(df: pd.DataFrame, include_volume: bool = False) -> dict:
     bbl_col = [c for c in df.columns if c.startswith("BBL_")][0]
     bbu_col = [c for c in df.columns if c.startswith("BBU_")][0]
 
+    # 2026-08-26 produkcny nalez (prierez cez vsetky tickery za 4 dni strat) -
+    # v drvivej vacsine stratovych vstupov Claude sam v reasoningu spomenul
+    # "objem breakout sviecky je pod/mierne pod priemerom", ale confidence to
+    # dostatocne neznizilo - problem nebol v tom, ze by si to nevsimol, ale ze
+    # si to musel zakazdym rucne odhadnut zo surovych recent_candles namiesto
+    # dostat ako hotove, konzistentne cislo (rovnaky vzor ako stall-detection
+    # fix pre position health check). Pomer objemu POSLEDNEJ sviecky voci
+    # priemeru PREDCHADZAJUCICH 20 (nie vratane poslednej samotnej, aby ju
+    # neriedila do vlastneho priemeru) - len ked mame spolahlive volume data.
+    last_candle_volume_ratio = None
+    if include_volume and "volume" in df.columns and len(df) >= 2:
+        window = df["volume"].tail(21)
+        last_vol = window.iloc[-1]
+        baseline = window.iloc[:-1].dropna()
+        if pd.notna(last_vol) and len(baseline) >= 5 and baseline.mean() > 0:
+            last_candle_volume_ratio = round(float(last_vol / baseline.mean()), 2)
+
     # 6 desatinnych miest namiesto 2 - NAS100/NVDA sa 2 desatinami nepokazi, ale
     # ADA sa obchoduje pod $1 (napr. 0.4523), kde by zaokruhlenie na 2 miesta
     # znamenalo strate presnosti porovnatelnu s celou SL/TP vzdialenostou.
@@ -111,6 +128,7 @@ def compute_indicators(df: pd.DataFrame, include_volume: bool = False) -> dict:
         "bollinger_upper": round(float(last[bbu_col]), 6) if pd.notna(last[bbu_col]) else None,
         "atr14": round(float(last["atr14"]), 6) if pd.notna(last["atr14"]) else None,
         "trend": _trend_label(last),
+        "last_candle_volume_vs_avg20_ratio": last_candle_volume_ratio,
         "recent_candles_note": (
             f"posledných {RECENT_CANDLES_BARS} hodinových sviečok "
             + ("[open,high,low,close,volume]" if include_volume else "[open,high,low,close]")

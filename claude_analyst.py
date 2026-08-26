@@ -1083,7 +1083,18 @@ ostatných signáloch, nie mechanické pravidlo - vyžaduje kontext (je objem
 naozaj neobvyklý, alebo len bežná variabilita). POZOR: `volume: null` znamená
 CHÝBAJÚCI údaj pre danú hodinu (napr. dátový feed ešte nestihol dobehnúť) - NIE
 skutočne nameraný nulový objem. Takéto sviečky z objemovej analýzy jednoducho
-vynechaj, neinterpretuj `null` ako "nikto neobchodoval"."""
+vynechaj, neinterpretuj `null` ako "nikto neobchodoval".
+
+OPAČNÝ prípad, rovnako dôležitý (2026-08-26 produkčný nález z prierezu naprieč
+tickermi): potvrdenie prielomu/breakoutu cez sledovanú watch úroveň na
+PODPRIEMERNOM objeme je SLABŠIE potvrdenie, nie plnohodnotné - najmä ak cena
+je už výrazne natiahnutá (RSI mimo neutrálu) alebo ide o pokračovanie už
+prebiehajúceho silného pohybu bez retestu/konsolidácie. TA obsahuje presne na
+toto `last_candle_volume_vs_avg20_ratio` (posledná sviečka voči priemeru
+predchádzajúcich 20, `null` ak dáta nestačia) - hodnota pod ~1 znamená
+podpriemerný objem na tejto sviečke. V takom prípade zváž NIŽŠIU confidence
+namiesto automatického braní prekonania úrovne ako dostatočného potvrdenia -
+"cena prekonala watch level" samo osebe nie je zárukou kvality vstupu."""
 
 
 _FUNDING_NOTE = """
