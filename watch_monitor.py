@@ -72,11 +72,25 @@ def _check_manual_close_requests(session) -> None:
     for trade in pending:
         live = live_by_symbol.get(trade.symbol)
         if live is None:
-            # Uz nie je otvorena na burze (napr. medzitym trafila SL/TP) - len
-            # oznacime stav, presne PnL doplni position_monitor ako zvycajne.
+            # Uz nie je otvorena na burze (napr. medzitym trafila SL/TP, alebo
+            # predchadzajuci tik tejto istej funkcie uz zatvorenie vykonal) -
+            # presne PnL doplni position_monitor ako zvycajne.
+            #
+            # 2026-08-26 produkcny nalez (ZEC #113): tu sa doteraz NEnastavovalo
+            # trade.close_reason - _lookup_exact_close (position_monitor.py) ma
+            # explicitny fallback "zachovaj trade.close_reason, ak uz je
+            # manual_kill_switch/ai_early_close" prave PRE TENTO pripad (ziadny
+            # TP/SL fill nezodpoveda vacsine objemu), ale bez nastavenia tu
+            # ostavalo None, takze sa vzdy prepisalo vseobecnym "force_closed_by_bot"
+            # (rovnaky label ako max-hold timeout) - manualne zatvorenie sa tak
+            # nespravne interpretovalo AJ v nasledujucom post-close review. Toto
+            # NEPRETLACI skutocny SL/TP fill (ten sa v _lookup_exact_close
+            # detekuje PRED touto zachovavacou vetvou), len doplna spravny fallback
+            # label presne pre pripad, ked poziciu naozaj zatvorila TATO ziadost.
             print(f"[watch_monitor] Kill-switch Trade {trade.id} [{trade.symbol}]: "
                   "uz nie je otvorena na burze, len oznacujem stav.")
             trade.status = "closed_by_exchange"
+            trade.close_reason = "manual_kill_switch"
             trade.closed_at = now
             continue
 
