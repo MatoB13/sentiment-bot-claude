@@ -1204,7 +1204,8 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                         open_position: dict | None = None,
                         closed_trade: dict | None = None,
                         macro_event: str | None = None,
-                        coinmarketcal_events: list[dict] | None = None) -> str:
+                        coinmarketcal_events: list[dict] | None = None,
+                        recent_trades_context: list[dict] | None = None) -> str:
     instrument = asset["name"]
     social_block = "\n".join(
         f"- ({p.get('likes')}♥/{p.get('retweets')}rt) {p.get('text')}"
@@ -1448,6 +1449,36 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
             f"popri/namiesto vlastného web_search)\n"
         )
 
+    # 2026-08-26 (na ziadost pouzivatela, po portfolio-wide audite chase-breakout
+    # strat) - namiesto mechanickeho "streak" pocitadla (rovnaky problem ako
+    # confidence_streak vyssie, len pre SKUTOCNE obchody: prosty pocet stat by
+    # rovnako trestal aj nesuvisiace udalosti za sebou) davame surovy material -
+    # posledne uzavrete obchody na tomto tickeri VRATANE ich closed_trade_reflection/
+    # sl_tp_calibration_verdict (ak uz existuju) - a NECHAME Claude-a SAMEHO
+    # posudit, ci medzi nimi vidi opakujuci sa vzor. Viz trade_cycle._get_recent_closed_trades_context.
+    recent_trades_block = ""
+    if recent_trades_context:
+        rt_lines = ["\n## Posledné obchody na tomto tickeri (od najstaršieho po najnovší)"]
+        for i, rt in enumerate(recent_trades_context, 1):
+            direction_label = "LONG" if (rt.get("direction") or "").lower() == "long" else "SHORT"
+            conf_str = f"conf {rt['confidence']}" if rt.get("confidence") is not None else "conf ?"
+            pnl = rt.get("pnl_usd")
+            pnl_str = f"${pnl:+.2f}" if pnl is not None else "PnL zatiaľ neznáme"
+            hours_ago = rt.get("hours_ago")
+            ago_str = f", pred {hours_ago:.1f}h" if hours_ago is not None else ""
+            reason = rt.get("close_reason") or "?"
+            rt_lines.append(f"{i}. {direction_label} ({conf_str}) → {reason}, {pnl_str}{ago_str}")
+            if rt.get("reflection"):
+                rt_lines.append(f"   Hodnotenie: {rt['reflection']}")
+            if rt.get("sl_tp_verdict"):
+                rt_lines.append(f"   SL/TP verdikt: {rt['sl_tp_verdict']}")
+        rt_lines.append(
+            "Toto je surový prehľad, NIE hotový verdikt - posúď SÁM, či medzi týmito obchodmi vidíš "
+            "opakujúci sa vzor (napr. rovnaký typ vstupu, rovnaká chyba v načasovaní), alebo ide o "
+            "nesúvisiace udalosti. Samotný počet strát za sebou nič neznamená bez spoločnej príčiny."
+        )
+        recent_trades_block = "\n".join(rt_lines) + "\n"
+
     header = f"""## Aktuálny dátum a čas
 {now.strftime('%A, %d. %B %Y, %H:%M')} UTC ({now.isoformat()})
 Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/správy za posledných
@@ -1471,6 +1502,7 @@ Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/sp
 {streak_block}
 {watch_retrigger_block}
 {watch_set_context_block}
+{recent_trades_block}
 {retro_block}"""
 
     macro_event_block = ""
@@ -1522,7 +1554,7 @@ predpokladov, nie len na cenu nástroja). Na základe toho posúď, či očakáv
 vyvíjať V PROSPECH tejto pozície alebo PROTI nej, a či by mal používateľ zvážiť jej manuálne
 zatvorenie. SL/TP na burze zostávajú bez zmeny bez ohľadu na tvoju odpoveď - zatvorenie NEVYKONÁVAŠ
 TY, len odporúčaš človeku, ktorý sa rozhodne sám."""
-        return f"{header}\n{macro_event_block}{position_block}\n"
+        return f"{header}\n{macro_event_block}{position_block}\n{recent_trades_block}"
 
     closed_trade_block = ""
     if closed_trade:
@@ -1704,7 +1736,8 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
             macro_event: str | None = None,
             coinmarketcal_events: list[dict] | None = None,
             watch_retrigger_streak: dict | None = None,
-            watch_set_context: dict | None = None) -> tuple[dict, list[dict], dict]:
+            watch_set_context: dict | None = None,
+            recent_trades_context: list[dict] | None = None) -> tuple[dict, list[dict], dict]:
     """Vrati (decision, web_search_log, usage). web_search_log je zoznam
     {"query": str, "sources": [{"title", "url", "page_age"}]} pre kazde
     vyhladavanie, ktore Claude spravil - sluzi na audit (co realne citas,
@@ -1735,7 +1768,8 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
                                       confidence_streak, watch_retrigger_streak, watch_set_context,
                                       open_position=None,
                                       closed_trade=closed_trade, macro_event=macro_event,
-                                      coinmarketcal_events=coinmarketcal_events)
+                                      coinmarketcal_events=coinmarketcal_events,
+                                      recent_trades_context=recent_trades_context)
     decision, web_search_log, usage = _call_claude(asset, system_blocks, user_prompt,
                                                      DECISION_TOOL, "submit_trade_decision")
     _validate_decision(decision)
@@ -1753,7 +1787,8 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                              marketaux_news: list[dict] | None = None,
                              macro_event: str | None = None,
                              new_stats_text: str | None = None,
-                             coinmarketcal_events: list[dict] | None = None) -> tuple[dict, list[dict], dict]:
+                             coinmarketcal_events: list[dict] | None = None,
+                             recent_trades_context: list[dict] | None = None) -> tuple[dict, list[dict], dict]:
     """Ako analyze(), ale pre UZ OTVORENU poziciu (viz
     trade_cycle._run_position_health_check) - namiesto rozhodnutia o novom
     obchode (direction/SL/TP) sa Claude vyjadri, ci povodne predpoklady este
@@ -1773,7 +1808,8 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                                       retrospective_reflection, new_stats_text,
                                       fred_macro, eia_data, marketaux_news,
                                       confidence_streak=None, open_position=open_position,
-                                      macro_event=macro_event, coinmarketcal_events=coinmarketcal_events)
+                                      macro_event=macro_event, coinmarketcal_events=coinmarketcal_events,
+                                      recent_trades_context=recent_trades_context)
     decision, web_search_log, usage = _call_claude(asset, system_blocks, user_prompt,
                                                      POSITION_HEALTH_TOOL, "submit_position_health_check")
     _validate_health_decision(decision)

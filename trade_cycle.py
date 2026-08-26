@@ -326,6 +326,64 @@ def _get_confidence_streak(symbol: str, min_confidence: int, session) -> dict | 
     }
 
 
+# 2026-08-26 (na ziadost pouzivatela, po portfolio-wide audite chase-breakout
+# strat naprieč tickermi) - NAMIESTO mechanickeho "streak" pocitadla (co by
+# rovnako trestalo aj nesuvisiace straty za sebou, viz diskusia s pouzivatelom -
+# "pocet samostatny nedava zmysel") davame Claude-ovi SUROVY material o
+# poslednych uzavretych obchodoch tohto symbolu (vratane closed_trade_reflection/
+# sl_tp_calibration_verdict z ich post-close review, ak uz existuju) a
+# NECHAME HO SAMEHO posudit, ci ide o opakujuci sa vzor - rovnaky princip ako
+# _VOLUME_NOTE v claude_analyst.py (fakty, nie hotovy verdikt).
+_RECENT_TRADES_CONTEXT_LIMIT = 4
+
+
+def _get_recent_closed_trades_context(symbol: str, session) -> list[dict] | None:
+    trades = (
+        session.query(Trade)
+        .filter(Trade.symbol == symbol, Trade.status != "open")
+        .order_by(Trade.closed_at.desc())
+        .limit(_RECENT_TRADES_CONTEXT_LIMIT)
+        .all()
+    )
+    if not trades:
+        return None
+
+    trade_ids = [t.id for t in trades]
+    open_confidence = {
+        log.trade_id: log.confidence
+        for log in session.query(CycleLog)
+        .filter(CycleLog.trade_id.in_(trade_ids), CycleLog.outcome == "opened")
+        .all()
+    }
+    reviews = {
+        log.reviewed_trade_id: log
+        for log in session.query(CycleLog)
+        .filter(CycleLog.reviewed_trade_id.in_(trade_ids))
+        .all()
+    }
+
+    now = datetime.now(timezone.utc)
+    out = []
+    for t in reversed(trades):  # najstarsi prvy, najnovsi (najvyznamnejsi) posledny
+        hours_ago = None
+        if t.closed_at is not None:
+            closed_at = t.closed_at
+            if closed_at.tzinfo is None:
+                closed_at = closed_at.replace(tzinfo=timezone.utc)
+            hours_ago = (now - closed_at).total_seconds() / 3600
+        review = reviews.get(t.id)
+        out.append({
+            "direction": t.direction,
+            "confidence": open_confidence.get(t.id),
+            "close_reason": t.close_reason,
+            "pnl_usd": t.pnl_usd,
+            "hours_ago": hours_ago,
+            "reflection": review.closed_trade_reflection if review else None,
+            "sl_tp_verdict": review.sl_tp_calibration_verdict if review else None,
+        })
+    return out
+
+
 def _get_retrospective_context(asset: dict, session) -> tuple[str | None, str | None, dict | None]:
     """Vrati (retrospective_reflection, new_stats_text, pending_stats) pre tento asset.
 
@@ -653,12 +711,19 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
             print(f"[{name}] CoinMarketCal cache-read zlyhal (pokracujem bez neho): {e}")
 
     try:
+        recent_trades_context = _get_recent_closed_trades_context(symbol, session)
+    except Exception as e:
+        print(f"[{name}] Vypocet nedavnej obchodnej historie zlyhal (pokracujem bez nej): {e}")
+        recent_trades_context = None
+
+    try:
         health, web_search_log, usage = claude_analyst.analyze_position_health(
             asset, open_position, ta, cross_market, market_session, social, btc_proxy,
             prev_assumptions, prev_cycle_time, retrospective_reflection,
             fred_macro, eia_data, marketaux_news, macro_event,
             new_stats_text=new_stats_text,
             coinmarketcal_events=coinmarketcal_events,
+            recent_trades_context=recent_trades_context,
         )
     except Exception as e:
         print(f"[{name}] Position health check zlyhal: {e}")
@@ -932,6 +997,12 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             print(f"[{name}] Vypocet confidence streak zlyhal (pokracujem bez neho): {e}")
             confidence_streak = None
 
+        try:
+            recent_trades_context = _get_recent_closed_trades_context(symbol, session)
+        except Exception as e:
+            print(f"[{name}] Vypocet nedavnej obchodnej historie zlyhal (pokracujem bez nej): {e}")
+            recent_trades_context = None
+
         # 2026-08-22 produkcny nalez (ADA data_issue false-alarm): predtym sa
         # toto pocitalo VZDY, bez ohladu na to, ci JE TENTO beh watch-triggered -
         # ak PREDOSLY cyklus bol watch-triggered, ale TENTO je len bezny
@@ -1003,6 +1074,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 coinmarketcal_events=coinmarketcal_events,
                 watch_retrigger_streak=watch_retrigger_streak,
                 watch_set_context=watch_set_context,
+                recent_trades_context=recent_trades_context,
             )
         except Exception as e:
             print(f"[{name}] Claude analyza zlyhala, preskakujem cyklus: {e}")
