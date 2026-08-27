@@ -384,6 +384,39 @@ def _get_recent_closed_trades_context(symbol: str, session) -> list[dict] | None
     return out
 
 
+# 2026-08-27 (prierez cez CELE portfolio, nie len jeden ticker) - portfolio malo
+# 69% win rate pocas potvrdeneho silneho BTC rally (18.-21.8), ale len 26%
+# (OBOMA smermi rovnako zle) pocas nasledujuceho plocheho/range-bound obdobia
+# (22.-27.8) - _get_recent_closed_trades_context vyssie ukazuje KAZDEMU tickeru
+# LEN jeho vlastnu malu vzorku, takze ziaden jednotlivy cyklus nevidel fakt, ze
+# CELE portfolio naraz prehrava. 48h okno a min. 5 obchodov - kratsie/menej by
+# bolo prilis nahodny signal na to, aby stal za zmienku (rovnaky duch ako
+# "n je mala vzorka" upozornenia v retrospective.py).
+_PORTFOLIO_PERFORMANCE_LOOKBACK_HOURS = 48
+_PORTFOLIO_PERFORMANCE_MIN_TRADES = 5
+
+
+def _get_portfolio_recent_performance(session) -> dict | None:
+    """Cross-tickerova (NIE per-symbol) uspesnost za poslednych
+    _PORTFOLIO_PERFORMANCE_LOOKBACK_HOURS hodin, naprieč VSETKYMI symbolmi.
+    None ak je vzorka prilis mala na zmysluplny signal."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=_PORTFOLIO_PERFORMANCE_LOOKBACK_HOURS)
+    trades = (
+        session.query(Trade)
+        .filter(Trade.closed_at.isnot(None), Trade.closed_at >= cutoff, Trade.pnl_usd.isnot(None))
+        .all()
+    )
+    if len(trades) < _PORTFOLIO_PERFORMANCE_MIN_TRADES:
+        return None
+    wins = sum(1 for t in trades if t.pnl_usd >= 0)
+    return {
+        "n": len(trades),
+        "win_rate_pct": wins / len(trades) * 100,
+        "net_pnl_usd": sum(t.pnl_usd for t in trades),
+        "lookback_hours": _PORTFOLIO_PERFORMANCE_LOOKBACK_HOURS,
+    }
+
+
 def _get_retrospective_context(asset: dict, session) -> tuple[str | None, str | None, dict | None]:
     """Vrati (retrospective_reflection, new_stats_text, pending_stats) pre tento asset.
 
@@ -744,6 +777,12 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         recent_trades_context = None
 
     try:
+        portfolio_performance = _get_portfolio_recent_performance(session)
+    except Exception as e:
+        print(f"[{name}] Vypocet portfolio-wide vykonnosti zlyhal (pokracujem bez neho): {e}")
+        portfolio_performance = None
+
+    try:
         health, web_search_log, usage = claude_analyst.analyze_position_health(
             asset, open_position, ta, cross_market, market_session, social, btc_proxy,
             prev_assumptions, prev_cycle_time, retrospective_reflection,
@@ -751,6 +790,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
             new_stats_text=new_stats_text,
             coinmarketcal_events=coinmarketcal_events,
             recent_trades_context=recent_trades_context,
+            portfolio_performance=portfolio_performance,
         )
     except Exception as e:
         print(f"[{name}] Position health check zlyhal: {e}")
@@ -1030,6 +1070,12 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             print(f"[{name}] Vypocet nedavnej obchodnej historie zlyhal (pokracujem bez nej): {e}")
             recent_trades_context = None
 
+        try:
+            portfolio_performance = _get_portfolio_recent_performance(session)
+        except Exception as e:
+            print(f"[{name}] Vypocet portfolio-wide vykonnosti zlyhal (pokracujem bez neho): {e}")
+            portfolio_performance = None
+
         # 2026-08-22 produkcny nalez (ADA data_issue false-alarm): predtym sa
         # toto pocitalo VZDY, bez ohladu na to, ci JE TENTO beh watch-triggered -
         # ak PREDOSLY cyklus bol watch-triggered, ale TENTO je len bezny
@@ -1102,6 +1148,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 watch_retrigger_streak=watch_retrigger_streak,
                 watch_set_context=watch_set_context,
                 recent_trades_context=recent_trades_context,
+                portfolio_performance=portfolio_performance,
             )
         except Exception as e:
             print(f"[{name}] Claude analyza zlyhala, preskakujem cyklus: {e}")

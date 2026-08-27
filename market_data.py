@@ -84,6 +84,8 @@ def compute_indicators(df: pd.DataFrame, include_volume: bool = False) -> dict:
     bb = ta.bbands(df["close"], length=20)
     df = df.join(bb)
     df["atr14"] = ta.atr(df["high"], df["low"], df["close"], length=14)
+    adx = ta.adx(df["high"], df["low"], df["close"], length=14)
+    df = df.join(adx)
 
     last = df.iloc[-1]
     prev_24h = df.iloc[-24] if len(df) > 24 else df.iloc[0]
@@ -94,6 +96,7 @@ def compute_indicators(df: pd.DataFrame, include_volume: bool = False) -> dict:
     macds_col = [c for c in df.columns if c.startswith("MACDs_")][0]
     bbl_col = [c for c in df.columns if c.startswith("BBL_")][0]
     bbu_col = [c for c in df.columns if c.startswith("BBU_")][0]
+    adx_col = [c for c in df.columns if c.startswith("ADX_")][0]
 
     # 2026-08-26 produkcny nalez (prierez cez vsetky tickery za 4 dni strat) -
     # v drvivej vacsine stratovych vstupov Claude sam v reasoningu spomenul
@@ -128,6 +131,16 @@ def compute_indicators(df: pd.DataFrame, include_volume: bool = False) -> dict:
         "bollinger_upper": round(float(last[bbu_col]), 6) if pd.notna(last[bbu_col]) else None,
         "atr14": round(float(last["atr14"]), 6) if pd.notna(last["atr14"]) else None,
         "trend": _trend_label(last),
+        # 2026-08-27 (prierez cez cele portfolio, nie len jeden ticker) - jasny
+        # zlom v uspesnosti presne v momente, ked sa trh prestal trendovat: 69%
+        # win rate pocas potvrdeneho +21% BTC rally (18.-21.8), 26% win rate
+        # (OBOMA smermi rovnako zle) pocas nasledujuceho plocheho/range-bound
+        # obdobia (22.-27.8). _trend_label vyssie je CISTO STRUKTURALNY (poradie
+        # EMA) - nerozliси "trend" od "range, len nahodou nad/pod EMA200".
+        # ADX (Wilder, standardna konvencia) je nezavisly, mechanicky fakt o SILE
+        # trendu bez ohladu na smer - dopĺňa _trend_label, nenahradza ho.
+        "adx14": round(float(last[adx_col]), 1) if pd.notna(last[adx_col]) else None,
+        "trend_strength": _trend_strength_label(last[adx_col] if pd.notna(last[adx_col]) else None),
         "last_candle_volume_vs_avg20_ratio": last_candle_volume_ratio,
         "recent_candles_note": (
             f"posledných {RECENT_CANDLES_BARS} hodinových sviečok "
@@ -176,6 +189,24 @@ def _recent_candles(df: pd.DataFrame, bars: int, include_volume: bool = False) -
 # od EMA struktury, ktora len este "dobieha" po skorsom prudkom pohybe (2026-08-16,
 # viz nizsie).
 _NEUTRAL_RSI_LOW, _NEUTRAL_RSI_HIGH = 40, 60
+
+
+def _trend_strength_label(adx: float | None) -> str | None:
+    """Standardna Wilderova konvencia pre ADX (0-100, smer-nezavisly) - <20 =
+    trh nema spolahlivy trend (typicky range/konsolidacia, aj ked _trend_label
+    vyssie moze ukazovat mild_up/downtrend len z toho, ze cena je nahodou nad/
+    pod EMA200), 20-25 = rozvijajuci sa trend, >=25 = potvrdeny trend. Pridane
+    2026-08-27 po zisteni, ze portfolio-wide win rate spadol z 69% (silny BTC
+    rally) na 26% (nasledujuce ploche obdobie) - bot nemal ziadny mechanicky
+    fakt na odlisenie tychto dvoch rezimov, len smerovy _trend_label, ktory je
+    v oboch rovnaky."""
+    if adx is None:
+        return None
+    if adx < 20:
+        return "weak_no_trend"
+    if adx < 25:
+        return "developing"
+    return "trending"
 
 
 def _trend_label(last_row) -> str:
