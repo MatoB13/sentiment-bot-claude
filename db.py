@@ -90,6 +90,16 @@ class Trade(Base):
     # tu chceme, aby cooldown prezil aj restart workera pocas drzania pozicie.
     last_health_escalation_at = Column(DateTime, nullable=True)
 
+    # 2026-08-27 (na ziadost pouzivatela, po ADA #90 incidente) - unrealized_pnl_pct
+    # V CASE poslednej eskalacie vyssie. Cooldown zabranuje OPAKOVANEJ eskalacii
+    # na ten isty, uz raz posudeny signal - ale pri #90 pozicia MEDZI eskalaciami
+    # dalej stratila hodnotu (2h bez Claude pohladu, kym cooldown nevyprsal) a
+    # strata bola vacsia, nez musela byt. Ak sa P&L od tohto ulozeneho bodu
+    # zhorsi o dalsich config.HEALTH_CHECK_COOLDOWN_BYPASS_WORSENING_FRACTION
+    # podielu SL vzdialenosti, cooldown sa obide (viz trade_cycle.
+    # _run_position_health_check) - novy, HORSI fakt, nie opakovanie stareho.
+    last_health_escalation_pnl_pct = Column(Float, nullable=True)
+
 
 class CycleLog(Base):
     """Zaznam KAZDEHO analytickeho cyklu - aj tych, kde sa neotvorila pozicia

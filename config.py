@@ -191,6 +191,15 @@ HEALTH_CHECK_LOSS_TRIGGER_FRACTION = _float("HEALTH_CHECK_LOSS_TRIGGER_FRACTION"
 # _run_position_health_check. NEOVPLYVNUJE skutocnu ochranu (SL/TP na burze
 # bezi nezavisle), len frekvenciu placenych Claude "opinion" volani.
 HEALTH_CHECK_ESCALATION_COOLDOWN_HOURS = _float("HEALTH_CHECK_ESCALATION_COOLDOWN_HOURS", 3)
+# 2026-08-27 (na ziadost pouzivatela, po ADA #90 incidente - cooldown vyssie
+# umlcal dve po sebe iduce mechanicke kontroly, kym pozicia dalej stracala
+# hodnotu, cim bola realna strata vacsia nez musela byt) - VYNIMKA z cooldownu:
+# ak sa unrealized_pnl_pct od POSLEDNEJ plnej eskalacie zhorsil o dalsich
+# tolkoto podielu SL vzdialenosti asetu, cooldown sa OBIDE (viz trade_cycle.
+# _run_position_health_check) - toto uz nie je opakovanie stareho signalu, ale
+# NOVY, HORSI fakt, ktory si zasluzi vlastny Claude pohlad aj pocas cooldownu.
+HEALTH_CHECK_COOLDOWN_BYPASS_WORSENING_FRACTION = _float(
+    "HEALTH_CHECK_COOLDOWN_BYPASS_WORSENING_FRACTION", 0.3)
 # 2026-08-21 (na ziadost pouzivatela, po NAS100 SL incidente - Claude odporucil
 # consider_closing s close_confidence=50 hodinu pred SL, nikdy sa nezasiahlo) -
 # ked position health check vrati recommendation="consider_closing" A

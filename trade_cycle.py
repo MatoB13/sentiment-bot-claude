@@ -620,6 +620,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
     escalation_reason = _mechanical_health_escalation(asset, ta, open_position)
 
     cooldown_active = False
+    cooldown_bypassed_reason = None
     if escalation_reason is not None and open_trade.last_health_escalation_at is not None:
         last_esc = open_trade.last_health_escalation_at
         if last_esc.tzinfo is None:
@@ -627,7 +628,28 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         hours_since = (datetime.now(timezone.utc) - last_esc).total_seconds() / 3600
         cooldown_active = hours_since < config.HEALTH_CHECK_ESCALATION_COOLDOWN_HOURS
 
+        # 2026-08-27 (ADA #90 incident) - cooldown existuje na potlacenie
+        # OPAKOVANIA toho isteho, uz posudeneho signalu, nie na umlcanie pozicie
+        # kym dalej REALNE straca hodnotu. Ak sa P&L od poslednej eskalacie
+        # zhorsil o dost (podiel SL vzdialenosti), toto uz je NOVY fakt -
+        # cooldown sa obide bez ohladu na to, kolko z neho este zostava.
+        if cooldown_active and open_trade.last_health_escalation_pnl_pct is not None:
+            worsening_pct = open_trade.last_health_escalation_pnl_pct - pnl_pct
+            bypass_threshold = asset["sl_pct"] * config.HEALTH_CHECK_COOLDOWN_BYPASS_WORSENING_FRACTION
+            if worsening_pct >= bypass_threshold:
+                cooldown_active = False
+                cooldown_bypassed_reason = (
+                    f"P&L sa od poslednej eskalacie zhorsil o dalsich {worsening_pct:.2f}% "
+                    f"(>= {bypass_threshold:.2f}% = {config.HEALTH_CHECK_COOLDOWN_BYPASS_WORSENING_FRACTION * 100:.0f}% "
+                    f"SL vzdialenosti {asset['sl_pct']}%)"
+                )
+
     real_escalation = escalation_reason is not None and not cooldown_active
+    if cooldown_bypassed_reason:
+        # Claude by inak nemal ako vediet, ze tento cyklus je mimoriadny
+        # dovolany-cez-cooldown re-check (nie bezna hodinova kontrola) - viz
+        # claude_analyst.py position_block rendering nizsie.
+        open_position["cooldown_bypass_reason"] = cooldown_bypassed_reason
 
     try:
         # 2026-08-17: "vcerajsok este nespracovany" (new_stats_text) je TERAZ
@@ -670,8 +692,13 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         return
 
     if real_escalation:
-        print(f"[{name}] Mechanicka kontrola eskaluje na plny Claude cyklus: {escalation_reason}")
+        if cooldown_bypassed_reason:
+            print(f"[{name}] Cooldown OBIDENY ({cooldown_bypassed_reason}) - eskalujem na plny "
+                  f"Claude cyklus: {escalation_reason}")
+        else:
+            print(f"[{name}] Mechanicka kontrola eskaluje na plny Claude cyklus: {escalation_reason}")
         open_trade.last_health_escalation_at = datetime.now(timezone.utc)
+        open_trade.last_health_escalation_pnl_pct = pnl_pct
         session.add(open_trade)
         session.commit()
     else:

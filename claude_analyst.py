@@ -1542,12 +1542,24 @@ vyhodnotením.
                 f"Najpriaznivejšia cena od otvorenia: {best} (dosiahnutá pred "
                 f"{op['best_price_hours_ago']:.1f}h) - {pullback_note}.\n"
             )
+        # 2026-08-27 (ADA #90 incident) - ak tento cyklus vznikol tak, ze
+        # mechanicky cooldown medzi eskaláciami bol OBIDENÝ kvôli ďalšiemu
+        # zhoršeniu P&L (viz trade_cycle._run_position_health_check), Claude by
+        # inak nemal ako vedieť, že ide o mimoriadny re-check pri zhoršujúcej sa
+        # strate, nie bežnú hodinovú kontrolu - explicitný fakt namiesto ticha.
+        cooldown_bypass_line = ""
+        if op.get("cooldown_bypass_reason"):
+            cooldown_bypass_line = (
+                f"POZOR - mimoriadny re-check: {op['cooldown_bypass_reason']}. Pozícia sa medzi "
+                "poslednou a touto kontrolou ďalej zhoršila, preto sa bežný cooldown medzi "
+                "eskaláciami obišiel.\n"
+            )
         position_block = f"""## OTVORENÁ POZÍCIA (toto NIE JE rozhodnutie o novom obchode - hodnotíš EXISTUJÚCU pozíciu)
 Smer: {direction_label} | Vstup: {op['entry_price']} | Aktuálna cena: {op['live_price']}
 Stop-loss: {op['stop_loss_price']} | Take-profit: {op['take_profit_price']} | Leverage: {op['leverage']}x
 Otvorená: {op['opened_at_str']} ({op['hours_held']:.1f}h dozadu)
 Nerealizované PnL: {sign}${op['unrealized_pnl_usd']:.2f} ({sign}{op['unrealized_pnl_pct']:.2f}% z marže)
-{best_price_line}
+{best_price_line}{cooldown_bypass_line}
 Zhodnoť, či pôvodné kľúčové predpoklady (vyššie) stále platia, alebo sa niečo podstatné zmenilo -
 over si to cez web_search rovnako ako pri bežnom cykle (dotaz cielený na konkrétnu tému z
 predpokladov, nie len na cenu nástroja). Na základe toho posúď, či očakávaš, že sa cena bude naďalej
