@@ -51,6 +51,7 @@ GOOGL_EFFORT = os.getenv("GOOGL_EFFORT", "")
 UNITREE_EFFORT = os.getenv("UNITREE_EFFORT", "")
 NEAR_EFFORT = os.getenv("NEAR_EFFORT", "")
 AAPL_EFFORT = os.getenv("AAPL_EFFORT", "")
+ZHIPU_EFFORT = os.getenv("ZHIPU_EFFORT", "")
 
 # Strike
 STRIKE_API_PRIVATE_KEY = os.getenv("STRIKE_API_PRIVATE_KEY", "")
@@ -376,6 +377,13 @@ ENABLE_UNITREE = _bool("ENABLE_UNITREE", "true")
 # overene realne data (yfinance NEAR-USD + Binance NEARUSDT), viz NEAR sekcia
 # nizsie pre plne zdovodnenie SL/TP.
 ENABLE_NEAR = _bool("ENABLE_NEAR", "true")
+# ZHIPU pridany 2026-08-29 (na ziadost pouzivatela - Strike pridal ZHIPU-USD/
+# BNB-USD) - rovnaky "len zbiera historiu" vzor ako AAOI/MINIMAX/UNITREE pri
+# ich pridani (ZIADNA cenova historia, korelaciu ani SL/TP kalibraciu zatial
+# nemozno spocitat - viz ZHIPU sekcia nizsie). BNB sa NEPRIDAVA ako ticker (na
+# rozdiel od ZHIPU) - otestovana korelacia cez CoinGecko ukazala silnu zhodu s
+# uz aktivnym krypto kosom (ADA/NEAR/ZEC/BTC 0.5-0.7), zbytocna redundancia.
+ENABLE_ZHIPU = _bool("ENABLE_ZHIPU", "false")
 
 # Presny symbol/asset identifikator zisti cez strike_client.get_markets() - toto
 # su len predpoklady podla existujuceho NAS100-USD pomenovacieho vzoru, okrem
@@ -616,6 +624,37 @@ MINIMAX_TP_PCT = _float("MINIMAX_TP_PCT", 4.8)
 MINIMAX_TRADE_INTERVAL_HOURS = _float("MINIMAX_TRADE_INTERVAL_HOURS", TRADE_INTERVAL_HOURS)
 MINIMAX_OFF_HOURS_INTERVAL_HOURS = _float("MINIMAX_OFF_HOURS_INTERVAL_HOURS", OFF_HOURS_INTERVAL_HOURS)
 MINIMAX_WEEKEND_INTERVAL_HOURS = _float("MINIMAX_WEEKEND_INTERVAL_HOURS", WEEKEND_INTERVAL_HOURS)
+
+# ============================== ZHIPU (NEAKTIVNE - zbiera historiu) ==============================
+# Pridany 2026-08-29 na ziadost pouzivatela (Zhipu AI/Z.ai - sukromna cinska AI
+# firma, tvorca GLM/ChatGLM modelov, jedna z "AI Tiger" startupov spolu s
+# MiniMax/DeepSeek/Moonshot AI) - Strike pridal ZHIPU-USD ten isty den ako
+# BNB-USD. Rovnaka kategoria ako MINIMAX (synteticky Strike tracker sukromnej
+# firmy, ZIADNY realny burzovy trh/orderbook) - ENABLE_ZHIPU default FALSE,
+# LEN zbiera historiu cez vlastny 1-min Strike poller (price_poller.py
+# ALL_ASSETS), kym nenazbiera MIN_OWN_BARS (210) na TA aj ATR-based SL/TP
+# kalibraciu (rovnaky postup ako pri UNITREE 2026-08-29 - viz ta sekcia).
+# Overene naozivo (2026-08-29): ziadny CoinGecko coin ("zhipu" search prazdny
+# vysledok) ani yfinance ticker - Zhipu AI nie je verejne obchodovana, presne
+# ako MiniMax Group, takze korelaciu s ostatnymi tickermi zatial NEMOZNO
+# spocitat (na rozdiel od BNB, ktore sa NEPRIDALO - jeho korelacia sa DALA
+# spocitat cez CoinGecko a ukazala silnu zhodu s existujucim krypto kosom).
+STRIKE_ZHIPU_SYMBOL = os.getenv("STRIKE_ZHIPU_SYMBOL", "ZHIPU-USD")
+ZHIPU_MIN_CONFIDENCE = _int("ZHIPU_MIN_CONFIDENCE", MIN_CONFIDENCE)
+ZHIPU_MARGIN_USD = _float("ZHIPU_MARGIN_USD", 50)
+ZHIPU_LEVERAGE = _int("ZHIPU_LEVERAGE", 10)
+ZHIPU_LIQUIDATION_CUSHION_MULTIPLE = _float("ZHIPU_LIQUIDATION_CUSHION_MULTIPLE", LIQUIDATION_CUSHION_MULTIPLE)
+# Najsirsi konzervativny odhad (6.0/9.0, rovnako ako NIGHT/povodny MINIMAX pri
+# ich pridani) kvoli uplnej absencii cenovej historie - NIE empiricky
+# backtestovane. PREHODNOTIT cez realny ATR14 z vlastnych PriceBar dat
+# (rovnaky postup ako MINIMAX 2026-08-19 aj UNITREE 2026-08-29), akonahle
+# ma dost vlastnej historie na aktivaciu - viz [[feedback_new_ticker_sl_tp_derivation]]
+# politika.
+ZHIPU_SL_PCT = _float("ZHIPU_SL_PCT", 6.0)
+ZHIPU_TP_PCT = _float("ZHIPU_TP_PCT", 9.0)
+ZHIPU_TRADE_INTERVAL_HOURS = _float("ZHIPU_TRADE_INTERVAL_HOURS", TRADE_INTERVAL_HOURS)
+ZHIPU_OFF_HOURS_INTERVAL_HOURS = _float("ZHIPU_OFF_HOURS_INTERVAL_HOURS", OFF_HOURS_INTERVAL_HOURS)
+ZHIPU_WEEKEND_INTERVAL_HOURS = _float("ZHIPU_WEEKEND_INTERVAL_HOURS", WEEKEND_INTERVAL_HOURS)
 
 # ============================== ZEC ==============================
 # Pridany 2026-08-15 na ziadost pouzivatela - Zcash (krypto, opt-in "shielded"

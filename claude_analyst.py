@@ -656,6 +656,38 @@ _MINIMAX_MACRO_RULES = """- **KRITICKÉ UPOZORNENIE - toto NIE JE bežne obchodo
   obchodnej politike (clá, exportné obmedzenia, investičné reštrikcie) vedia bez varovania pohnúť
   sentimentom - over cez web_search nedávne výroky s dopadom na čínsky AI/tech sektor."""
 
+_ZHIPU_MACRO_RULES = """- **KRITICKÉ UPOZORNENIE - toto NIE JE bežne obchodovaná akcia**: Zhipu AI (Z.ai) je SÚKROMNÁ
+  (neverejne obchodovaná) čínska AI firma - "cena" {instrument} na Strike je syntetický tracker bez
+  reálneho akciového trhu/orderbooku za sebou (rovnaká kategória ako MINIMAX). Cenový pohyb je
+  pravdepodobne oveľa viac sentiment/špekulácia-driven a menej naviazaný na overiteľné fundamenty než
+  pri bežne obchodovaných akciách - zváž túto štrukturálnu neistotu pri confidence (nižšia než by
+  rovnaký signál dostal na likvidnejšom tickeri).
+- **Financovanie/ocenenie/IPO príprava**: Zhipu AI (predtým Zhipu Huazhang, tvorca GLM/ChatGLM
+  modelov) je jedna zo štyroch čínskych "AI Tiger" startupov - správy o nových investičných kolách,
+  zmenách ocenenia pri privátnych transakciách, alebo príprave na IPO (STAR Market/Hong Kong) sú
+  kľúčové katalyzátory - pre súkromnú firmu ekvivalent "earnings" u verejne obchodovanej.
+- **Konkurenčná čínska/globálna AI krajina**: porovnaj s inými čínskymi AI labmi (DeepSeek, MiniMax,
+  Moonshot AI/Kimi, Baichuan, 01.AI) aj globálnymi (OpenAI, Anthropic, Google DeepMind) - nové GLM
+  modelové vydania FIRMOU SAMOTNOU aj prelomové modely/produkty konkurencie môžu ovplyvniť vnímané
+  postavenie {instrument} aj bez priamej firemnej správy.
+- **Čínska regulácia AI sektora a US-Čína technologické obmedzenia**: vysoká citlivosť, podobne ako
+  SKHYNIX/polovodiče, ale s dodatočným rizikom priamych sankcií/blacklistingu (Entity List a pod.) -
+  toto je systémové riziko špecifické pre čínske AI firmy (rovnaké ako pri MINIMAX).
+- **Slabšia trhová hĺbka → vyššia korelácia so širším risk-on/off sentimentom**: keďže ide o
+  syntetický tracker na krypto-natívnej derivátovej platforme (nie skutočný akciový trh), cena môže
+  reagovať viac na všeobecnú náladu (BTC/krypto risk-on-off, VIX režim) než na fundamenty firmy - ber
+  to ako dodatočný kontextový signál, podobne ako pri kryptu.
+- **Market Reaction Score**: rovnako dôležité ako inde, možno ešte viac vzhľadom na tenší trh -
+  porovnaj obsah správy s reálnou cenovou reakciou {instrument}.
+- **Event Risk Gate**: akákoľvek správa o financovaní/ocenení, väčšom produktovom/modelovom launchi,
+  čínskej AI regulácii, alebo geopolitickej eskalácii US-Čína AI/čip politiky - buď výrazne
+  konzervatívnejší (nízka confidence alebo "none"), keďže potvrdenie/vyvrátenie takýchto správ je pri
+  súkromnej firme ťažšie overiteľné než pri verejne obchodovanej.
+- **Nepredvídateľné politické výroky (Trump/Truth Social)**: vyjadrenia k čínskej technologickej/
+  obchodnej politike (clá, exportné obmedzenia, investičné reštrikcie) vedia bez varovania pohnúť
+  sentimentom - over cez web_search nedávne výroky s dopadom na čínsky AI/tech sektor."""
+
+
 _ZEC_MACRO_RULES = """- **Regulacne/delisting riziko privacy coinov - najdolezitejsi ODLISUJUCI faktor oproti bezným
   altcoinom**: {instrument} (Zcash) umoznuje volitelne "shielded" (súkromné, zk-SNARK) transakcie -
   privacy coiny (ZEC, Monero/XMR, Dash) opakovane čelia AML/travel-rule tlaku a delistingom na
@@ -841,6 +873,18 @@ ASSET_TEXT = {
             'reálnej trhovej hĺbky)'
         ),
         "macro_rules": _MINIMAX_MACRO_RULES,
+    },
+    "ZHIPU": {
+        "label": "syntetický Strike tracker Zhipu AI/Z.ai (súkromná čínska AI firma, NIE verejne obchodovaná akcia)",
+        "news_focus": (
+            'správach o Zhipu AI/Z.ai (financovanie/funding rounds, ocenenie/valuation, GLM/ChatGLM '
+            'modelové vydania, prípadné IPO/verejný listing), konkurenčnej čínskej AI krajine (DeepSeek, '
+            'MiniMax, Moonshot AI/Kimi, Baichuan, 01.AI) aj globálnej (OpenAI, Anthropic, Google '
+            'DeepMind), čínskej regulácii AI sektora a US-Čína technologických obmedzeniach/sankciách, '
+            'a širšom krypto/risk-on-off naratíve (kedže ide o tracker na krypto-natívnej platforme bez '
+            'reálnej trhovej hĺbky)'
+        ),
+        "macro_rules": _ZHIPU_MACRO_RULES,
     },
     "ZEC": {
         "label": "krypto ZEC (Zcash, privacy coin s volitelnymi shielded transakciami) perpetuál",

@@ -411,6 +411,38 @@ MINIMAX = {
     "effort": config.MINIMAX_EFFORT,
 }
 
+ZHIPU = {
+    "name": "ZHIPU",
+    # Sukromna cinska AI firma (Zhipu AI/Z.ai) - synteticky Strike tracker,
+    # rovnaka kategoria ako MINIMAX (NIE realna verejne obchodovana akcia).
+    "asset_class": "private_equity_synthetic",
+    "strike_symbol": config.STRIKE_ZHIPU_SYMBOL,
+    # Ziadny verejny zdroj cenovych dat neexistuje (nie je na yfinance/Binance/
+    # CoinGecko - overene naozivo 2026-08-29, rovnako ako MINIMAX) - yf_symbol
+    # ostava len ako NEPOUZITY fallback. Historia sa DA ZBIERAT LEN cez vlastny
+    # 1-min Strike poller (price_poller.py ALL_ASSETS).
+    "yf_symbol": "ZHIPU",
+    "yf_fallback": None,
+    "sl_pct": config.ZHIPU_SL_PCT,
+    "tp_pct": config.ZHIPU_TP_PCT,
+    "leverage": config.ZHIPU_LEVERAGE,
+    "liquidation_cushion_multiple": config.ZHIPU_LIQUIDATION_CUSHION_MULTIPLE,
+    "margin_usd": config.ZHIPU_MARGIN_USD,
+    "min_confidence": config.ZHIPU_MIN_CONFIDENCE,
+    "enabled": config.ENABLE_ZHIPU,
+    "needs_btc_proxy": False,
+    "include_volume": False,
+    "trade_interval_hours": config.ZHIPU_TRADE_INTERVAL_HOURS,
+    "off_hours_interval_hours": config.ZHIPU_OFF_HOURS_INTERVAL_HOURS,
+    "weekend_interval_hours": config.ZHIPU_WEEKEND_INTERVAL_HOURS,
+    "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
+    "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
+    # Viacslovna fraza (rovnaky dovod ako MINIMAX/NIGHT) - "Zhipu" samo osebe
+    # by mohlo davat falosne zhody, "Zhipu AI" je jednoznacnejsie.
+    "marketaux_query": {"search": "Zhipu AI"},
+    "effort": config.ZHIPU_EFFORT,
+}
+
 ZEC = {
     "name": "ZEC",
     "asset_class": "crypto",
@@ -559,7 +591,7 @@ AAPL = {
     "effort": config.AAPL_EFFORT,
 }
 
-ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX, AAOI, MINIMAX, ZEC, GOOGL, UNITREE, NEAR, AAPL]
+ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX, AAOI, MINIMAX, ZEC, GOOGL, UNITREE, NEAR, AAPL, ZHIPU]
 
 
 def enabled_assets() -> list[dict]:
