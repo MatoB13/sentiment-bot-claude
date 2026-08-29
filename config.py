@@ -367,9 +367,10 @@ ENABLE_ZEC = _bool("ENABLE_ZEC", "true")
 # |korelacia| <= 0.5 voci vsetkym ostatnym tickerom v portfoliu) - rovnaky
 # "aktivny hned" vzor ako ZEC/WTI/NIGHT/HYPE/SKHYNIX.
 ENABLE_GOOGL = _bool("ENABLE_GOOGL", "true")
-# UNITREE pridany 2026-08-19, default FALSE - rovnaky "len zbiera historiu"
-# vzor ako AAOI/MINIMAX vyssie (viz UNITREE sekcia nizsie pre kontext).
-ENABLE_UNITREE = _bool("ENABLE_UNITREE", "false")
+# UNITREE pridany 2026-08-19, aktivovany 2026-08-29 (na ziadost pouzivatela,
+# po nazbierani dost vlastnych barov - viz UNITREE sekcia nizsie pre plne
+# zdovodnenie vratane prepocitaneho SL/TP z realnych dat).
+ENABLE_UNITREE = _bool("ENABLE_UNITREE", "true")
 # NEAR pridany 2026-08-21 na ziadost pouzivatela - rovnaky "aktivny hned" vzor
 # ako ZEC/GOOGL (NIE "len zbiera historiu" ako AAOI/MINIMAX/UNITREE) - ma uz
 # overene realne data (yfinance NEAR-USD + Binance NEARUSDT), viz NEAR sekcia
@@ -689,17 +690,15 @@ GOOGL_TRADE_INTERVAL_HOURS = _float("GOOGL_TRADE_INTERVAL_HOURS", TRADE_INTERVAL
 GOOGL_OFF_HOURS_INTERVAL_HOURS = _float("GOOGL_OFF_HOURS_INTERVAL_HOURS", OFF_HOURS_INTERVAL_HOURS)
 GOOGL_WEEKEND_INTERVAL_HOURS = _float("GOOGL_WEEKEND_INTERVAL_HOURS", WEEKEND_INTERVAL_HOURS)
 
-# ============================== UNITREE (NEAKTIVNE - zbiera historiu) ==============================
+# ============================== UNITREE (AKTIVNY od 2026-08-29) ==============================
 # Pridany 2026-08-19 na ziadost pouzivatela (Unitree Robotics - cinsky vyrobca
 # humanoidnych/quadruped robotov) - IPO na sanghajskom STAR Markete PRESNE
 # v den pridania (2026-08-19), akcia +460 az +542% v prvy den (viz CNBC).
-# ENABLE_UNITREE default FALSE (rovnaky "len zbiera historiu" vzor ako AAOI/
-# MINIMAX vyssie) - kedze IPO bolo doslova dnes, nemame ZIADNU cenovu historiu,
-# takze aj korelacia s ostatnymi tickermi (predpoklad pre "aktivny hned" vzor
-# ako GOOGL) je zatial nemoznenie vypocitat. Ked pribudne dost dat (min.
-# CORR_MIN_OVERLAP prekryvajucich sa hodinovych barov voci VSETKYM aktivnym
-# tickerom, viz index.html readinessBannerHtml), dashboard sam nahlasi v
-# "Historia signalov" danho tickera, ze je pripraveny na rozhodnutie.
+# 2026-08-29: AKTIVOVANY (na ziadost pouzivatela) - 233 vlastnych hodinovych
+# barov (> MIN_OWN_BARS=210), teda dost na plnohodnotne TA aj SL/TP kalibraciu
+# (viz UNITREE_SL_PCT/TP_PCT nizsie). Predtym FALSE (rovnaky "len zbiera
+# historiu" vzor ako AAOI/MINIMAX) - IPO bolo v den pridania (19.8.), takze
+# nebola ziadna cenova historia na kalibraciu ani korelaciu.
 # STRIKE symbol overeny naozivo (2026-08-19, get_markets() vratil 'UNITREE-USD',
 # status 'trading', mark_price ~119) - NA ROZDIEL od MINIMAX (sukromna firma
 # bez trhu) je toto SKUTOCNY synteticky tracker realnej verejne obchodovanej
@@ -714,12 +713,21 @@ UNITREE_MIN_CONFIDENCE = _int("UNITREE_MIN_CONFIDENCE", MIN_CONFIDENCE)
 UNITREE_MARGIN_USD = _float("UNITREE_MARGIN_USD", 50)
 UNITREE_LEVERAGE = _int("UNITREE_LEVERAGE", 10)
 UNITREE_LIQUIDATION_CUSHION_MULTIPLE = _float("UNITREE_LIQUIDATION_CUSHION_MULTIPLE", LIQUIDATION_CUSHION_MULTIPLE)
-# Rovnaka sirka ako MINIMAX/NIGHT pri ich zavedeni - genuinne nezname riziko
-# BEZ ziadnej cenovej historie, navyse zdokumentovana extremna IPO-den
-# volatilita (+460/542% v prvy den) potvrdzuje, ze konzervativnejsi odhad nez
-# napr. AAOI/GOOGL je tu opodstatneny. NIE empiricky backtestovane.
-UNITREE_SL_PCT = _float("UNITREE_SL_PCT", 6.0)
-UNITREE_TP_PCT = _float("UNITREE_TP_PCT", 9.0)
+# 2026-08-29 PREPOCITANE z realnych dat (233 vlastnych hodinovych barov) -
+# povodnych 6.0%/9.0% bol len konzervativny ODHAD BEZ ziadnej cenovej historie
+# (viz nizsie), zavedeny v den IPO. Realny hodinovy ATR14 sa za 9 dni USADIL
+# z ~2.3% (den po IPO) na ~0.4-0.9% v poslednych dnoch (standardna new-listing
+# volatility decay krivka) - povodny 6.0% odhad bol teda cca 3x sirsi, nez
+# realne data ukazuju. Pouzity rovnaky pomer SL/ATR (~2.34x) ako pri
+# GOOGL/NVDA kalibracii, na priemernom ATR% za poslednych 72h (0.86%, robustnejsie
+# nez posledna sviecka samotna): 0.86 * 2.34 = 2.01% -> zaokruhlene na 2.0%/3.0%
+# (standardny 1.5x SL/TP pomer, viz [[feedback_new_ticker_sl_tp_derivation]]
+# politika - z REALNYCH dat, nie kopirovane od podobneho tickera).
+# Povodny komentar pre kontext: sirka 6.0/9.0 kopirovala MINIMAX/NIGHT vzor
+# ("genuinne nezname riziko bez historie" + zdokumentovana extremna IPO-den
+# volatilita +460/542% v prvy den) - opodstatnene VTEDY, uz nie teraz.
+UNITREE_SL_PCT = _float("UNITREE_SL_PCT", 2.0)
+UNITREE_TP_PCT = _float("UNITREE_TP_PCT", 3.0)
 UNITREE_TRADE_INTERVAL_HOURS = _float("UNITREE_TRADE_INTERVAL_HOURS", TRADE_INTERVAL_HOURS)
 UNITREE_OFF_HOURS_INTERVAL_HOURS = _float("UNITREE_OFF_HOURS_INTERVAL_HOURS", OFF_HOURS_INTERVAL_HOURS)
 UNITREE_WEEKEND_INTERVAL_HOURS = _float("UNITREE_WEEKEND_INTERVAL_HOURS", WEEKEND_INTERVAL_HOURS)
