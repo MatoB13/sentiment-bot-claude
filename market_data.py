@@ -242,6 +242,63 @@ def _trend_label(last_row) -> str:
     return "mild_downtrend"
 
 
+# 2026-08-29 (na ziadost pouzivatela, po zisteni ze VSETKY indikatory pouzivaju
+# LEN hodinove sviecky - bot nemal ziaden sposob odlisit "hodinovy range v
+# ramci silneho DENNEHO trendu" od "hodinovy range v ramci DENNEHO range").
+# Odlisne od hodinoveho _trend_label vyssie: pouziva EMA20/50 (nie 20/50/200),
+# kedze vlastne price_bars maju typicky len 30 (4h) az 60 (denny fetch) dni
+# historie - EMA200 na dennom timeframe by potrebovala takmer rok dat, ktore
+# nemame. RSI/ADX(14) staci len ~14-28 barov, tie su vzdy dostupne ked je
+# vobec dost barov na resample.
+_HTF_MIN_BARS = {"4h": 40, "1D": 20}
+# Denny resample potrebuje viac surovej historie nez bezny 30-dnovy
+# get_price_history lookback (30 hodinovych dni = len 30 dennych barov, tesne
+# nad _HTF_MIN_BARS['1D']=20 prah aj bez priestoru na EMA stabilizaciu) -
+# samostatny dlhsi fetch LEN pre tento ucel (viz get_market_snapshot).
+_HTF_DAILY_LOOKBACK_DAYS = 60
+
+
+def _resample_higher_timeframe(df: pd.DataFrame, rule: str) -> dict | None:
+    """Resample-uje uz nacitany hodinovy OHLC df na vyssi timeframe (rule='4h'
+    alebo '1D') a vrati lahky strukturalny+momentum kontext, alebo None ak nie
+    je dost resample-ovanych barov (novy ticker/nedost historie - rovnaky
+    "insufficient_data" duch ako hodinovy _trend_label, len ako None namiesto
+    stringu, kedze cely blok sa jednoducho vynecha z promptu)."""
+    if df.empty:
+        return None
+    agg = df.resample(rule).agg({"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
+    min_bars = _HTF_MIN_BARS[rule]
+    if len(agg) < min_bars:
+        return None
+
+    agg["rsi14"] = ta.rsi(agg["close"], length=14)
+    agg["ema_fast"] = ta.ema(agg["close"], length=10 if rule == "1D" else 20)
+    agg["ema_slow"] = ta.ema(agg["close"], length=20 if rule == "1D" else 50)
+    adx = ta.adx(agg["high"], agg["low"], agg["close"], length=14)
+    agg = agg.join(adx)
+    adx_col = [c for c in agg.columns if c.startswith("ADX_")][0]
+
+    last = agg.iloc[-1]
+    if pd.isna(last["ema_slow"]):
+        return None  # este nema dost barov na stabilizaciu pomalsieho EMA
+
+    price = last["close"]
+    if price > last["ema_fast"] > last["ema_slow"]:
+        trend = "uptrend"
+    elif price < last["ema_fast"] < last["ema_slow"]:
+        trend = "downtrend"
+    else:
+        trend = "mixed"
+
+    return {
+        "n_bars": len(agg),
+        "trend": trend,
+        "rsi14": round(float(last["rsi14"]), 1) if pd.notna(last["rsi14"]) else None,
+        "adx14": round(float(last[adx_col]), 1) if pd.notna(last[adx_col]) else None,
+        "trend_strength": _trend_strength_label(last[adx_col] if pd.notna(last[adx_col]) else None),
+    }
+
+
 def _load_own_bars(symbol: str, session, lookback_days: int = 30) -> pd.DataFrame:
     cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=lookback_days)
     bars = (
@@ -395,6 +452,28 @@ def get_market_snapshot(asset: dict, session) -> dict:
     funding = get_funding_snapshot(asset["strike_symbol"], session)
     if funding is not None:
         snapshot["funding"] = funding
+
+    # 4h: znovupouzije uz nacitany df (rovnaky 30-dnovy vlastny lookback ako
+    # hodinove indikatory) - ziadny extra DB dotaz. Denny: potrebuje viac
+    # historie nez bezny 30-dnovy lookback (viz _resample_higher_timeframe),
+    # preto samostatny fetch s dlhsim oknom - LEN ak vlastne data vobec
+    # existuju (novy ticker bez historie by aj tak vratil prazdny DataFrame).
+    try:
+        htf_4h = _resample_higher_timeframe(df, "4h")
+        if htf_4h is not None:
+            snapshot["h4_context"] = htf_4h
+    except Exception as e:
+        print(f"[market_data] 4h vyssi-timeframe kontext zlyhal (pokracujem bez neho): {e}")
+
+    try:
+        symbol = asset["strike_symbol"]
+        daily_df = _load_own_bars(symbol, session, lookback_days=_HTF_DAILY_LOOKBACK_DAYS)
+        htf_daily = _resample_higher_timeframe(daily_df, "1D")
+        if htf_daily is not None:
+            snapshot["daily_context"] = htf_daily
+    except Exception as e:
+        print(f"[market_data] Denny vyssi-timeframe kontext zlyhal (pokracujem bez neho): {e}")
+
     return snapshot
 
 

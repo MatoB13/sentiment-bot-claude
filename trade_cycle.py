@@ -5,6 +5,7 @@ makro fetch (cross-market/session, pripadne BTC proxy) sa spravi PRESNE RAZ a
 potom sa pouzije pre kazdy aktivny asset z assets.py nezavisle - kazdy ma
 vlastnu poziciu, vlastny risk (SL/TP%, leverage, margin, min_confidence) a
 vlastne Claude rozhodnutie. Zlyhanie jedneho assetu nesmie zhodit ostatne."""
+import math
 import threading
 from datetime import datetime, timedelta, timezone
 
@@ -61,6 +62,25 @@ def _required_interval_hours(asset: dict, now: datetime) -> float:
     if start <= now.hour < end:
         return asset["trade_interval_hours"]
     return asset["off_hours_interval_hours"]
+
+
+def _add_spread_to_ta(ta: dict, market_meta: dict, live_price: float) -> None:
+    """2026-08-29 (na ziadost pouzivatela) - Strike get_market() uz vzdy vracia
+    bid1_price/ask1_price/bid1_size/ask1_size (viz market_meta), ale doteraz sa
+    to nikdy nedostalo do promptu pre Claude (videl len mark_price). Spread je
+    priamy signál likvidity/execution rizika - obzvlast dolezity pri tenkych
+    trhoch (MINIMAX/UNITREE/ZHIPU/SKHYNIX). Mutuje `ta` na mieste (rovnaky vzor
+    ako ostatne doplnkove polia - jednoducho pridane kluce, ktore sa potom
+    cele zoberu do json.dumps(ta) v prompte, ziadne dalsie prepojenie treba).
+    Ticho vynecha, ak market_meta chyba bid/ask (napr. uplne prazdny orderbook
+    na velmi tenkom syntetickom trackeri) - nie je to chyba cyklu."""
+    try:
+        bid = float(market_meta.get("bid1_price"))
+        ask = float(market_meta.get("ask1_price"))
+        if bid > 0 and ask > 0 and ask >= bid and live_price > 0:
+            ta["spread_pct"] = round((ask - bid) / live_price * 100, 4)
+    except (TypeError, ValueError):
+        pass
 
 
 def _check_ta_scale(ta: dict, live_price: float, name: str) -> None:
@@ -417,6 +437,84 @@ def _get_portfolio_recent_performance(session) -> dict | None:
     }
 
 
+# 2026-08-29 (na ziadost pouzivatela) - risk_manager.validate_and_size doteraz
+# bral do uvahy LEN, ci je uz otvorena pozicia na TOMTO ISTOM symbole
+# (has_open_position) - o ostatnych SUCASNE otvorenych poziciach (a ich
+# korelacii s TYMTO tickerom) Claude nevedel VOBEC NIC. Mohol tak nevedomky
+# pridavat silne korelovanu expoziciu (napr. dalsi krypto long popri uz
+# otvorenom ADA aj NEAR longu - tie mali v testoch 0.6-0.7 korelaciu). Toto je
+# INFORMACNY fakt (rovnaky "facts not verdicts" duch ako ostatne doplnky), nie
+# tvrdy blok - konecne rozhodnutie (znizit confidence/ist mensie/ist inym
+# smerom) necha na Claude, rovnako ako pri _VOLUME_NOTE.
+_PORTFOLIO_EXPOSURE_CORR_MIN_OVERLAP = 15
+_PORTFOLIO_EXPOSURE_LOOKBACK_DAYS = 30
+
+
+def _pearson_correlation(xs: list[float], ys: list[float]) -> float | None:
+    """Rovnaka metodika ako dashboard (nas100-monitor-web/index.html
+    pearsonCorrelation) - Pearson korelacia na dvoch rovnako dlhych zoznamoch,
+    None pri nulovom rozptyle (konstantny rad)."""
+    n = len(xs)
+    if n == 0:
+        return None
+    mx = sum(xs) / n
+    my = sum(ys) / n
+    cov = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    vx = sum((x - mx) ** 2 for x in xs)
+    vy = sum((y - my) ** 2 for y in ys)
+    if vx == 0 or vy == 0:
+        return None
+    return cov / math.sqrt(vx * vy)
+
+
+def _get_portfolio_exposure_context(symbol: str, session) -> list[dict] | None:
+    """Pre KAZDU inu momentalne otvorenu poziciu (iny symbol nez `symbol`)
+    spocita Pearson korelaciu hodinovych log-vynosov (posledych
+    _PORTFOLIO_EXPOSURE_LOOKBACK_DAYS dni, min.
+    _PORTFOLIO_EXPOSURE_CORR_MIN_OVERLAP prekryvajucich sa barov, inak None -
+    rovnaky prah ako dashboard). None (cely vysledok), ak nie je ziadna ina
+    otvorena pozicia - vtedy nie je co ukazat."""
+    others = session.query(Trade).filter(Trade.symbol != symbol, Trade.status == "open").all()
+    if not others:
+        return None
+
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=_PORTFOLIO_EXPOSURE_LOOKBACK_DAYS)
+
+    def _closes_by_hour(sym: str) -> dict:
+        return {
+            b.hour_start: b.close
+            for b in session.query(PriceBar.hour_start, PriceBar.close)
+            .filter(PriceBar.symbol == sym, PriceBar.hour_start >= cutoff)
+            .all()
+        }
+
+    own_bars = _closes_by_hour(symbol)
+
+    out = []
+    for trade in others:
+        correlation = None
+        other_bars = _closes_by_hour(trade.symbol)
+        common_hours = sorted(set(own_bars) & set(other_bars))
+        pairs = [(own_bars[h], other_bars[h]) for h in common_hours]
+        returns_pairs = [
+            (math.log(pairs[i][0] / pairs[i - 1][0]), math.log(pairs[i][1] / pairs[i - 1][1]))
+            for i in range(1, len(pairs))
+            if pairs[i - 1][0] > 0 and pairs[i][0] > 0 and pairs[i - 1][1] > 0 and pairs[i][1] > 0
+        ]
+        if len(returns_pairs) >= _PORTFOLIO_EXPOSURE_CORR_MIN_OVERLAP:
+            own_returns = [p[0] for p in returns_pairs]
+            other_returns = [p[1] for p in returns_pairs]
+            corr = _pearson_correlation(own_returns, other_returns)
+            correlation = round(corr, 2) if corr is not None else None
+        out.append({
+            "symbol": trade.symbol,
+            "direction": trade.direction,
+            "margin_usd": trade.margin_usd,
+            "correlation": correlation,
+        })
+    return out
+
+
 def _get_retrospective_context(asset: dict, session) -> tuple[str | None, str | None, dict | None]:
     """Vrati (retrospective_reflection, new_stats_text, pending_stats) pre tento asset.
 
@@ -591,6 +689,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         live_price = float(market_meta["mark_price"])
         ta = market_data.get_market_snapshot(asset, session)
         _check_ta_scale(ta, live_price, name)
+        _add_spread_to_ta(ta, market_meta, live_price)
     except Exception as e:
         print(f"[{name}] Position health check: zber trhovych dat zlyhal, preskakujem: {e}")
         session.add(CycleLog(
@@ -783,6 +882,12 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         portfolio_performance = None
 
     try:
+        portfolio_exposure = _get_portfolio_exposure_context(symbol, session)
+    except Exception as e:
+        print(f"[{name}] Vypocet portfolio-wide expozicie zlyhal (pokracujem bez nej): {e}")
+        portfolio_exposure = None
+
+    try:
         health, web_search_log, usage = claude_analyst.analyze_position_health(
             asset, open_position, ta, cross_market, market_session, social, btc_proxy,
             prev_assumptions, prev_cycle_time, retrospective_reflection,
@@ -791,6 +896,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
             coinmarketcal_events=coinmarketcal_events,
             recent_trades_context=recent_trades_context,
             portfolio_performance=portfolio_performance,
+            portfolio_exposure=portfolio_exposure,
         )
     except Exception as e:
         print(f"[{name}] Position health check zlyhal: {e}")
@@ -1034,6 +1140,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
 
             ta = market_data.get_market_snapshot(asset, session)
             _check_ta_scale(ta, live_price, name)
+            _add_spread_to_ta(ta, market_meta, live_price)
             social = social_sentiment.fetch_recent_posts(name)
             print(f"[{name}] Strike live_price={live_price} | TA: {ta}")
             print(f"[{name}] Nacitanych {len(social)} social prispevkov (spravy hlada Claude sam cez web_search).")
@@ -1075,6 +1182,12 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
         except Exception as e:
             print(f"[{name}] Vypocet portfolio-wide vykonnosti zlyhal (pokracujem bez neho): {e}")
             portfolio_performance = None
+
+        try:
+            portfolio_exposure = _get_portfolio_exposure_context(symbol, session)
+        except Exception as e:
+            print(f"[{name}] Vypocet portfolio-wide expozicie zlyhal (pokracujem bez nej): {e}")
+            portfolio_exposure = None
 
         # 2026-08-22 produkcny nalez (ADA data_issue false-alarm): predtym sa
         # toto pocitalo VZDY, bez ohladu na to, ci JE TENTO beh watch-triggered -
@@ -1149,6 +1262,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 watch_set_context=watch_set_context,
                 recent_trades_context=recent_trades_context,
                 portfolio_performance=portfolio_performance,
+                portfolio_exposure=portfolio_exposure,
             )
         except Exception as e:
             print(f"[{name}] Claude analyza zlyhala, preskakujem cyklus: {e}")

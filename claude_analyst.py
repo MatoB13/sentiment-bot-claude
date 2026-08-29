@@ -1188,6 +1188,30 @@ smerovej pozície, alebo zváž nižšiu confidence - toto je DOPLNKOVÝ mechani
 ostatných signálov, nie samostatné pravidlo "pri ADX<20 nikdy neotváraj"."""
 
 
+_HTF_NOTE = """
+`h4_context`/`daily_context` (2026-08-29) - VŠETKY ostatné indikátory (`trend`/`adx14`/RSI/MACD/BB)
+sú počítané LEN z hodinových sviečok. Tieto dva doplnkové bloky (ak sú prítomné - `null`/chýbajúce
+znamená, že ticker ešte nemá dosť vlastnej histórie na daný timeframe, najmä pri čerstvo pridaných
+tickeroch) dávajú TEN ISTÝ typ štruktúrovaného kontextu (`trend` "uptrend"/"downtrend"/"mixed" podľa
+EMA usporiadania, `rsi14`, `adx14`, `trend_strength`), len prepočítaný na 4-hodinových a denných
+sviečkach - odlišujú "hodinový range v rámci silného DENNÉHO trendu" (nižšie riziko - len krátkodobá
+konsolidácia) od "hodinový range v rámci DENNÉHO range" (vyššie riziko - žiadny nadradený trend,
+ktorý by pohyb podporil). KĽÚČOVÉ: keď sa hodinový a vyšší-timeframe `trend`/`trend_strength`
+ZHODUJÚ, ber to ako silnejšie potvrdenie; keď sa ROZCHÁDZAJÚ (napr. hodinový silný uptrend, ale
+`daily_context.trend="downtrend"`), ber hodinový signál opatrnejšie - môže ísť len o krátkodobý
+odraz proti prevažujúcemu smeru, nie o skutočný obrat. Vyšší timeframe má vo všeobecnosti prednosť
+pri rozpore (menej náchylný na šum), ale nie je to mechanické pravidlo - posúď to ako analytik."""
+
+
+_SPREAD_NOTE = """
+`spread_pct` (2026-08-29, ak je prítomný) - aktuálny bid-ask spread na Strike ako % z live ceny,
+priamy fakt o likvidite/execution riziku PRÁVE TERAZ (nie historický priemer). Široký spread
+(orientačne nad ~0.3-0.5%, líši sa podľa tickera - porovnaj so svojím doterajším vnímaním normálnej
+šírky pre {instrument}) znamená vyššie riziko sklzu pri vstupe/výstupe, obzvlášť relevantné pri
+tenších/syntetických trackeroch (MiniMax/Unitree/Zhipu AI/SKHYNIX) - zváž to ako mierny dodatočný
+dôvod na opatrnosť (nižšia confidence), nie samostatný dôvod na zamietnutie."""
+
+
 _PER_ASSET_SYSTEM_APPENDIX_TEMPLATE = """Si skúsený intradenný analytik pre {label}.
 Dostaneš technickú analýzu (TA) {instrument} - vrátane `recent_candles`, surových posledných
 {candle_bars} hodinových sviečok {candle_format} - cross-market kontext, session
@@ -1198,6 +1222,8 @@ hodinách. Vyhľadávaj len ak to dáva zmysel (max. niekoľko vyhľadávaní).
 {funding_note}
 {trend_label_note}
 {trend_strength_note}
+{htf_note}
+{spread_note}
 
 Ako syntetizovať viacero signálov pre {instrument} (nepočítaj váhy mechanicky, posúď to ako
 skúsený analytik):
@@ -1227,6 +1253,8 @@ def _system_prompt_blocks(asset: dict) -> list[dict]:
         funding_note=funding_note,
         trend_label_note=_TREND_LABEL_NOTE,
         trend_strength_note=_TREND_STRENGTH_NOTE,
+        htf_note=_HTF_NOTE,
+        spread_note=_SPREAD_NOTE.format(instrument=asset["name"]),
     )
     return [
         {"type": "text", "text": SYSTEM_PROMPT_SHARED,
@@ -1268,7 +1296,8 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                         macro_event: str | None = None,
                         coinmarketcal_events: list[dict] | None = None,
                         recent_trades_context: list[dict] | None = None,
-                        portfolio_performance: dict | None = None) -> str:
+                        portfolio_performance: dict | None = None,
+                        portfolio_exposure: list[dict] | None = None) -> str:
     instrument = asset["name"]
     social_block = "\n".join(
         f"- ({p.get('likes')}♥/{p.get('retweets')}rt) {p.get('text')}"
@@ -1562,6 +1591,28 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
             f"range/konsolidácie), než že by šlo o náhodu alebo problém jedného tickera.\n"
         )
 
+    # 2026-08-29 (na ziadost pouzivatela) - risk_manager doteraz bral do uvahy
+    # LEN otvorenu poziciu na TOMTO ISTOM tickeri, o ostatnych sucasne
+    # otvorenych poziciach (a ich korelacii s tymto tickerom) Claude nevedel
+    # vobec nic. Viz trade_cycle._get_portfolio_exposure_context.
+    portfolio_exposure_block = ""
+    if portfolio_exposure:
+        pe_lines = [f"\n## Aktuálne otvorené pozície na INÝCH tickeroch (a ich korelácia s {instrument})"]
+        for pe in portfolio_exposure:
+            direction_label = "LONG" if (pe.get("direction") or "").lower() == "long" else "SHORT"
+            corr = pe.get("correlation")
+            corr_str = f"korelácia {corr:+.2f}" if corr is not None else "korelácia neznáma (nedosť prekrývajúcich sa dát)"
+            pe_lines.append(f"- {pe['symbol']} {direction_label} (marža ${pe['margin_usd']:.0f}) - {corr_str}")
+        pe_lines.append(
+            "Korelácia sa počíta z hodinových výnosov posledných 30 dní (rovnaká metodika ako "
+            "korelačná matica v dashboarde) - hodnota blízko +1/-1 znamená, že tento ticker sa hýbe "
+            "takmer rovnako/opačne ako už otvorená pozícia (pridáva koncentrovanú, nie nezávislú "
+            "expozíciu), blízko 0 znamená skutočnú diverzifikáciu. Zváž to pri confidence/veľkosti "
+            "novej pozície - toto je informačný fakt o CELKOVOM riziku portfólia, nie dôvod na "
+            "automatické zamietnutie.\n"
+        )
+        portfolio_exposure_block = "\n".join(pe_lines) + "\n"
+
     header = f"""## Aktuálny dátum a čas
 {now.strftime('%A, %d. %B %Y, %H:%M')} UTC ({now.isoformat()})
 Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/správy za posledných
@@ -1585,7 +1636,7 @@ Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/sp
 {streak_block}
 {watch_retrigger_block}
 {watch_set_context_block}
-{recent_trades_block}{portfolio_performance_block}
+{recent_trades_block}{portfolio_performance_block}{portfolio_exposure_block}
 {retro_block}"""
 
     macro_event_block = ""
@@ -1836,7 +1887,8 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
             watch_retrigger_streak: dict | None = None,
             watch_set_context: dict | None = None,
             recent_trades_context: list[dict] | None = None,
-            portfolio_performance: dict | None = None) -> tuple[dict, list[dict], dict]:
+            portfolio_performance: dict | None = None,
+            portfolio_exposure: list[dict] | None = None) -> tuple[dict, list[dict], dict]:
     """Vrati (decision, web_search_log, usage). web_search_log je zoznam
     {"query": str, "sources": [{"title", "url", "page_age"}]} pre kazde
     vyhladavanie, ktore Claude spravil - sluzi na audit (co realne citas,
@@ -1869,7 +1921,8 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
                                       closed_trade=closed_trade, macro_event=macro_event,
                                       coinmarketcal_events=coinmarketcal_events,
                                       recent_trades_context=recent_trades_context,
-                                      portfolio_performance=portfolio_performance)
+                                      portfolio_performance=portfolio_performance,
+                                      portfolio_exposure=portfolio_exposure)
     decision, web_search_log, usage = _call_claude(asset, system_blocks, user_prompt,
                                                      DECISION_TOOL, "submit_trade_decision")
     _validate_decision(decision)
@@ -1889,7 +1942,8 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                              new_stats_text: str | None = None,
                              coinmarketcal_events: list[dict] | None = None,
                              recent_trades_context: list[dict] | None = None,
-                             portfolio_performance: dict | None = None) -> tuple[dict, list[dict], dict]:
+                             portfolio_performance: dict | None = None,
+                             portfolio_exposure: list[dict] | None = None) -> tuple[dict, list[dict], dict]:
     """Ako analyze(), ale pre UZ OTVORENU poziciu (viz
     trade_cycle._run_position_health_check) - namiesto rozhodnutia o novom
     obchode (direction/SL/TP) sa Claude vyjadri, ci povodne predpoklady este
@@ -1911,7 +1965,8 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                                       confidence_streak=None, open_position=open_position,
                                       macro_event=macro_event, coinmarketcal_events=coinmarketcal_events,
                                       recent_trades_context=recent_trades_context,
-                                      portfolio_performance=portfolio_performance)
+                                      portfolio_performance=portfolio_performance,
+                                      portfolio_exposure=portfolio_exposure)
     decision, web_search_log, usage = _call_claude(asset, system_blocks, user_prompt,
                                                      POSITION_HEALTH_TOOL, "submit_position_health_check")
     _validate_health_decision(decision)
