@@ -104,7 +104,21 @@ DECISION_TOOL = {
             },
             "confidence": {
                 "type": "integer", "minimum": 0, "maximum": 100,
-                "description": "0-100, realna neistota (60 = mierne naklonený, 90+ vzacne).",
+                "description": (
+                    # 2026-08-29 (na ziadost pouzivatela, po zisteni ze confidence za CELU
+                    # historiu 4268 cyklov NIKDY neprekrocilo 70 - povodny text "60 = mierne
+                    # naklonený, 90+ vzacne" bol ukotvenie/anchoring, ktore stlacilo cely
+                    # pouzivany rozsah do uzkeho pasma tesne nad prahom, bez realnej
+                    # rozlisovacej sily) - vysvetluje KONCEPT kalibracie namiesto konkretnych
+                    # cisel (akekolvek cislo tu napiseme riskuje stat sa novym kotevnym bodom).
+                    "0-100 = kalibrovaná pravdepodobnosť, že tento smer/setup vyjde (NIE len "
+                    "'prekračujem prah na otvorenie'). Kalibrované znamená: ak by si rovnaké "
+                    "číslo priradil opakovane naprieč mnohými nezávislými rozhodnutiami, malo "
+                    "by približne zodpovedať skutočnému podielu tých, čo naozaj vyjdú. Použi "
+                    "CELÝ rozsah 0-100 podľa reálnej presvedčivosti dôkazov - nedrž sa umelo "
+                    "blízko prahu na otvorenie ani sa nevyhýbaj vysokým/nízkym hodnotám, ak "
+                    "si nimi skutočne istý."
+                ),
             },
             "stop_loss_price": {
                 "type": "number",
@@ -347,17 +361,27 @@ POSITION_HEALTH_TOOL = {
             "close_confidence": {
                 "type": "integer",
                 "description": (
-                    "LEN ak recommendation=consider_closing. Ako VELMI si istý (0-100), že "
-                    "ZATVORENIE PRÁVE TERAZ je správne rozhodnutie - NIE to isté ako všeobecná "
+                    # 2026-08-29 (na ziadost pouzivatela, rovnaky fix ako "confidence" vyssie -
+                    # empiricky overene, ze za 58 zaznamenanych hodnot toto pole NIKDY
+                    # neprekrocilo 68, hoci povodny text definoval "70-100" pasmo ako
+                    # najsilnejsi signal - konkretne cislene pasma pravdepodobne posobili
+                    # rovnako ukotvujuco ako pri confidence poli) - nahradene konceptom
+                    # kalibracie, ziadne konkretne cisla ako referencne body.
+                    "LEN ak recommendation=consider_closing. Kalibrovaná pravdepodobnosť (0-100), "
+                    "že ZATVORENIE PRÁVE TERAZ je správne rozhodnutie - NIE to isté ako všeobecná "
                     "obchodná istota, ale konkrétne: keby si mal exekučnú právomoc, urobil by si "
-                    "to hneď? 0-40 = skôr len opatrnosť/varovanie, sleduj ďalej. 40-70 = reálne "
-                    "znepokojujúce, ale ešte nie jednoznačné. 70-100 = pôvodná téza je podľa teba "
-                    "prakticky vyvrátená ALEBO uz v podstate naplnena a momentum stagnuje - "
-                    "čakanie na mechanický SL/TP už nedáva zmysel. DÔLEŽITÉ: toto číslo REÁLNE "
-                    "SPÚŠŤA akciu - pri hodnote nad konfigurovaným prahom (aktuálne 50) systém "
-                    "pozíciu AUTOMATICKY zatvorí trhovým príkazom bez ďalšieho čakania na "
-                    "používateľa. Buď preto úprimný a kalibrovaný, nie umelo opatrný ani "
-                    "prehnane istý - toto sa NEPOUŽÍVA len na spätné hodnotenie."
+                    "to hneď? Kalibrované znamená: ak by si rovnaké číslo priradil opakovane "
+                    "naprieč mnohými nezávislými prípadmi, malo by približne zodpovedať "
+                    "skutočnému podielu tých, kde bolo zatvorenie naozaj správne rozhodnutie. "
+                    "Použi CELÝ rozsah 0-100 podľa reálnej sily dôkazov o vyvrátení pôvodnej "
+                    "tézy - nedrž sa umelo v strednom pásme ani sa nevyhýbaj vysokým hodnotám, "
+                    "ak je téza podľa teba skutočne prakticky vyvrátená alebo už naplnená a "
+                    "momentum stagnuje. DÔLEŽITÉ: toto číslo REÁLNE SPÚŠŤA akciu - pri hodnote "
+                    f"nad konfigurovaným prahom (aktuálne {config.AI_EARLY_CLOSE_CONFIDENCE_THRESHOLD:.0f}) "
+                    "systém pozíciu AUTOMATICKY zatvorí "
+                    "trhovým príkazom bez ďalšieho čakania na používateľa. Buď preto úprimný a "
+                    "kalibrovaný, nie umelo opatrný ani prehnane istý - toto sa NEPOUŽÍVA len "
+                    "na spätné hodnotenie."
                 ),
             },
             "upcoming_macro_event": _UPCOMING_MACRO_EVENT_PROPERTY,
