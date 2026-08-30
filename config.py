@@ -52,6 +52,7 @@ UNITREE_EFFORT = os.getenv("UNITREE_EFFORT", "")
 NEAR_EFFORT = os.getenv("NEAR_EFFORT", "")
 AAPL_EFFORT = os.getenv("AAPL_EFFORT", "")
 ZHIPU_EFFORT = os.getenv("ZHIPU_EFFORT", "")
+CRCL_EFFORT = os.getenv("CRCL_EFFORT", "")
 
 # Strike
 STRIKE_API_PRIVATE_KEY = os.getenv("STRIKE_API_PRIVATE_KEY", "")
@@ -397,6 +398,13 @@ ENABLE_NEAR = _bool("ENABLE_NEAR", "true")
 # rozdiel od ZHIPU) - otestovana korelacia cez CoinGecko ukazala silnu zhodu s
 # uz aktivnym krypto kosom (ADA/NEAR/ZEC/BTC 0.5-0.7), zbytocna redundancia.
 ENABLE_ZHIPU = _bool("ENABLE_ZHIPU", "false")
+# CRCL (Circle Internet Group - vydavatel USDC stablecoinu, NYSE od 2025)
+# pridany 2026-08-30 na ziadost pouzivatela - rovnaky "aktivny hned" vzor ako
+# ZEC/GOOGL/NEAR (NIE "len zbiera historiu"), kedze ide o SKUTOCNU verejne
+# obchodovanu akciu s bezne dostupnou yfinance historiou (na rozdiel od
+# MINIMAX/UNITREE/ZHIPU synteticky trackovanych sukromnych firiem) - viz CRCL
+# sekcia nizsie pre plne zdovodnenie SL/TP aj korelacnu analyzu.
+ENABLE_CRCL = _bool("ENABLE_CRCL", "true")
 
 # Presny symbol/asset identifikator zisti cez strike_client.get_markets() - toto
 # su len predpoklady podla existujuceho NAS100-USD pomenovacieho vzoru, okrem
@@ -817,3 +825,35 @@ AAPL_TP_PCT = _float("AAPL_TP_PCT", 2.7)
 AAPL_TRADE_INTERVAL_HOURS = _float("AAPL_TRADE_INTERVAL_HOURS", TRADE_INTERVAL_HOURS)
 AAPL_OFF_HOURS_INTERVAL_HOURS = _float("AAPL_OFF_HOURS_INTERVAL_HOURS", OFF_HOURS_INTERVAL_HOURS)
 AAPL_WEEKEND_INTERVAL_HOURS = _float("AAPL_WEEKEND_INTERVAL_HOURS", WEEKEND_INTERVAL_HOURS)
+
+# ============================== CRCL (AKTIVNY od 2026-08-30) ==============================
+# Pridany 2026-08-30 na ziadost pouzivatela (Strike prave pridal CRCL-USD) -
+# Circle Internet Group, vydavatel USDC stablecoinu, NYSE IPO 2025. SKUTOCNA
+# verejne obchodovana akcia (nie synteticky tracker sukromnej firmy ako
+# MINIMAX/ZHIPU) - realna yfinance historia dostupna, preto "aktivny hned"
+# vzor ako GOOGL/NEAR/ZEC (NIE "len zbiera historiu" ako UNITREE/ZHIPU pri
+# ich pridani).
+# Korelacna analyza (2026-08-30, 30 dni hodinovych log-vynosov cez Yahoo
+# Finance chart API, kedze lokalne yfinance malo SSL problem): najsilnejsie s
+# NVDA (0.60) a BTC (0.55) - logicke, CRCL je rastova tech/AI-era akcia A
+# jeho biznis (USDC) je priamo naviazany na krypto adopciu. Prakticky nulove/
+# mierne opacne s GOOGL (-0.11) a WTI (-0.09). Ziadna korelacia nad 0.7,
+# rozumny diverzifikacny kandidat, aj ked nie uplne nezavisly.
+# SL/TP z REALNYCH dat (nie kopirovane) - hodinovy ATR14 (30 dni cez Yahoo
+# chart API) bol pomerne stabilny naprieč celym oknom: median 2.40% (cele
+# obdobie), 2.35-2.45% aj v uzsich 48h/72h oknach (na rozdiel od UNITREE tu
+# NEBOLO potreba riesit "usadenie" volatility po IPO - CRCL uz obchoduje rok).
+# Vysoka volatilita (momentum akcia, +40% za poslednych 30 dni) opodstatnuje
+# sirsi SL nez GOOGL/NVDA. Rovnaky SL/ATR pomer (~2.34x) ako pri GOOGL/NVDA/
+# UNITREE kalibracii: 2.40 * 2.34 = 5.62% -> zaokruhlene na 5.6%/8.4% (1.5x
+# TP/SL pomer, viz [[feedback_new_ticker_sl_tp_derivation]] politika).
+STRIKE_CRCL_SYMBOL = os.getenv("STRIKE_CRCL_SYMBOL", "CRCL-USD")
+CRCL_MIN_CONFIDENCE = _int("CRCL_MIN_CONFIDENCE", MIN_CONFIDENCE)
+CRCL_MARGIN_USD = _float("CRCL_MARGIN_USD", 50)
+CRCL_LEVERAGE = _int("CRCL_LEVERAGE", 10)  # DEAD - viz risk_manager._leverage_from_cushion, skutocna paka sa odvodzuje z cushion multiple nizsie
+CRCL_LIQUIDATION_CUSHION_MULTIPLE = _float("CRCL_LIQUIDATION_CUSHION_MULTIPLE", LIQUIDATION_CUSHION_MULTIPLE)
+CRCL_SL_PCT = _float("CRCL_SL_PCT", 5.6)
+CRCL_TP_PCT = _float("CRCL_TP_PCT", 8.4)
+CRCL_TRADE_INTERVAL_HOURS = _float("CRCL_TRADE_INTERVAL_HOURS", TRADE_INTERVAL_HOURS)
+CRCL_OFF_HOURS_INTERVAL_HOURS = _float("CRCL_OFF_HOURS_INTERVAL_HOURS", OFF_HOURS_INTERVAL_HOURS)
+CRCL_WEEKEND_INTERVAL_HOURS = _float("CRCL_WEEKEND_INTERVAL_HOURS", WEEKEND_INTERVAL_HOURS)

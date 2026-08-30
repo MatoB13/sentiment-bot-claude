@@ -591,7 +591,34 @@ AAPL = {
     "effort": config.AAPL_EFFORT,
 }
 
-ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX, AAOI, MINIMAX, ZEC, GOOGL, UNITREE, NEAR, AAPL, ZHIPU]
+CRCL = {
+    "name": "CRCL",
+    "asset_class": "stock",
+    "strike_symbol": config.STRIKE_CRCL_SYMBOL,
+    # Skutocna verejne obchodovana akcia (Circle Internet Group, USDC vydavatel,
+    # NYSE IPO 2025) - realna yfinance historia, rovnaky spolahlivy zdroj ako
+    # GOOGL/NVDA/AAOI (na rozdiel od MINIMAX/UNITREE/ZHIPU syntetickych trackerov).
+    "yf_symbol": "CRCL",
+    "yf_fallback": None,
+    "sl_pct": config.CRCL_SL_PCT,
+    "tp_pct": config.CRCL_TP_PCT,
+    "leverage": config.CRCL_LEVERAGE,
+    "liquidation_cushion_multiple": config.CRCL_LIQUIDATION_CUSHION_MULTIPLE,
+    "margin_usd": config.CRCL_MARGIN_USD,
+    "min_confidence": config.CRCL_MIN_CONFIDENCE,
+    "enabled": config.ENABLE_CRCL,
+    "needs_btc_proxy": False,
+    "include_volume": True,
+    "trade_interval_hours": config.CRCL_TRADE_INTERVAL_HOURS,
+    "off_hours_interval_hours": config.CRCL_OFF_HOURS_INTERVAL_HOURS,
+    "weekend_interval_hours": config.CRCL_WEEKEND_INTERVAL_HOURS,
+    "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
+    "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
+    "marketaux_query": {"symbols": "CRCL"},
+    "effort": config.CRCL_EFFORT,
+}
+
+ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX, AAOI, MINIMAX, ZEC, GOOGL, UNITREE, NEAR, AAPL, ZHIPU, CRCL]
 
 
 def enabled_assets() -> list[dict]:

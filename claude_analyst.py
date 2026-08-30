@@ -744,6 +744,42 @@ _ZEC_MACRO_RULES = """- **Regulacne/delisting riziko privacy coinov - najdolezit
   sú kľúčové eventy - pred/počas takého eventu buď výrazne konzervatívnejší (nízka confidence alebo
   "none")."""
 
+_CRCL_MACRO_RULES = """- **Vydavateľ USDC stablecoinu - biznis model priamo naviazaný na úrokové sadzby**: {instrument}
+  (Circle Internet Group) generuje väčšinu príjmu z úrokového výnosu na rezervách kryjúcich USDC
+  (primárne krátkodobé US treasuries) - Fed rozhodnutia o sadzbách majú PRIAMY, mechanický dopad na
+  ziskovosť (znižovanie sadzieb = klesajúci rezervný výnos = nižšie zisky, nie len všeobecný makro
+  sentiment ako pri väčšine akcií). Toto je najdôležitejší odlišujúci faktor oproti bežnej tech akcii.
+  Preto FOMC rozhodnutia/dot-plot majú tu väčšiu váhu než pri GOOGL/AAPL.
+- **Regulácia stablecoinov (GENIUS Act a nadväzujúca legislatíva/implementácia)**: US stablecoin
+  regulačný rámec (podpísaný 2025) priamo určuje konkurenčné prostredie a compliance náklady -
+  over cez web_search najnovší stav implementácie, prípadné dodatočné nariadenia (Fed/OCC/štátne
+  bankové regulátory), a akékoľvek zmeny v požiadavkách na rezervy/audit.
+- **Konkurencia v stablecoinovom priestore**: Tether (USDT, dominantný podľa market capu, ale menej
+  transparentný), PayPal USD, bankové konzorciové stablecoiny (napr. JPMorgan/veľké banky), a
+  potenciálne budúce Fed digitálne iniciatívy - zmeny v trhovom podiele USDC voči USDT sú priamy
+  fundamentálny signál.
+- **Korelácia s krypto trhom (nie len BTC/ETH cenou, ale objemom/adopciou)**: rastúci celkový market
+  cap krypto trhu a obchodný objem = viac USDC v obehu = vyššie rezervy = vyšší úrokový príjem -
+  {instrument} teda reaguje na ZDRAVIE krypto ekosystému ako celku (adopcia, DeFi TVL, burzové
+  objemy), nie len na cenový pohyb konkrétnej mince. Overená korelácia (2026-08-30, 30-dňové dáta):
+  BTC 0.55, NVDA 0.60 - momentum tech aj krypto risk-on sentiment obe hýbu cenou.
+- **Bankové/fintech partnerstvá a expanzia**: nové partnerstvá s bankami/platobnými sieťami
+  (Visa/Mastercard integrácie, cezhraničné platby) rozširujú use-case USDC mimo čisto krypto
+  trading - pozitívny fundamentálny driver nezávislý od krypto cenových pohybov.
+- **Krátka obchodná história (IPO jún 2025)**: na rozdiel od GOOGL/AAPL/NVDA nemá {instrument}
+  dlhoročný track record cez rôzne trhové cykly - buď opatrnejší pri extrapolácii dlhodobých vzorov
+  z krátkej histórie, hoci už nejde o čerstvé IPO ako UNITREE/ZHIPU.
+- **Market Reaction Score**: rovnako dôležité ako inde - porovnaj obsah správy s reálnou cenovou
+  reakciou {instrument}.
+- **Event Risk Gate**: FOMC rozhodnutia (kvôli priamemu dopadu na rezervný výnos), nová stablecoinová
+  regulácia/legislatívny vývoj, veľké krypto trhové udalosti (výrazný pokles/rast celkového market
+  capu, veľké burzové výpadky), a bežné makro dáta (CPI/NFP) - buď pri nich výrazne konzervatívnejší
+  (nízka confidence alebo "none").
+- **Nepredvídateľné politické výroky (Trump/Truth Social)**: vyjadrenia ku krypto/stablecoinovej
+  politike vedia bez varovania pohnúť sentimentom - over cez web_search nedávne výroky s dopadom na
+  stablecoinový/krypto regulačný sektor."""
+
+
 _UNITREE_MACRO_RULES = """- **KRITICKÉ UPOZORNENIE - čerstvo listovaná akcia bez obchodnej histórie**: {instrument} (Unitree
   Robotics, čínsky výrobca quadruped/humanoidných robotov) mala IPO na šanghajskom STAR Markete
   19.8.2026 s prvodňovým pohybom +460 až +542% - toto NIE JE bežná zavedená akcia s rokmi cenovej
@@ -932,6 +968,18 @@ ASSET_TEXT = {
             'štrukturálne zmeny), a Fed/makro dátach (CPI, PPI, NFP, FOMC)'
         ),
         "macro_rules": _EQUITY_MACRO_RULES,
+    },
+    "CRCL": {
+        "label": "akciu CRCL (Circle Internet Group, vydavateľ USDC stablecoinu, NYSE IPO jún 2025)",
+        "news_focus": (
+            'správach o Circle Internet Group samotnom (earnings, rast USDC market capu/obehu, '
+            'úrokový výnos z rezerv, nové partnerstvá s bankami/platobnými sieťami), regulácii '
+            'stablecoinov (GENIUS Act implementácia, Fed/OCC nariadenia), konkurencii v '
+            'stablecoinovom priestore (Tether/USDT, PayPal USD, bankové konzorciové stablecoiny), '
+            'širšom krypto trhovom zdraví (market cap, DeFi TVL, burzové objemy), a Fed/makro '
+            'dátach (CPI, PPI, NFP, FOMC - zvýšená váha kvôli priamemu dopadu sadzieb na rezervný výnos)'
+        ),
+        "macro_rules": _CRCL_MACRO_RULES,
     },
     "UNITREE": {
         "label": "akciu UNITREE (Unitree Robotics, čínsky výrobca humanoidných/quadruped robotov, IPO na šanghajskom STAR Markete 19.8.2026)",
