@@ -1573,7 +1573,16 @@ _triggered_check_in_flight: set[str] = set()
 # (in-flight bookkeeping ostava presne - symbol je "in flight" aj pocas
 # cakania), len samotna praca caka na volny slot - nadbytocne pozadovky sa
 # spracuju postupne, ziadna sa nestrati (na rozdiel od explicitneho zamietnutia).
-_DISPATCH_CONCURRENCY_LIMIT = 5
+# 2026-08-30 (na ziadost pouzivatela, po pridani CRCL - 15. aktivny ticker):
+# povodnych 5 bolo nastavenych, ked portfolio malo menej tickerov - pri sirsom
+# trhovom pohybe (napr. FOMC prekvapenie hybajuce akciami aj kryptom naraz),
+# kde by trigerlo 6+ tickerov sucasne, by zvysne cakali v rade radovo minuty,
+# nie sekundy, na volny slot. Zdvihnute na 10 po overeni realnych limitov:
+# DB pool ma 30 spojeni celkovo (10+20 overflow), ocakavane maximum pri tomto
+# strope je 10 dispatch + 6 scheduler jobov = 16, stale velka rezerva. 10
+# sucasnych dlhych Claude volani zodpoveda len ~10-20 req/min priepustnosti -
+# velmi konzervativne voci beznym Anthropic tier limitom (desiatky-stovky RPM).
+_DISPATCH_CONCURRENCY_LIMIT = 10
 _dispatch_semaphore = threading.Semaphore(_DISPATCH_CONCURRENCY_LIMIT)
 
 
