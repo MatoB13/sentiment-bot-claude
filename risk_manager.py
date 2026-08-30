@@ -13,7 +13,19 @@ import math
 # rozumnu hranicu namiesto doslovneho pouzitia. Dolny strop (SAFETY_FLOOR_MULTIPLE)
 # chrani pred degenerovanou (napr. nulovou) vzdialenostou.
 SAFETY_CAP_MULTIPLE = 5.0
-SAFETY_FLOOR_MULTIPLE = 0.1
+# 2026-08-30 (UNITREE #140 incident) - povodnych 0.1 (10% cieloveho sl_pct)
+# dovolilo Claude-om navrhnutu SL vzdialenost orezat az na absurdne tesnych
+# 0.206% (UNITREE cielilo 2.0%) - TP z toho odvodeny pomerom bol 0.309%, teda
+# tesnejsie nez samotny bezny bid/ask spread (~0.08% na UNITREE v tom case).
+# Take tesne nohy neustale "zasahuje" bezny trhovy sum aj znama Strike burzova
+# anomalia (SL/TP sa niekedy sami "expiruju" bez vyplnenia - viz
+# position_monitor._check_and_reheal_bracket_legs), co spustalo stovky
+# zbytocnych reheal cyklov za den. Historicka kontrola nasla rovnaky vzor (SL
+# vzdialenost < 35% ciela) aj pri HYPE (4x) a ADA (1x) - nie izolovany
+# UNITREE problem. Zdvihnute na 0.5 (50% ciela) - LEN rozsiruje uz existujuci
+# priliz tesny SL, nikdy nezuzi sirsi, takze ziadny dopad na bezne dobre
+# kalibrovane obchody.
+SAFETY_FLOOR_MULTIPLE = 0.5
 
 
 class RejectedTrade(Exception):
