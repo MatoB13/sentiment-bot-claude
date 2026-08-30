@@ -760,13 +760,41 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         hours_since = (datetime.now(timezone.utc) - last_esc).total_seconds() / 3600
         cooldown_active = hours_since < config.HEALTH_CHECK_ESCALATION_COOLDOWN_HOURS
 
+        # 2026-08-30 (ZEC #141 incident) - NEZAVISLA (od last_health_escalation_pnl_pct)
+        # vynimka: ak je pozicia uz blizko REALNEHO SL zasahu, cooldown sa ignoruje
+        # UPLNE, bez ohladu na to, kolko sa "zhorsila od poslednej eskalacie" - pri
+        # #141 bola strata na 99.7% SL vzdialenosti, ale zhorsenie-od-minula bolo tesne
+        # pod prahom, takze SL zasiahlo len 17 min po zablokovanom cykle. Vyhodnocuje sa
+        # KAZDY cyklus nanovo (nie jednorazovo) - pokial pozicia zostane nad tymto
+        # prahom, kazdy dalsi hodinovy cyklus znova prebehne (na vyslovnu ziadost
+        # pouzivatela: "v takych pripadoch kaslem na cooldown"), kym sa neotoci pod
+        # prah alebo sa nezavrie (SL/TP/AI-close).
+        if cooldown_active and pnl_pct < 0 and asset["sl_pct"] > 0:
+            sl_proximity_frac = (-pnl_pct * 100) / asset["sl_pct"]
+            if sl_proximity_frac >= config.HEALTH_CHECK_COOLDOWN_BYPASS_SL_PROXIMITY_FRACTION:
+                cooldown_active = False
+                cooldown_bypassed_reason = (
+                    f"Nerealizovaná strata dosiahla {sl_proximity_frac * 100:.0f}% SL "
+                    f"vzdialenosti (pozícia je blízko reálneho SL zásahu) - cooldown sa "
+                    f"ignoruje, kým sa situácia nezmení"
+                )
+
         # 2026-08-27 (ADA #90 incident) - cooldown existuje na potlacenie
         # OPAKOVANIA toho isteho, uz posudeneho signalu, nie na umlcanie pozicie
         # kym dalej REALNE straca hodnotu. Ak sa P&L od poslednej eskalacie
         # zhorsil o dost (podiel SL vzdialenosti), toto uz je NOVY fakt -
         # cooldown sa obide bez ohladu na to, kolko z neho este zostava.
+        # (Nizsie beži LEN ak vyssia SL-proximity vynimka este nezasiahla.)
         if cooldown_active and open_trade.last_health_escalation_pnl_pct is not None:
-            worsening_pct = open_trade.last_health_escalation_pnl_pct - pnl_pct
+            # 2026-08-30 (ZEC #141 incident - bypass sa NIKDY nemohol spustit odkedy
+            # bol nasadeny) - pnl_pct/last_health_escalation_pnl_pct su ULOZENE ako
+            # HOLY ZLOMOK (napr. -0.0248 = -2.48%, viz vypocet pnl_pct vyssie), ale
+            # asset["sl_pct"] je v PERCENTACH (napr. 3.5 = 3.5%). Bez *100 tu porovnanie
+            # vychadzalo ako 0.01 >= 1.05 - prakticky nikdy pravda (potreboval by
+            # "zhorsit sa" o stovky percent). Chyba objavena naozivo (ZEC #141, 30.8.) -
+            # skutocne zhorsenie 1.01pb bolo tesne pod 1.05pb prahom, ale s bugom sa to
+            # ani neporovnavalo v spravnych jednotkach vobec.
+            worsening_pct = (open_trade.last_health_escalation_pnl_pct - pnl_pct) * 100
             bypass_threshold = asset["sl_pct"] * config.HEALTH_CHECK_COOLDOWN_BYPASS_WORSENING_FRACTION
             if worsening_pct >= bypass_threshold:
                 cooldown_active = False

@@ -201,6 +201,19 @@ HEALTH_CHECK_ESCALATION_COOLDOWN_HOURS = _float("HEALTH_CHECK_ESCALATION_COOLDOW
 # NOVY, HORSI fakt, ktory si zasluzi vlastny Claude pohlad aj pocas cooldownu.
 HEALTH_CHECK_COOLDOWN_BYPASS_WORSENING_FRACTION = _float(
     "HEALTH_CHECK_COOLDOWN_BYPASS_WORSENING_FRACTION", 0.3)
+# 2026-08-30 (ZEC #141 incident) - vyssia VYNIMKA vyssie ("zhorsil sa OD
+# POSLEDNEJ eskalacie") merala zly ukazovatel: pri #141 bola strata uz na
+# 99.7% SL vzdialenosti (prakticky nalepena na SL), ale zhorsenie od
+# poslednej eskalacie (1h dozadu) bolo tesne POD prahom, takze cooldown
+# zablokoval Claude cyklus len 17 min pred tym, nez pozicia zasiahla SL.
+# Toto je NEZAVISLA druha vynimka - ak nerealizovana strata dosiahne tolkoto
+# podielu SL vzdialenosti (bez ohladu na to, ci/kolko sa "zhorsila od
+# minula"), cooldown sa ignoruje NAOZAJ CELY - kazdy nasledujuci cyklus
+# znova prebehne (nie len jednorazovo), kym sa pozicia bud neotoci pod tento
+# prah, alebo sa nezavrie (SL/TP/AI-close). Vyslovna volba pouzivatela: "v
+# takych pripadoch kaslem na cooldown".
+HEALTH_CHECK_COOLDOWN_BYPASS_SL_PROXIMITY_FRACTION = _float(
+    "HEALTH_CHECK_COOLDOWN_BYPASS_SL_PROXIMITY_FRACTION", 0.5)
 # 2026-08-21 (na ziadost pouzivatela, po NAS100 SL incidente - Claude odporucil
 # consider_closing s close_confidence=50 hodinu pred SL, nikdy sa nezasiahlo) -
 # ked position health check vrati recommendation="consider_closing" A
