@@ -50,14 +50,21 @@ _MAX_RETRIES = 1
 _RETRY_DELAY_SECONDS = 2
 
 
-def _post_webhook(payload: dict, label: str) -> None:
+def _post_webhook(payload: dict, label: str) -> bool:
     """Zdielana odosielacia logika - fire-and-forget, ale s jednym retry pri
-    prechodnej chybe (vratane Discord 429). Nikdy nevyhodi vynimku volajucemu."""
+    prechodnej chybe (vratane Discord 429). Nikdy nevyhodi vynimku volajucemu.
+
+    2026-08-31 (UNITREE #155 incident) - vracia True/False (predtym vzdy
+    None) namiesto tichej straty vysledku, aby si volajuci (viz
+    notify_trade_opened/notify_trade_closed) mohol PERZISTOVAT dedup flag
+    LEN po skutocnom uspechu - inak (povodne spravanie) sa flag nastavoval
+    hned pri pokuse o odoslanie, takze prechodne zlyhanie (aj po retry)
+    znamenalo NAVZDY stratenu notifikaciu bez akejkolvek stopy."""
     for attempt in range(_MAX_RETRIES + 1):
         try:
             resp = requests.post(config.DISCORD_WEBHOOK_URL, json=payload, timeout=10)
             resp.raise_for_status()
-            return
+            return True
         except Exception as e:
             if attempt < _MAX_RETRIES:
                 print(f"[discord_client] {label} zlyhala, skusam znova o "
@@ -65,14 +72,18 @@ def _post_webhook(payload: dict, label: str) -> None:
                 time.sleep(_RETRY_DELAY_SECONDS)
             else:
                 print(f"[discord_client] {label} zlyhala: {e}")
+                return False
 
 
-def notify_trade_opened(asset: dict, sized: dict) -> None:
+def notify_trade_opened(asset: dict, sized: dict) -> bool:
     """Zavola sa HNED PO uspesnom otvoreni pozicie (viz trade_cycle.py) - len
     ak je DISCORD_WEBHOOK_URL nastavene, inak ticho no-op (rovnaky vzor ako
-    ostatne volitelne doplnky - EIA/FRED/Marketaux)."""
+    ostatne volitelne doplnky - EIA/FRED/Marketaux). Vracia True/False (viz
+    _post_webhook) - volajuci to pouziva na perzistovanie dedup flagu LEN po
+    skutocnom uspechu (viz trade_cycle.py + position_monitor.
+    _backfill_missing_open_notifications)."""
     if not config.DISCORD_WEBHOOK_URL:
-        return
+        return False
     # POZOR (2026-08-17 oprava): risk_manager.validate_and_size vracia
     # "Long"/"Short" (velke pismeno), nie "long"/"short" - povodne porovnanie
     # direction == "long" preto NIKDY nebolo True a farba/emoji padali vzdy
@@ -99,7 +110,7 @@ def notify_trade_opened(asset: dict, sized: dict) -> None:
             ],
         }]
     }
-    _post_webhook(payload, "Notifikacia o otvoreni")
+    return _post_webhook(payload, "Notifikacia o otvoreni")
 
 
 _CLOSE_REASON_LABELS = {
@@ -111,12 +122,13 @@ _CLOSE_REASON_LABELS = {
 }
 
 
-def notify_trade_closed(symbol: str, closed_trade: dict) -> None:
+def notify_trade_closed(symbol: str, closed_trade: dict) -> bool:
     """Zavola sa po TP/SL/likvidacii/timeoute (viz position_monitor.
     _check_and_queue_close_notification) - ZAMERNE NIE pri manual_kill_switch
-    (pouzivatel poziciu zatvoril sam, netreba mu to pripominat)."""
+    (pouzivatel poziciu zatvoril sam, netreba mu to pripominat). Vracia
+    True/False - viz notify_trade_opened."""
     if not config.DISCORD_WEBHOOK_URL:
-        return
+        return False
     pnl = closed_trade.get("pnl_usd")
     # 2026-08-17 oprava: farba pri ZATVORENI ma vyjadrovat VYSLEDOK (zisk/strata),
     # nie smer pozicie - predtym sa farba (na rozdiel od uz spravneho emoji nizsie)
@@ -141,7 +153,7 @@ def notify_trade_closed(symbol: str, closed_trade: dict) -> None:
             ],
         }]
     }
-    _post_webhook(payload, "Notifikacia o zatvoreni")
+    return _post_webhook(payload, "Notifikacia o zatvoreni")
 
 
 def notify_ready_for_production(asset_name: str, sl_pct: float, tp_pct: float,

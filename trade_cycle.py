@@ -1501,8 +1501,15 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
         # Notifikacia AZ PO uspesnom commite - len pre skutocne otvorenu pozicii
         # (nie dry_run, nie closed_by_safety z nudzoveho zatvorenia vyssie).
         # Zlyhanie sa nikdy nesmie prejavit navonok (viz discord_client.py).
+        # 2026-08-31 (UNITREE #155 incident) - open_notified_at sa nastavuje
+        # LEN po potvrdenom uspesnom odoslani (notify_trade_opened teraz vracia
+        # True/False), aby position_monitor._backfill_missing_open_notifications
+        # vedelo neskor doplnit zlyhane notifikacie namiesto ich navzdy stratit.
         if trade.status == "open":
-            discord_client.notify_trade_opened(asset, sized)
+            if discord_client.notify_trade_opened(asset, sized):
+                trade.open_notified_at = datetime.now(timezone.utc)
+                session.add(trade)
+                session.commit()
     finally:
         session.close()
         lock.release()

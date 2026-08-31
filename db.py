@@ -66,6 +66,18 @@ class Trade(Base):
     # tu ZAMERNE vynechany, na rozdiel od review-triggeru).
     close_notified_at = Column(DateTime, nullable=True)
 
+    # 2026-08-31 (UNITREE #155 incident, na ziadost pouzivatela) - rovnaky
+    # dedup vzor pre notifikaciu o OTVORENI (predtym ziadny - discord_client.
+    # notify_trade_opened sa volalo priamo, bez perzistovaneho stavu, takze
+    # jednorazove zlyhanie webhooku bolo navzdy neviditelne stratene). NA
+    # ROZDIEL od close_notified_at (a povodnej verzie post_close_review_
+    # triggered_at) sa toto nastavuje AZ PO potvrdenom uspesnom odoslani
+    # (discord_client.notify_trade_opened teraz vracia True/False) - nie
+    # hned pri pokuse - takze self-heal (position_monitor.
+    # _backfill_missing_open_notifications) vie spolahlivo rozlisit
+    # "uspesne odoslane" od "zlyhalo, skus znova".
+    open_notified_at = Column(DateTime, nullable=True)
+
     # KEDY sa ma spustit event-driven SL/TP grid-search prepocet pre tento
     # ticker (viz position_monitor._check_and_queue_recompute +
     # sl_grid_backtest.recompute_symbol) - nastavene HNED pri zatvoreni na

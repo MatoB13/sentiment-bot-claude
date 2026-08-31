@@ -515,6 +515,85 @@ def _backfill_stale_reviews(session, pending_reviews: list) -> None:
         _check_and_queue_review(trade, session, pending_reviews)
 
 
+# 2026-08-31 (UNITREE #155 incident - pouzivatel nedostal Discord notifikaciu
+# o otvoreni, ziadna stopa preco) - rovnaky self-heal duch ako
+# _backfill_stale_reviews vyssie, ale pre notify_trade_opened/notify_trade_closed
+# (viz open_notified_at/close_notified_at v db.py, teraz nastavovane AZ PO
+# potvrdenom uspechu - predtym sa close_notified_at nastavovalo hned pri
+# pokuse, takze zlyhana notifikacia bola navzdy stratena bez akejkolvek
+# stopy). Kratsie okno nez review (2h nie 24h) - "pozicia bola otvorena"
+# strati vypovednu hodnotu rychlejsie nez analyticka reflexia.
+_STALE_NOTIFICATION_RETRY_AFTER_MINUTES = 3
+_STALE_NOTIFICATION_MAX_AGE_HOURS = 2
+
+
+def _backfill_missing_open_notifications(session, pending_open_notifications: list) -> None:
+    """Najde obchody so status='open', kde sa notifikacia o otvoreni nikdy
+    uspesne neodoslala (open_notified_at IS NULL), stare aspon
+    _STALE_NOTIFICATION_RETRY_AFTER_MINUTES (aby sa nepreslo do behu, ktory
+    prave teraz spracovava TENTO ISTY obchod) ale nie viac nez
+    _STALE_NOTIFICATION_MAX_AGE_HOURS (stare "otvorena pozicia" hlasenie uz
+    nema zmysel posielat)."""
+    cutoff_recent = datetime.now(timezone.utc) - timedelta(minutes=_STALE_NOTIFICATION_RETRY_AFTER_MINUTES)
+    cutoff_old = datetime.now(timezone.utc) - timedelta(hours=_STALE_NOTIFICATION_MAX_AGE_HOURS)
+    missing = (
+        session.query(Trade)
+        .filter(Trade.status == "open", Trade.open_notified_at.is_(None),
+                Trade.opened_at < cutoff_recent, Trade.opened_at > cutoff_old)
+        .all()
+    )
+    for trade in missing:
+        asset = assets.by_symbol(trade.symbol)
+        if asset is None:
+            continue
+        print(f"[position_monitor] Trade {trade.id} [{trade.symbol}]: notifikacia o otvoreni "
+              "sa nikdy neodoslala uspesne - skusam znova.")
+        sized = {
+            "direction": trade.direction,
+            "entry_price": trade.entry_fill_price or trade.entry_price,
+            "stop_loss_price": trade.stop_loss_price,
+            "take_profit_price": trade.take_profit_price,
+            "margin_usd": trade.margin_usd,
+            "leverage": trade.leverage,
+            "notional_usd": trade.notional_usd,
+            "confidence": trade.confidence,
+        }
+        pending_open_notifications.append((trade.id, asset, sized))
+
+
+def _fire_open_notifications(pending_open_notifications: list) -> None:
+    """Analogicke k _fire_close_notifications - bezi az po session.close()."""
+    for trade_id, asset, sized in pending_open_notifications:
+        try:
+            success = discord_client.notify_trade_opened(asset, sized)
+        except Exception as e:
+            print(f"[position_monitor] [{asset['name']}] Discord notifikacia o otvoreni zlyhala: {e}")
+            success = False
+        if success:
+            _mark_notified(trade_id, "open_notified_at")
+
+
+def _backfill_missing_close_notifications(session, pending_notifications: list) -> None:
+    """Analogicke k _backfill_missing_open_notifications vyssie, ale pre
+    zatvorenie - _check_and_queue_close_notification uz nenastavuje flag pri
+    pokuse (viz jej docstring), takze toto zachyti kazdy neuspesny pokus bez
+    ohladu na to, ci bol zaradeny cez bezny "prave zatvorene" beh alebo
+    _backfill_missing_exact_data retry."""
+    cutoff_recent = datetime.now(timezone.utc) - timedelta(minutes=_STALE_NOTIFICATION_RETRY_AFTER_MINUTES)
+    cutoff_old = datetime.now(timezone.utc) - timedelta(hours=_STALE_NOTIFICATION_MAX_AGE_HOURS)
+    missing = (
+        session.query(Trade)
+        .filter(Trade.close_notified_at.is_(None), Trade.pnl_usd.isnot(None),
+                Trade.close_reason.in_(_NOTIFY_CLOSE_REASONS),
+                Trade.closed_at < cutoff_recent, Trade.closed_at > cutoff_old)
+        .all()
+    )
+    for trade in missing:
+        print(f"[position_monitor] Trade {trade.id} [{trade.symbol}]: notifikacia o zatvoreni "
+              "sa nikdy neodoslala uspesne - skusam znova.")
+        pending_notifications.append((trade.id, trade.symbol, _build_closed_trade_context(trade)))
+
+
 def _fire_post_close_reviews(pending_reviews: list) -> None:
     """Bezi AZ PO session.close() (viz check_open_trades) - trade_cycle.dispatch_triggered_check
     otvara vlastnu nezavislu session, netreba (ani nesmieme) zdielat tu s uz
@@ -531,24 +610,51 @@ def _fire_post_close_reviews(pending_reviews: list) -> None:
 def _check_and_queue_close_notification(trade: Trade, pending_notifications: list) -> None:
     """Rovnaky vzor ako _check_and_queue_review vyssie, len iny filter dovodov
     (_NOTIFY_CLOSE_REASONS) a vlastny dedup stlpec (close_notified_at) -
-    nezavisle od review-triggeru, aby sa dali nezavisle zapinat/vypinat."""
+    nezavisle od review-triggeru, aby sa dali nezavisle zapinat/vypinat.
+
+    2026-08-31 (UNITREE #155 incident) - close_notified_at sa NENASTAVUJE tu
+    (na rozdiel od povodnej verzie) - _fire_close_notifications nizsie ho
+    zapise AZ PO potvrdenom uspesnom odoslani, aby zlyhana notifikacia
+    nebola navzdy stratena (viz _backfill_missing_close_notifications)."""
     if trade.pnl_usd is None or trade.close_notified_at is not None:
         return
     if trade.close_reason not in _NOTIFY_CLOSE_REASONS:
         return
-    trade.close_notified_at = datetime.now(timezone.utc)
-    pending_notifications.append((trade.symbol, _build_closed_trade_context(trade)))
+    pending_notifications.append((trade.id, trade.symbol, _build_closed_trade_context(trade)))
 
 
 def _fire_close_notifications(pending_notifications: list) -> None:
     """Bezi AZ PO session.close(), rovnaky dovod ako _fire_post_close_reviews -
     hoci Discord notifikacia sama o sebe DB nepotrebuje, drzime rovnaky vzor
-    pre konzistentnost a aby sa nikdy necitalo z uz odpojeneho ORM objektu."""
-    for symbol, closed_trade in pending_notifications:
+    pre konzistentnost a aby sa nikdy necitalo z uz odpojeneho ORM objektu.
+    Po USPESNOM odoslani otvori KRATKU samostatnu session len na zapis
+    close_notified_at (povodna session uz zatvorena) - viz
+    _check_and_queue_close_notification docstring."""
+    for trade_id, symbol, closed_trade in pending_notifications:
         try:
-            discord_client.notify_trade_closed(symbol, closed_trade)
+            success = discord_client.notify_trade_closed(symbol, closed_trade)
         except Exception as e:
             print(f"[position_monitor] [{symbol}] Discord notifikacia o zatvoreni zlyhala: {e}")
+            success = False
+        if success:
+            _mark_notified(trade_id, "close_notified_at")
+
+
+def _mark_notified(trade_id: int, column_name: str) -> None:
+    """Kratka samostatna session LEN na zapis jedneho dedup stlpca po uspesnom
+    odoslani notifikacie (viz _fire_close_notifications/
+    _fire_open_notifications) - povodna session, v ktorej sa Trade nacital, uz
+    je v tomto bode zatvorena."""
+    session = get_session()
+    try:
+        trade = session.query(Trade).filter(Trade.id == trade_id).first()
+        if trade is not None:
+            setattr(trade, column_name, datetime.now(timezone.utc))
+            session.commit()
+    except Exception as e:
+        print(f"[position_monitor] Trade {trade_id}: zapis {column_name} zlyhal: {e}")
+    finally:
+        session.close()
 
 
 def _check_and_queue_recompute(trade: Trade) -> None:
@@ -793,12 +899,18 @@ def check_open_trades():
     session = get_session()
     pending_reviews: list = []
     pending_notifications: list = []
+    pending_open_notifications: list = []
     pending_recompute: set = set()
     try:
         _backfill_missing_exact_data(session, pending_reviews, pending_notifications)
         # 2026-08-31 - analogicky self-heal, ale pre review, ktory sa spustil
         # (flag nastaveny), no nikdy sa nedokoncil - viz jej docstring.
         _backfill_stale_reviews(session, pending_reviews)
+        # 2026-08-31 - rovnaky self-heal duch, ale pre Discord notifikacie o
+        # otvoreni/zatvoreni, ktore sa nikdy uspesne neodoslali - viz ich
+        # docstring.
+        _backfill_missing_open_notifications(session, pending_open_notifications)
+        _backfill_missing_close_notifications(session, pending_notifications)
         # 2026-08-21 - analogicke k vyssie, ale pre OTVORENE obchody (presna
         # entry_fill_price, viz jej docstring) namiesto zatvorenych.
         _backfill_missing_entry_fill_price(session)
@@ -813,6 +925,7 @@ def check_open_trades():
             session.close()
             _fire_post_close_reviews(pending_reviews)
             _fire_close_notifications(pending_notifications)
+            _fire_open_notifications(pending_open_notifications)
             _fire_recomputes(pending_recompute)
             return
 
@@ -911,6 +1024,7 @@ def check_open_trades():
     # AZ PO session.close() - viz _fire_post_close_reviews docstring.
     _fire_post_close_reviews(pending_reviews)
     _fire_close_notifications(pending_notifications)
+    _fire_open_notifications(pending_open_notifications)
     _fire_recomputes(pending_recompute)
 
 
