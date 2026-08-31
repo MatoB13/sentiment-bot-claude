@@ -751,9 +751,38 @@ def _price_based_escalation(asset: dict, ta: dict, open_position: dict) -> tuple
     return None
 
 
+def _carry_forward_position_watch(session, open_trade: Trade) -> dict:
+    """Watch nastaveny pocas drzania pozicie (2026-08-31) zije v NAJNOVSOM
+    CycleLog zazname daneho symbolu - presne tak, ako watch z otvaracich cyklov
+    (viz watch_monitor.py docstring: "novy zaznam sa stane najnovsim, cim stary
+    watch prirodzene zanikne").
+
+    Lenze health check pise zaznam KAZDY cyklus, aj ked Claudeho vobec nevolal
+    (lacna mechanicka vetva). Bez tohto prenosu by prvy taky zaznam Claudov
+    watch zmazal uz par minut po nastaveni a mechanizmus by bol de facto mrtvy.
+
+    Berie sa najnovsi zaznam TEJTO pozicie bez ohladu na to, ci watch obsahuje -
+    ak ho Claude v neskorsom cykle vedome NEnastavil (vratil prazdne polia),
+    prenesie sa prave to prazdno a watch spravne zanikne. Nehlada sa "posledny
+    zaznam s vyplnenym watch", to by uz zruseny watch krieslo naspat."""
+    last = (
+        session.query(CycleLog)
+        .filter(CycleLog.trade_id == open_trade.id)
+        .order_by(CycleLog.created_at.desc())
+        .first()
+    )
+    if not last or last.watch_price is None or not last.watch_direction:
+        return {}
+    return {
+        "watch_price": last.watch_price,
+        "watch_direction": last.watch_direction,
+        "watch_rationale": last.watch_rationale,
+    }
+
+
 def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dict, market_session: dict,
                                 btc_proxy: dict | None, fred_macro: dict | None, session,
-                                macro_event: str | None = None) -> None:
+                                macro_event: str | None = None, watch_triggered: bool = False) -> None:
     """Ked uz je otvorena pozicia, namiesto predosleho ticheho 'skipped' zaznamu
     (2026-08 spatna vazba pouzivatela: chcel Claudeho priebezny nazor na
     otvorenu poziciu, nie len zahltenu historiu signalov bez obsahu) spustime
@@ -781,6 +810,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
             symbol=symbol, config_snapshot=_config_snapshot(asset),
             outcome="error", reject_reason=f"health_check_market_data_failed: {e}",
             trade_id=open_trade.id,
+            **_carry_forward_position_watch(session, open_trade),
         ))
         session.commit()
         return
@@ -837,6 +867,20 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
     escalation = _mechanical_health_escalation(asset, ta, open_position, macro_event)
     escalation_reason, escalation_kind = escalation if escalation else (None, None)
 
+    # 2026-08-31 - cenovu uroven si Claude nastavil SAM v predchadzajucom health
+    # checku prave preto, ze jej dosiahnutie povazoval za dolezite. Bez tohoto by
+    # ju mechanicka brana nizsie ticho zhltla (trend sa nemusel zmenit, strata
+    # nemusi byt blizko SL) a watch by skoncil ako drahy no-op - rovnaka trieda
+    # chyby ako pri makro udalostiach. Makro ma prednost len v OZNACENI druhu
+    # (cooldown je per-kind), plny cyklus prebehne tak ci tak.
+    if watch_triggered and escalation_kind != "macro":
+        escalation_reason = (
+            "Splnila sa cenova uroven, ktoru si si sam nastavil v predchadzajucom "
+            "health checku (watch_price)"
+            + (f"; zaroven: {escalation_reason}" if escalation_reason else "")
+        )
+        escalation_kind = "watch"
+
     cooldown_active = False
     cooldown_bypassed_reason = None
     if escalation_reason is not None and open_trade.last_health_escalation_at is not None:
@@ -845,6 +889,13 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
             last_esc = last_esc.replace(tzinfo=timezone.utc)
         hours_since = (datetime.now(timezone.utc) - last_esc).total_seconds() / 3600
         cooldown_active = hours_since < config.HEALTH_CHECK_ESCALATION_COOLDOWN_HOURS
+
+        # Watch-trigger cooldownu NEPODLIEHA vobec: uroven nie je opakujuci sa
+        # mechanicky signal, ale jednorazovy zamer z minuleho cyklu, a jeho
+        # frekvenciu uz strazi config.WATCH_TRIGGER_MAX_PER_HOUR (per asset a
+        # hodinu) vo watch_monitor.py. Zdvojena brzda by ho len znefunkcnila.
+        if escalation_kind == "watch":
+            cooldown_active = False
 
         # 2026-08-31 - VYNIMKA: cooldown plati LEN na OPAKOVANIE TOHO ISTEHO
         # druhu triggeru. Dovtedy bol per-POZICIA, takze eskalacia kvoli strate
@@ -953,6 +1004,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
             reasoning=reasoning,
             health_recommendation="hold",
             trade_id=open_trade.id,
+            **_carry_forward_position_watch(session, open_trade),
         ))
         session.commit()
         return
@@ -1061,8 +1113,17 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         health_recommendation=health.get("recommendation"),
         health_expected_direction=health.get("expected_direction"),
         close_confidence=health.get("close_confidence"),
+        # 2026-08-31 - watch nastaveny POCAS drzania pozicie (viz
+        # POSITION_HEALTH_TOOL.watch_price). watch_monitor ho prijme prave preto,
+        # ze zaznam nesie trade_id tejto otvorenej pozicie - zastarane VSTUPNE
+        # watch urovne z cyklov pred otvorenim (trade_id=None) naďalej ignoruje.
+        watch_price=health.get("watch_price"),
+        watch_direction=health.get("watch_direction"),
+        watch_rationale=health.get("watch_rationale"),
+        data_issue=health.get("data_issue"),
         trade_id=open_trade.id,
         triggered_by_macro_event=macro_event,
+        triggered_by_watch=True if watch_triggered else None,
         usage_input_tokens=usage.get("input_tokens"),
         usage_cache_write_tokens=usage.get("cache_write_tokens"),
         usage_cache_read_tokens=usage.get("cache_read_tokens"),
@@ -1266,7 +1327,8 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
         ).first()
         if open_trade:
             _run_position_health_check(asset, open_trade, cross_market, market_session, btc_proxy,
-                                        fred_macro, session, macro_event)
+                                        fred_macro, session, macro_event,
+                                        watch_triggered=watch_triggered)
             return
 
         try:

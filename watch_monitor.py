@@ -220,8 +220,6 @@ def _check_price_watch_for_assets(session, assets_to_check: list[dict]) -> None:
         open_trade = session.query(Trade).filter(
             Trade.symbol == symbol, Trade.status == "open",
         ).first()
-        if open_trade:
-            continue  # uz je otvorena pozicia - watch uz nie je relevantny
 
         last_log = (
             session.query(CycleLog)
@@ -229,7 +227,31 @@ def _check_price_watch_for_assets(session, assets_to_check: list[dict]) -> None:
             .order_by(CycleLog.created_at.desc())
             .first()
         )
+
+        if open_trade:
+            # Do 2026-08-31 sa tu bezpodmienecne robilo `continue` ("uz je
+            # otvorena pozicia - watch uz nie je relevantny"). To platilo, kym
+            # watch vedel nastavit LEN otvaraci cyklus: taka uroven hovori "tu
+            # by som vstupil", co je po vstupe naozaj bezpredmetne (a po
+            # zatvoreni je uz aj tak zastarana).
+            #
+            # Odvtedy vie watch nastavit AJ position health check
+            # (POSITION_HEALTH_TOOL.watch_price) a ten znamena nieco uplne ine:
+            # "tu prehodnotim tezu TEJTO pozicie". Preto sa tu prijme LEN watch,
+            # ktory patri prave tejto otvorenej pozicii (trade_id sedi) -
+            # zastarane vstupne urovne z cyklov pred otvorenim sa naďalej
+            # ignoruju presne ako doteraz.
+            #
+            # Spustenie vedie spat do _run_position_health_check (pozicia je
+            # otvorena, run_cycle_for_asset routuje tam), NIE do otvarania novej
+            # pozicie - watch tu teda nemoze sposobit vstup.
+            if last_log is None or last_log.trade_id != open_trade.id:
+                continue
+
         has_pair_1 = last_log and last_log.watch_price is not None and last_log.watch_direction
+        # Druhy par vie nastavit len otvaraci cyklus (POSITION_HEALTH_TOOL ho
+        # zamerne nema - pri drzanej pozicii je obojstranny "nad X long / pod Y
+        # short" bezpredmetny).
         has_pair_2 = last_log and last_log.watch_price_2 is not None and last_log.watch_direction_2
         if not has_pair_1 and not has_pair_2:
             continue

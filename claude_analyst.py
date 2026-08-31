@@ -359,6 +359,57 @@ POSITION_HEALTH_TOOL = {
             # odrazat presne, inak Claude tomuto cislu neopravnene neprikladal
             # vahu (2026-08-26 produkcny nalez, ZEC - zastarany popis tvrdil
             # opak reality).
+            # 2026-08-31 (na ziadost pouzivatela, nalez 3 z revizie promptov) -
+            # POCAS drzania pozicie sa dovtedy NEDALO nastavit cenovy watch:
+            # tieto polia v schema chybali A watch_monitor.check_watch_triggers
+            # symboly s otvorenou poziciou zamerne preskakoval ("if open_trade:
+            # continue"). Claude teda nemal ako povedat "drz, ale ak prerazi pod
+            # X, pozri sa na to znova" - musel bud zatvorit hned, alebo cakat na
+            # dalsi planovany cyklus (po 2026-08-31 az 2 hodiny).
+            #
+            # Watch nastaveny TU vedie na dalsi HEALTH CHECK, nie na otvaraci
+            # cyklus (pozicia je stale otvorena, takze run_cycle_for_asset
+            # smeruje spat sem). Sluzi teda na prehodnotenie TEZY, nie na vstup.
+            "watch_price": {
+                "type": "number",
+                "description": (
+                    "VOLITEĽNÉ (vždy spolu s watch_direction). Konkrétna cenová úroveň, pri "
+                    "ktorej chceš túto pozíciu prehodnotiť ESTE PRED ďalším plánovaným cyklom - "
+                    "typicky úroveň, ktorej prekonanie by tvoju pôvodnú tézu vyvrátilo (napr. "
+                    "prelomenie supportu, o ktorý sa long opiera) alebo naopak potvrdilo. "
+                    "Lacný poller sleduje živú cenu a pri splnení ťa mimoriadne zavolá znova na "
+                    "ďalší health check - NIE na otvorenie novej pozície. "
+                    "NENASTAVUJ, ak je dôvod na prehodnotenie ČASOVÁ udalosť (report, earnings) - "
+                    "tam žiadny cenový pohyb tvoju neistotu nevyrieši. NENASTAVUJ ani vtedy, ak "
+                    "úroveň leží za SL/TP - tam pozíciu aj tak zavrie burza sama."
+                ),
+            },
+            "watch_direction": {
+                "type": "string", "enum": ["above", "below"],
+                "description": (
+                    "VOLITEĽNÉ (vždy spolu s watch_price). Ktorým smerom musí cena prejsť cez "
+                    "watch_price, aby sa spustil mimoriadny health check."
+                ),
+            },
+            "watch_rationale": {
+                "type": "string",
+                "description": (
+                    "POVINNÉ, ak vypĺňaš watch_price. Jedna veta: čo presne by dosiahnutie tejto "
+                    "úrovne znamenalo a čo by si vtedy zvážil (napr. \"pod 0.0181 padá support, "
+                    "o ktorý sa short opiera - vtedy by som zvážil zatvorenie so ziskom\"). "
+                    "Nestačí skonštatovať úroveň - vysvetli VZŤAH k téze pozície."
+                ),
+            },
+            "data_issue": {
+                "type": "string",
+                "description": (
+                    "VOLITEĽNÉ: ak ti vstupné dáta pre tento cyklus prídu podozrivé alebo "
+                    "nekonzistentné (zastaraná/nulová cena, evidentne chybný TA údaj, poškodené "
+                    "dáta z externých zdrojov), stručne to popíš - NEZÁVISLE od svojho hodnotenia "
+                    "pozície. Zobrazí sa v histórii signálov, aby si to všimol aj človek. "
+                    "Na bežné neistoty trhu toto pole NEPOUŽÍVAJ."
+                ),
+            },
             "close_confidence": {
                 "type": "integer",
                 "description": (
@@ -1870,7 +1921,13 @@ vyvíjať V PROSPECH tejto pozície alebo PROTI nej.
 - Ale ak zvolíš recommendation="consider_closing" a close_confidence dosiahne prah
   ({close_threshold:.0f}), bot pozíciu ZATVORÍ SÁM trhovým príkazom, okamžite a bez potvrdenia
   človekom. NIE JE to len názor do logu. Podľa toho zváž, akú istotu tam napíšeš - podhodnotené
-  číslo znamená, že pozícia zostane otvorená aj vtedy, keď si myslíš, že by nemala."""
+  číslo znamená, že pozícia zostane otvorená aj vtedy, keď si myslíš, že by nemala.
+- Máš aj TRETIU možnosť medzi "držím ďalej" a "zatváram teraz": watch_price + watch_direction.
+  Lacný poller sleduje živú cenu každú minútu a keď tvoju úroveň dosiahne, zavolá ťa na
+  MIMORIADNY health check tejto istej pozície - teda skôr, než by prišiel ďalší plánovaný.
+  Použi to vtedy, keď je tvoja neistota naviazaná na konkrétnu cenovú úroveň ("držím, ale ak
+  padne pod support X, téza padá s ním"), nie na plynutie času. Nastavená úroveň platí, kým ju
+  v niektorom ďalšom health checku nezmeníš alebo nevynecháš - vynechanie ju zruší."""
         # POZOR: {recent_trades_block} sa NEPRIDAVA znova - uz je sucastou {header}
         # vyssie (spolocne pre oba vetvy tejto funkcie). Predchadzajuca verzia ho
         # sem pridavala druhykrat (duplicitne, zbytocne tokeny) - opravene 2026-08-27.
@@ -2603,3 +2660,13 @@ def _validate_health_decision(decision: dict) -> None:
         raise ValueError(f"Neplatné recommendation: {decision['recommendation']}")
     if decision["expected_direction"] not in ("favorable", "unfavorable", "uncertain"):
         raise ValueError(f"Neplatný expected_direction: {decision['expected_direction']}")
+
+    # 2026-08-31 - watch polia su volitelne, ale MUSIA prist ako platny par.
+    # Nekompletny par sa TICHO zahodi (nie ValueError) - health check je hodnotenie
+    # uz otvorenej pozicie a zahodit ho cely kvoli doplnkovemu polu by bolo horsie
+    # nez prist o watch (rovnaka uvaha ako pri key_assumptions vyssie).
+    wp, wd = decision.get("watch_price"), decision.get("watch_direction")
+    if wp is None or wd not in ("above", "below"):
+        decision.pop("watch_price", None)
+        decision.pop("watch_direction", None)
+        decision.pop("watch_rationale", None)
