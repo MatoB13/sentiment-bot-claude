@@ -499,6 +499,23 @@ def get_market_snapshot(asset: dict, session) -> dict:
     except Exception as e:
         print(f"[market_data] Denny vyssi-timeframe kontext zlyhal (pokracujem bez neho): {e}")
 
+    # 2026-08-31 (na ziadost pouzivatela) - Binance "global long/short account
+    # ratio" pre squeeze-risk kontext (podiel VSETKYCH futures uctov v dlhej
+    # vs kratkej pozicii - ak je extremne jednostranny, hrozi squeeze v OPACNOM
+    # smere davu). LEN pre tickery s uz existujucim binance_volume_symbol (rovnaky
+    # zdroj ako pre volume - overene, ze Binance ma pre ne skutocny futures trh).
+    # Neautentifikovany fapi.binance.com endpoint (INY domain nez spot
+    # data-api.binance.vision pre klines vyssie) - regionalne obmedzenie
+    # NEOVERENE, preto plne neblokujuce zlyhanie ako pri ostatnych doplnkoch.
+    binance_symbol = asset.get("binance_volume_symbol")
+    if binance_symbol:
+        try:
+            ls = binance_client.get_long_short_ratio(binance_symbol)
+            if ls is not None:
+                snapshot["long_short_ratio"] = ls
+        except Exception as e:
+            print(f"[market_data] Long/short ratio (Binance) zlyhal (pokracujem bez neho): {e}")
+
     return snapshot
 
 

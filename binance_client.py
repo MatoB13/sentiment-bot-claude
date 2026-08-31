@@ -18,6 +18,14 @@ import requests
 
 _BASE_URL = "https://data-api.binance.vision/api/v3/klines"
 _TIMEOUT_SECONDS = 15
+# 2026-08-31 (na ziadost pouzivatela) - long/short account ratio pre squeeze-risk
+# kontext (viz market_data.get_long_short_snapshot). INY DOMAIN nez klines
+# vyssie (fapi.binance.com = futures data, nie spot data-api.binance.vision) -
+# je to verejny, neautentifikovany endpoint (rovnaky "market data" charakter
+# ako klines), ale NEOVERENE, ci ma rovnaku vynimku z US regionalneho blokovania
+# ako oficialny data-api.binance.vision mirror. Zlyhanie MUSI byt rovnako
+# neblokujuce ako vyssie - volajuci (market_data.py) jednoducho vynecha polia.
+_FUTURES_DATA_URL = "https://fapi.binance.com/futures/data/globalLongShortAccountRatio"
 
 
 def get_hourly_klines(symbol: str, limit: int = 500) -> list[dict]:
@@ -35,6 +43,29 @@ def get_hourly_klines(symbol: str, limit: int = 500) -> list[dict]:
         {"open_time": r[0], "close": float(r[4]), "volume": float(r[5])}
         for r in rows
     ]
+
+
+def get_long_short_ratio(symbol: str) -> dict | None:
+    """Najnovsi "global long/short account ratio" (podiel VSETKYCH Binance
+    futures uctov s otvorenou dlhou vs kratkou poziciou na danom symbole,
+    NIE vazene velkostou pozicie) - verejny endpoint, ziadny API kluc.
+    Vrati {"long_pct", "short_pct", "long_short_ratio"} alebo None pri
+    zlyhani (symbol nema futures market, region blok, timeout a pod.)."""
+    resp = requests.get(
+        _FUTURES_DATA_URL,
+        params={"symbol": symbol, "period": "1h", "limit": 1},
+        timeout=_TIMEOUT_SECONDS,
+    )
+    resp.raise_for_status()
+    rows = resp.json()
+    if not rows:
+        return None
+    r = rows[-1]
+    return {
+        "long_pct": round(float(r["longAccount"]) * 100, 1),
+        "short_pct": round(float(r["shortAccount"]) * 100, 1),
+        "long_short_ratio": round(float(r["longShortRatio"]), 3),
+    }
 
 
 if __name__ == "__main__":

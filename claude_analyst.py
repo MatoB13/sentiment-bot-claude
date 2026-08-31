@@ -1296,6 +1296,19 @@ tenších/syntetických trackeroch (MiniMax/Unitree/Zhipu AI/SKHYNIX) - zváž t
 dôvod na opatrnosť (nižšia confidence), nie samostatný dôvod na zamietnutie."""
 
 
+_LONG_SHORT_NOTE = """
+`long_short_ratio` (2026-08-31, ak je prítomný - LEN pre tickery s vlastným futures trhom na
+Binance) - `long_pct`/`short_pct` = podiel VŠETKÝCH Binance futures účtov aktuálne v dlhej/krátkej
+pozícii na {instrument} (NIE váhované veľkosťou pozície, len počet účtov), `long_short_ratio` = ich
+pomer. Toto je fakt o POZICIONOVANÍ DAVU, iný rozmer než technická analýza - keď je extrémne
+jednostranný (orientačne ratio nad ~2.5 = prevažne long, pod ~0.4 = prevažne short), znamená to
+zvýšené riziko SQUEEZE v OPAČNOM smere davu: veľa pozícií na jednej strane = veľa likvidácií
+čakajúcich tesne za cenou, ktoré sa pri pohybe proti davu môžu kaskádovo spustiť a pohyb zosilniť.
+Toto je KONTRARIÁNSKY signál (extrémny long = riziko prudkého poklesu, extrémny short = riziko
+prudkého rastu), nie potvrdenie smeru - zváž ho ako doplnkový kontext k confidence, nie mechanické
+pravidlo "vždy stavaj proti davu". Blízko 1.0 (vyvážené) = neutrálny fakt, nič extra."""
+
+
 _PER_ASSET_SYSTEM_APPENDIX_TEMPLATE = """Si skúsený intradenný analytik pre {label}.
 Dostaneš technickú analýzu (TA) {instrument} - vrátane `recent_candles`, surových posledných
 {candle_bars} hodinových sviečok {candle_format} - cross-market kontext, session
@@ -1308,6 +1321,7 @@ hodinách. Vyhľadávaj len ak to dáva zmysel (max. niekoľko vyhľadávaní).
 {trend_strength_note}
 {htf_note}
 {spread_note}
+{long_short_note}
 
 Ako syntetizovať viacero signálov pre {instrument} (nepočítaj váhy mechanicky, posúď to ako
 skúsený analytik):
@@ -1339,6 +1353,7 @@ def _system_prompt_blocks(asset: dict) -> list[dict]:
         trend_strength_note=_TREND_STRENGTH_NOTE,
         htf_note=_HTF_NOTE,
         spread_note=_SPREAD_NOTE.format(instrument=asset["name"]),
+        long_short_note=_LONG_SHORT_NOTE.format(instrument=asset["name"]),
     )
     return [
         {"type": "text", "text": SYSTEM_PROMPT_SHARED,
