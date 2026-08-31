@@ -19,6 +19,7 @@ import yfinance as yf
 
 import binance_client
 import coingecko_client
+import market_regime
 from db import FundingRateBar, PriceBar
 
 # Kolko poslednych hodinovych sviecok posielame Claude ako surovy podklad na
@@ -515,6 +516,18 @@ def get_market_snapshot(asset: dict, session) -> dict:
                 snapshot["long_short_ratio"] = ls
         except Exception as e:
             print(f"[market_data] Long/short ratio (Binance) zlyhal (pokracujem bez neho): {e}")
+
+    # 2026-08-31 (audit + navrh pouzivatela) - rezim trhu (trend vs. ustanovene
+    # rozpatie) z VLASTNYCH Strike barov. Rezim sa vyrazne lisi per ticker
+    # (za poslednych 7 dni: NEAR 73.8% casu v rozpati vs GOOGL 6.0%), preto sa
+    # pocita samostatne pre kazdy symbol. Viz market_regime.py pre backtest,
+    # ktory tuto detekciu overil, a claude_analyst._RANGE_NOTE pre interpretaciu.
+    try:
+        regime = market_regime.compute_regime(asset["strike_symbol"], session)
+        if regime is not None:
+            snapshot["market_regime"] = regime
+    except Exception as e:
+        print(f"[market_data] Detekcia rezimu zlyhala (pokracujem bez nej): {e}")
 
     return snapshot
 

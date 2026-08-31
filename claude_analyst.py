@@ -1309,6 +1309,51 @@ prudkého rastu), nie potvrdenie smeru - zváž ho ako doplnkový kontext k conf
 pravidlo "vždy stavaj proti davu". Blízko 1.0 (vyvážené) = neutrálny fakt, nič extra."""
 
 
+_RANGE_NOTE = """
+`market_regime` (2026-08-31) - REŽIM TRHU. Na rozdiel od ostatných signálov vyššie toto NIE JE
+len doplnkový kontext: je to PRVÝ krok rozhodovania, ktorý určuje, ako čítať všetko ostatné.
+
+Prečo: audit produkčných dát ukázal, že doterajšie vstupy nasledovali smer práve prebehnutého
+pohybu v 86.6 % prípadov (čiže momentum). Kým trh trendoval, smerová presnosť bola 58.4 %.
+Keď sa trh preklopil na mean-reverting, tá istá logika spadla na 23.0 % - systematicky kupovala
+vrcholy a predávala dná. Overené, že to nie je chyba úsudku: aj čisto mechanická momentum
+stratégia na tých istých dátach spadla rovnako.
+
+Pole obsahuje: `regime` ("ustanovene_rozpatie" alebo "trend_alebo_prechod"), `range_high`,
+`range_low`, `position_in_range` (0.0 = dno rozpätia, 1.0 = vrchol), `at_edge` ("vrchol"/"dno"/
+null), `range_width_pct`, `touches_top`/`touches_bottom` (koľko barov sa dotklo okraja),
+`width_stability` a `efficiency_ratio` (doplnkovo: blízko 1 = čistý trend, blízko 0 = píla).
+Rozpätie sa označí za ustanovené LEN ak sa cena viackrát dotkla oboch okrajov, šírka je stabilná
+a rozpätie je dosť široké - jednorazový extrém sa za rozpätie nepovažuje.
+
+AKO ROZHODOVAŤ:
+
+1) `regime` = "trend_alebo_prechod" - pokračuj v doterajšom prístupe. Vstup v smere pohybu je
+   v poriadku, momentum tu funguje.
+
+2) `regime` = "ustanovene_rozpatie" - tu je doterajší prístup preukázateľne škodlivý. Backtest
+   na 12 307 vzorkách (vlastné hodinové bary, bez lookaheadu) dal pri vstupe na okraji rozpätia:
+     - PROTI pohybu (fade okraja): 60.6 % na 4h, 63.5 % na 12h, 65.9 % na 24h
+     - V SMERE pohybu (prerazenie): 36.5 % - teda výrazne horšie než náhoda
+   Preto:
+   a) `at_edge` = "vrchol" -> uvažuj prednostne o SHORT (cena sa pravdepodobne vráti do rozpätia).
+      `at_edge` = "dno" -> uvažuj prednostne o LONG.
+   b) `at_edge` = null (si v strede rozpätia) -> priamy vstup teraz nemá edge. Namiesto toho
+      NASTAV watch_price na okraj rozpätia (`range_high` alebo `range_low`, podľa toho, ktorý je
+      bližšie alebo pravdepodobnejší) a do `watch_rationale` napíš, že pri dosiahnutí okraja
+      zvážiš vstup PROTI pohybu. Toto je presne tá situácia, na ktorú watch mechanizmus slúži.
+   c) Vstup V SMERE pohybu (stávka na prerazenie rozpätia) je stále možný, ale má byť VÝNIMOČNÝ -
+      len ak máš konkrétny dôvod mimo samotnej ceny (silná správa, makro udalosť, potvrdený objem
+      výrazne nad priemerom) a v `reasoning` ho výslovne pomenuj. Samotné "cena sa blíži k hornej
+      hranici a rastie" NIE JE dostatočný dôvod - to je presne ten vzor, ktorý dával 36.5 %.
+
+DÔLEŽITÉ OBMEDZENIE, ktoré maj na pamäti: väčšina tej výhody pochádza z toho, že trh je AKTUÁLNE
+mean-reverting, nie zo samotnej detekcie rozpätia. Preto sa fade NESMIE aplikovať mechanicky
+všade - platí len vnútri ustanoveného rozpätia. Mimo neho by to bola tá istá chyba ako doterajšie
+trvalé momentum, len zrkadlovo obrátená. Ak `market_regime` v dátach chýba (nedostatok barov),
+rozhoduj sa ako doteraz."""
+
+
 _PER_ASSET_SYSTEM_APPENDIX_TEMPLATE = """Si skúsený intradenný analytik pre {label}.
 Dostaneš technickú analýzu (TA) {instrument} - vrátane `recent_candles`, surových posledných
 {candle_bars} hodinových sviečok {candle_format} - cross-market kontext, session
@@ -1322,6 +1367,7 @@ hodinách. Vyhľadávaj len ak to dáva zmysel (max. niekoľko vyhľadávaní).
 {htf_note}
 {spread_note}
 {long_short_note}
+{range_note}
 
 Ako syntetizovať viacero signálov pre {instrument} (nepočítaj váhy mechanicky, posúď to ako
 skúsený analytik):
@@ -1354,6 +1400,7 @@ def _system_prompt_blocks(asset: dict) -> list[dict]:
         htf_note=_HTF_NOTE,
         spread_note=_SPREAD_NOTE.format(instrument=asset["name"]),
         long_short_note=_LONG_SHORT_NOTE.format(instrument=asset["name"]),
+        range_note=_RANGE_NOTE,
     )
     return [
         {"type": "text", "text": SYSTEM_PROMPT_SHARED,
