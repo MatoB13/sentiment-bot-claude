@@ -1353,6 +1353,17 @@ AKO S TÝM PRACOVAŤ:
    výrazne nad priemerom) a v `reasoning` ho výslovne pomenuj. Samotné "cena rastie a blíži sa
    k hornej hranici" nestačí - to je práve ten vzor, ktorý v dátach prehráva.
 
+5) KEĎ POSUDZUJEŠ UŽ OTVORENÚ POZÍCIU (position health check), `price_range` je aktuálny -
+   pozri sa naň aj vtedy. Špeciálne: ak si do pozície vstúpil ako fade na okraji pásma a cena
+   medzitým došla k PROTIĽAHLÉMU mantinelu, ten je prirodzeným cieľom obchodu - a náš TP môže
+   byť ešte ďalej, takže hrozí, že sa cena od mantinela odrazí späť a zisk sa vráti. Je to
+   legitímny dôvod zvážiť `consider_closing`.
+
+   Ber to však s mierou - odmerané na 1 551 fade vstupoch: protiľahlý mantinel je bližšie než
+   náš TP len v 12-17 % prípadov (TP býva v priemere na 3.0-3.6 %, mantinel na 7.0-7.3 %)
+   a cena ho v tých prípadoch reálne dosiahne len v 10-26 %. Čiže je to reálna, ale ZRIEDKAVÁ
+   situácia - nehľadaj ju nasilu a nezatváraj len preto, že pásmo existuje.
+
 Ak `price_range` v dátach chýba (málo barov), rozhoduj sa ako doteraz."""
 
 
