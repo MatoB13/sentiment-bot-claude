@@ -265,9 +265,10 @@ DECISION_TOOL = {
             "closed_trade_reflection": {
                 "type": "string",
                 "description": (
-                    "VYPLN LEN ak user sprava obsahuje sekciu 'Práve zatvorená pozícia' "
-                    "(mimoriadny cyklus spustený HNEĎ po TP/timeout/manuálnom zatvorení, alebo po "
-                    "SL/likvidácii). 2-3 vety: bolo zatvorenie správne timeované, alebo mala pozícia "
+                    "VYPLN LEN ak user sprava obsahuje sekciu 'Zatvorená pozícia' "
+                    "(mimoriadny cyklus spustený po TP/timeout/manuálnom zatvorení, alebo po "
+                    "SL/likvidácii - pozri v tej sekcii ČAS zatvorenia, môže byť aj staršie, nie vždy "
+                    "'práve teraz'). 2-3 vety: bolo zatvorenie správne timeované, alebo mala pozícia "
                     "pokračovať dlhšie (napr. pri TP: bol cieľ nastavený príliš konzervatívne), alebo "
                     "malo prísť skôr? Pri SL/likvidácii: bol vstup/SL nastavený primerane, alebo niečo "
                     "(prehriaty RSI, chase breakoutu a pod.) vopred naznačovalo zvýšené riziko rýchleho "
@@ -1911,9 +1912,23 @@ TY, len odporúčaš človeku, ktorý sa rozhodne sám."""
                 )
             sltp_eval_block = "\n" + "\n".join(lines) + "\n"
 
-        closed_trade_block = f"""## Práve zatvorená pozícia (dôvod: {reason_label})
+        # 2026-08-31 (na ziadost pouzivatela, po zisteni ze self-heal retry
+        # stareho zaseknuteho post-close review - viz position_monitor.
+        # _backfill_stale_reviews - hlasil "PRAVE zatvorena" aj pri obchode
+        # zatvorenom pred dnami, hoci zvysok cyklu pouziva DNESNE trhove data.
+        # Explicitny cas + hodiny odvtedy namiesto neподmieneneho "prave" -
+        # Claude si sam posudi, nakolko su aktualne trhove data relevantne
+        # pre TOTO zatvorenie (cerstve = priamo relevantne, stare = len
+        # vseobecny kontext "co sa odvtedy stalo", nie bezprostredny dosledok).
+        hours_since_close = ct.get("hours_since_close")
+        if hours_since_close is not None and hours_since_close > 1:
+            timing_label = f"pred {hours_since_close:.1f}h ({ct.get('closed_at_str', '?')})"
+        else:
+            timing_label = "práve teraz"
+        closed_trade_block = f"""## Zatvorená pozícia (dôvod: {reason_label}) - zatvorená {timing_label}
 Smer: {(ct['direction'] or '').upper()} | Vstup: {ct['entry_price']} | Výstup: {ct['exit_price']}
 Držaná: {ct['hours_held']:.1f}h | PnL: {sign}${ct['pnl_usd']:.2f}
+{"POZOR: toto zatvorenie NIE JE čerstvé - nižšie uvedené trhové dáta sú AKTUÁLNE (teraz), nie z momentu zatvorenia. Ber ich ako kontext 'čo sa odvtedy stalo', nie ako bezprostredný dôsledok tohto zatvorenia." if hours_since_close is not None and hours_since_close > 1 else ""}
 
 {action_note}
 {sltp_eval_block}

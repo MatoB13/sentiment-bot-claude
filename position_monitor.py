@@ -10,7 +10,7 @@ import sl_grid_backtest
 import strike_client
 import trade_cycle
 import watch_monitor
-from db import AtrCalibration, SlTpBacktestCandidate, Trade, get_session
+from db import AtrCalibration, CycleLog, SlTpBacktestCandidate, Trade, get_session
 
 # /v2/closedPositions (povodny zdroj) nema ZIADNE price/PnL/fee polia - viz
 # memory strike_api_integration_lessons. Presne udaje sa daju ziskat len cez
@@ -347,12 +347,22 @@ def _build_closed_trade_context(trade: Trade) -> dict:
     closed_at = trade.closed_at
     if closed_at.tzinfo is None:
         closed_at = closed_at.replace(tzinfo=timezone.utc)
+    # 2026-08-31 (na ziadost pouzivatela, po zisteni ze prompt doteraz hovoril
+    # "PRAVE zatvorena pozicia" bez ohladu na to, kedy sa REALNE zatvorila -
+    # pri self-heal retry stareho zaseknuteho review (viz position_monitor.
+    # _backfill_stale_reviews) sa tak Claude-ovi tvrdilo, ze zatvorenie je
+    # cerstve, hoci zvysok cyklu pouziva DNESNE trhove data. Explicitny cas
+    # zatvorenia + hodiny odvtedy nechaju Claude-a SAMEHO posudit, nakolko je
+    # aktualny trhovy kontext relevantny pre toto konkretne zatvorenie.
+    hours_since_close = (datetime.now(timezone.utc) - closed_at).total_seconds() / 3600
     return {
         "trade_id": trade.id,
         "direction": trade.direction,
         "entry_price": trade.entry_fill_price,
         "exit_price": trade.close_fill_price,
         "hours_held": (closed_at - opened_at).total_seconds() / 3600,
+        "closed_at_str": closed_at.strftime("%A, %d. %B %Y, %H:%M UTC"),
+        "hours_since_close": hours_since_close,
         "pnl_usd": trade.pnl_usd,
         "close_reason": trade.close_reason,
         "evaluation_only": trade.close_reason in _EVALUATION_ONLY_CLOSE_REASONS,
@@ -431,9 +441,9 @@ def _check_and_queue_review(trade: Trade, session, pending_reviews: list) -> Non
     """Po _apply_exact_close over, ci uz je close_reason VYRIESENY (nie surovy
     fallback text - viz _apply_exact_close) a ci patri medzi _TRIGGER_REVIEW_REASONS.
     Nastavi post_close_review_triggered_at HNED (v tej istej transakcii ako
-    close_reason), aby sa pri dalsom tiku uz neopakovalo, aj keby samotny
-    mimoriadny cyklus neskor zlyhal (radsej vynechame jeden review nez
-    spamovali opakovane volania pri kazdom pollovacom tiku)."""
+    close_reason), aby sa pri dalsom tiku uz neopakovalo, KYM beh (na pozadi)
+    prebieha - viz _backfill_stale_reviews nizsie pre pripad, ze sa NIKDY
+    nedokonci (flag by inak zostal navzdy "hotovo" bez skutocneho vysledku)."""
     if trade.close_reason not in _TRIGGER_REVIEW_REASONS or trade.post_close_review_triggered_at is not None:
         return
     asset = assets.by_symbol(trade.symbol)
@@ -441,6 +451,68 @@ def _check_and_queue_review(trade: Trade, session, pending_reviews: list) -> Non
         return
     trade.post_close_review_triggered_at = datetime.now(timezone.utc)
     pending_reviews.append((asset, _build_review_context(trade, session, asset)))
+
+
+# 2026-08-31 (UNITREE #140 incident) - post_close_review_triggered_at sa
+# nastavuje HNED PRED spustenim mimoriadneho cyklu (viz vyssie), nie az po
+# jeho uspesnom dokonceni - bezpecne proti duplicitnemu spusteniu POCAS behu,
+# ale ak sa beh na pozadi nikdy nedokonci (napr. Railway redeploy zabije
+# vlakno v polovici, Claude/web_search volanie zlyha necakane), flag zostane
+# navzdy "hotovo" bez toho, aby CycleLog s reviewed_trade_id vobec vznikol -
+# review je tak stratena navzdy, ziadny prirodzeny retry mechanizmus predtym
+# neexistoval. Rovnaky "self-heal" duch ako _backfill_missing_exact_data
+# vyssie, len pre TENTO iny druh medzery.
+_STALE_REVIEW_RETRY_AFTER_MINUTES = 15
+# 2026-08-31 (na ziadost pouzivatela, po zisteni ze prompt hovori "## PRAVE
+# zatvorena pozicia" a zvysok cyklu pouziva AKTUALNE trhove data bez ohladu
+# na to, kedy sa obchod REALNE zatvoril) - horna hranica na to, ako "staru"
+# medzeru sa este oplati spatne dohnat. Kontrola naozivo nasla 5 takychto
+# zaseknutych review starych 7-13 DNI (BTC/ADA/ZEC) - spustit na tychto
+# "prave zatvorena pozicia" s dnesnymi cenami by bolo vyslovene zavadzajuce
+# (Claude by porovnaval tyzdenne stare zatvorenie so sucasnou cenou, akoby to
+# bolo bezprostredne po sebe). Radsej tuto konkretnu review natrvalo strat
+# (rovnaky duch ako povodny navrh - vynechat je lepsie nez zavadzat), nez ju
+# spustit s poskodenym casovym kontextom. Pre BUDUCE vypadky (typicky
+# vyriesene v ramci minut/hodin, kedze tento self-heal bezi kazdy tik) toto
+# hornu hranicu prakticky nikdy nedosiahne.
+_STALE_REVIEW_MAX_AGE_HOURS = 24
+
+
+def _backfill_stale_reviews(session, pending_reviews: list) -> None:
+    """Najde obchody, kde bol post-close review spusteny (flag nastaveny) pred
+    _STALE_REVIEW_RETRY_AFTER_MINUTES az _STALE_REVIEW_MAX_AGE_HOURS, ale
+    ZIADEN CycleLog s reviewed_trade_id pre ne neexistuje - teda beh sa bud
+    nikdy nedokoncil, alebo padol bez zapisu. Resetne flag (co dovoli
+    _check_and_queue_review znova ho zaradit) a hned aj zaradi - jeden
+    dodatocny pokus, nie neobmedzeny opakovany retry (ak zlyha aj druhykrat,
+    ostava tak, rovnaka filozofia ako povodny navrh - vynechat jeden review
+    je lepsie nez nekonecne opakovane pokusy pri kazdom tiku). Prilis stare
+    (nad _STALE_REVIEW_MAX_AGE_HOURS) sa VYNECHAVAJU NATRVALO - viz konstanta
+    vyssie."""
+    cutoff_recent = datetime.now(timezone.utc) - timedelta(minutes=_STALE_REVIEW_RETRY_AFTER_MINUTES)
+    cutoff_old = datetime.now(timezone.utc) - timedelta(hours=_STALE_REVIEW_MAX_AGE_HOURS)
+    stuck = (
+        session.query(Trade)
+        .filter(Trade.post_close_review_triggered_at.isnot(None),
+                Trade.post_close_review_triggered_at < cutoff_recent,
+                Trade.post_close_review_triggered_at > cutoff_old)
+        .all()
+    )
+    if not stuck:
+        return
+    reviewed_ids = {
+        row[0] for row in session.query(CycleLog.reviewed_trade_id)
+        .filter(CycleLog.reviewed_trade_id.in_([t.id for t in stuck]))
+        .all()
+    }
+    for trade in stuck:
+        if trade.id in reviewed_ids:
+            continue
+        print(f"[position_monitor] Trade {trade.id} [{trade.symbol}]: post-close review bol "
+              f"spusteny pred >{_STALE_REVIEW_RETRY_AFTER_MINUTES} min, ale nikdy sa nedokoncil "
+              "(ziadny CycleLog vysledok) - davam mu jeden dalsi pokus.")
+        trade.post_close_review_triggered_at = None
+        _check_and_queue_review(trade, session, pending_reviews)
 
 
 def _fire_post_close_reviews(pending_reviews: list) -> None:
@@ -724,6 +796,9 @@ def check_open_trades():
     pending_recompute: set = set()
     try:
         _backfill_missing_exact_data(session, pending_reviews, pending_notifications)
+        # 2026-08-31 - analogicky self-heal, ale pre review, ktory sa spustil
+        # (flag nastaveny), no nikdy sa nedokoncil - viz jej docstring.
+        _backfill_stale_reviews(session, pending_reviews)
         # 2026-08-21 - analogicke k vyssie, ale pre OTVORENE obchody (presna
         # entry_fill_price, viz jej docstring) namiesto zatvorenych.
         _backfill_missing_entry_fill_price(session)
