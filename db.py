@@ -112,6 +112,15 @@ class Trade(Base):
     # _run_position_health_check) - novy, HORSI fakt, nie opakovanie stareho.
     last_health_escalation_pnl_pct = Column(Float, nullable=True)
 
+    # 2026-08-31 (na ziadost pouzivatela) - stav cenoveho pasma V CASE VSTUPU
+    # (viz price_range.compute_price_range). Ulozene priamo na trade, nie
+    # dohladavane spatne z cycle_logs.ta, aby to prezilo aj self-heal review
+    # spusteny o hodiny neskor, ked uz je aktualne pasmo uplne ine.
+    # Bez tohto polia by post-close review ani retrospektiva nevedeli odlisit
+    # fade vstup (na okraji pasma, proti pohybu) od bezneho momentum vstupu -
+    # a teda by sa z fade obchodov nemali ako poucit.
+    entry_price_range = Column(JSON, nullable=True)
+
 
 class CycleLog(Base):
     """Zaznam KAZDEHO analytickeho cyklu - aj tych, kde sa neotvorila pozicia

@@ -19,7 +19,7 @@ import yfinance as yf
 
 import binance_client
 import coingecko_client
-import market_regime
+import price_range
 from db import FundingRateBar, PriceBar
 
 # Kolko poslednych hodinovych sviecok posielame Claude ako surovy podklad na
@@ -517,17 +517,18 @@ def get_market_snapshot(asset: dict, session) -> dict:
         except Exception as e:
             print(f"[market_data] Long/short ratio (Binance) zlyhal (pokracujem bez neho): {e}")
 
-    # 2026-08-31 (audit + navrh pouzivatela) - rezim trhu (trend vs. ustanovene
-    # rozpatie) z VLASTNYCH Strike barov. Rezim sa vyrazne lisi per ticker
-    # (za poslednych 7 dni: NEAR 73.8% casu v rozpati vs GOOGL 6.0%), preto sa
-    # pocita samostatne pre kazdy symbol. Viz market_regime.py pre backtest,
-    # ktory tuto detekciu overil, a claude_analyst._RANGE_NOTE pre interpretaciu.
+    # 2026-08-31 (audit + navrh pouzivatela) - je ticker v ustanovenom cenovom
+    # pasme? Z VLASTNYCH Strike barov, samostatne pre kazdy symbol - lisi sa
+    # vyrazne (za poslednych 7 dni: NEAR 73.8% casu v pasme vs GOOGL 6.0%).
+    # POZOR: toto NIE JE detekcia trhoveho rezimu (trend vs mean-reversion) -
+    # tu sa nepodarilo postavit, viz hlavicka price_range.py. Interpretacia je
+    # v claude_analyst._RANGE_NOTE.
     try:
-        regime = market_regime.compute_regime(asset["strike_symbol"], session)
-        if regime is not None:
-            snapshot["market_regime"] = regime
+        pr = price_range.compute_price_range(asset["strike_symbol"], session)
+        if pr is not None:
+            snapshot["price_range"] = pr
     except Exception as e:
-        print(f"[market_data] Detekcia rezimu zlyhala (pokracujem bez nej): {e}")
+        print(f"[market_data] Detekcia cenoveho pasma zlyhala (pokracujem bez nej): {e}")
 
     return snapshot
 

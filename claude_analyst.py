@@ -1310,48 +1310,50 @@ pravidlo "vždy stavaj proti davu". Blízko 1.0 (vyvážené) = neutrálny fakt,
 
 
 _RANGE_NOTE = """
-`market_regime` (2026-08-31) - REŽIM TRHU. Na rozdiel od ostatných signálov vyššie toto NIE JE
-len doplnkový kontext: je to PRVÝ krok rozhodovania, ktorý určuje, ako čítať všetko ostatné.
+`price_range` (2026-08-31) - je inštrument práve teraz vnútri USTANOVENÉHO cenového pásma?
 
-Prečo: audit produkčných dát ukázal, že doterajšie vstupy nasledovali smer práve prebehnutého
-pohybu v 86.6 % prípadov (čiže momentum). Kým trh trendoval, smerová presnosť bola 58.4 %.
-Keď sa trh preklopil na mean-reverting, tá istá logika spadla na 23.0 % - systematicky kupovala
-vrcholy a predávala dná. Overené, že to nie je chyba úsudku: aj čisto mechanická momentum
-stratégia na tých istých dátach spadla rovnako.
+Čo toto pole JE a čo NIE JE: je to mechanické meranie z vlastných hodinových dát - pásmo sa uzná
+len ak sa cena viackrát dotkla oboch okrajov, jeho šírka je stabilná a je dosť široké. NIE je to
+detekcia trhového režimu - NEVIEME povedať, či trh práve trenduje alebo sa vracia do stredu.
+Štyri kandidátske miery na to boli otestované a zlyhali, takže z tohto poľa NEVYVODZUJ nič o tom,
+čo trh urobí ďalej.
 
-Pole obsahuje: `regime` ("ustanovene_rozpatie" alebo "trend_alebo_prechod"), `range_high`,
-`range_low`, `position_in_range` (0.0 = dno rozpätia, 1.0 = vrchol), `at_edge` ("vrchol"/"dno"/
-null), `range_width_pct`, `touches_top`/`touches_bottom` (koľko barov sa dotklo okraja),
-`width_stability` a `efficiency_ratio` (doplnkovo: blízko 1 = čistý trend, blízko 0 = píla).
-Rozpätie sa označí za ustanovené LEN ak sa cena viackrát dotkla oboch okrajov, šírka je stabilná
-a rozpätie je dosť široké - jednorazový extrém sa za rozpätie nepovažuje.
+Polia: `in_range` (true/false), `range_high`, `range_low`, `position_in_range` (0.0 = dno pásma,
+1.0 = vrchol), `at_edge` ("vrchol"/"dno"/null), `range_width_pct`, `touches_top`/`touches_bottom`,
+`width_stability`, `efficiency_ratio` (doplnkový kontext - na rozhodnutie o smere ho NEPOUŽÍVAJ,
+ako detektor režimu bol otestovaný a zlyhal).
 
-AKO ROZHODOVAŤ:
+AKO S TÝM PRACOVAŤ:
 
-1) `regime` = "trend_alebo_prechod" - pokračuj v doterajšom prístupe. Vstup v smere pohybu je
-   v poriadku, momentum tu funguje.
+1) `in_range` = false -> toto pole ti nehovorí NIČ. Rozhodni sa podľa ostatných signálov presne
+   ako doteraz. (Zámerne tu nič neodporúčam: overilo sa len to, že V PÁSME vstup v smere pohybu
+   nefunguje, NIE že mimo pásma funguje.)
 
-2) `regime` = "ustanovene_rozpatie" - tu je doterajší prístup preukázateľne škodlivý. Backtest
-   na 12 307 vzorkách (vlastné hodinové bary, bez lookaheadu) dal pri vstupe na okraji rozpätia:
-     - PROTI pohybu (fade okraja): 60.6 % na 4h, 63.5 % na 12h, 65.9 % na 24h
-     - V SMERE pohybu (prerazenie): 36.5 % - teda výrazne horšie než náhoda
-   Preto:
-   a) `at_edge` = "vrchol" -> uvažuj prednostne o SHORT (cena sa pravdepodobne vráti do rozpätia).
-      `at_edge` = "dno" -> uvažuj prednostne o LONG.
-   b) `at_edge` = null (si v strede rozpätia) -> priamy vstup teraz nemá edge. Namiesto toho
-      NASTAV watch_price na okraj rozpätia (`range_high` alebo `range_low`, podľa toho, ktorý je
-      bližšie alebo pravdepodobnejší) a do `watch_rationale` napíš, že pri dosiahnutí okraja
-      zvážiš vstup PROTI pohybu. Toto je presne tá situácia, na ktorú watch mechanizmus slúži.
-   c) Vstup V SMERE pohybu (stávka na prerazenie rozpätia) je stále možný, ale má byť VÝNIMOČNÝ -
-      len ak máš konkrétny dôvod mimo samotnej ceny (silná správa, makro udalosť, potvrdený objem
-      výrazne nad priemerom) a v `reasoning` ho výslovne pomenuj. Samotné "cena sa blíži k hornej
-      hranici a rastie" NIE JE dostatočný dôvod - to je presne ten vzor, ktorý dával 36.5 %.
+2) `in_range` = true A `at_edge` je "vrchol" alebo "dno" -> tu je vstup V SMERE pohybu
+   preukázateľne zlá voľba. Backtest (vstupy na okraji pásma, naše ATR SL/TP, max držanie 24h,
+   započítané reálne poplatky a spread, bez lookaheadu, celkovo 12 146 príležitostí):
 
-DÔLEŽITÉ OBMEDZENIE, ktoré maj na pamäti: väčšina tej výhody pochádza z toho, že trh je AKTUÁLNE
-mean-reverting, nie zo samotnej detekcie rozpätia. Preto sa fade NESMIE aplikovať mechanicky
-všade - platí len vnútri ustanoveného rozpätia. Mimo neho by to bola tá istá chyba ako doterajšie
-trvalé momentum, len zrkadlovo obrátená. Ak `market_regime` v dátach chýba (nedostatok barov),
-rozhoduj sa ako doteraz."""
+                          do 22.8.    od 22.8.     spolu
+      v smere pohybu      -157.6 R     -65.9 R   -223.5 R
+      proti pohybu        -169.7 R     +69.2 R   -100.5 R
+
+   Vstup PROTI pohybu (na vrchole SHORT, na dne LONG) je teda v horšom prípade zhruba rovnako
+   zlý a v lepšom výrazne lepší. Preto na okraji pásma uprednostni vstup proti pohybu.
+
+   Dôležité, aby si tomu rozumel správne: NIE je to preto, že by sme vedeli, že sa cena vráti
+   do stredu. Je to preto, že alternatíva je rovnako zlá - takže tým nič neriskuješ.
+
+3) `in_range` = true, ale `at_edge` = null (si v strede pásma) -> priamy vstup teraz nemá oporu
+   v dátach ani jedným smerom. Namiesto neho NASTAV watch_price na okraj pásma (`range_high`
+   alebo `range_low`) a do `watch_rationale` napíš, že pri dosiahnutí okraja zvážiš vstup proti
+   pohybu. Presne na toto watch mechanizmus slúži.
+
+4) Vstup v smere pohybu na okraji pásma (stávka na prerazenie) je stále možný, ale má byť
+   VÝNIMOČNÝ - len ak máš konkrétny dôvod mimo samotnej ceny (silná správa, makro udalosť, objem
+   výrazne nad priemerom) a v `reasoning` ho výslovne pomenuj. Samotné "cena rastie a blíži sa
+   k hornej hranici" nestačí - to je práve ten vzor, ktorý v dátach prehráva.
+
+Ak `price_range` v dátach chýba (málo barov), rozhoduj sa ako doteraz."""
 
 
 _PER_ASSET_SYSTEM_APPENDIX_TEMPLATE = """Si skúsený intradenný analytik pre {label}.
@@ -1705,7 +1707,12 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
             hours_ago = rt.get("hours_ago")
             ago_str = f", pred {hours_ago:.1f}h" if hours_ago is not None else ""
             reason = rt.get("close_reason") or "?"
-            rt_lines.append(f"{i}. {direction_label} ({conf_str}) → {reason}, {pnl_str}{ago_str}")
+            # 2026-08-31 - typ vstupu podla cenoveho pasma v case vstupu, aby sa
+            # dal odlisit fade na okraji od bezneho momentum vstupu (viz price_range.py)
+            entry_type = rt.get("entry_type")
+            et_str = f" [{entry_type}]" if entry_type else ""
+            rt_lines.append(
+                f"{i}. {direction_label} ({conf_str}){et_str} → {reason}, {pnl_str}{ago_str}")
             if rt.get("reflection"):
                 rt_lines.append(f"   Hodnotenie: {rt['reflection']}")
             if rt.get("sl_tp_verdict"):
@@ -1998,9 +2005,27 @@ TY, len odporúčaš človeku, ktorý sa rozhodne sám."""
             timing_label = f"pred {hours_since_close:.1f}h ({ct.get('closed_at_str', '?')})"
         else:
             timing_label = "práve teraz"
+        # 2026-08-31 - stav cenoveho pasma V CASE VSTUPU. Bez toho by review
+        # nevedelo, ci slo o fade vstup na okraji pasma alebo o bezny momentum
+        # vstup, a nemalo by sa z coho poucit prave o tej novej vetve.
+        epr = ct.get("entry_price_range") or {}
+        if epr.get("in_range"):
+            pos = epr.get("position_in_range")
+            edge = epr.get("at_edge")
+            entry_kind = ("vstup NA OKRAJI pásma" if edge else "vstup v STREDE pásma")
+            range_line = (
+                f"\nPásmo pri vstupe: {epr.get('range_low')} - {epr.get('range_high')} "
+                f"(šírka {epr.get('range_width_pct')}%), pozícia v pásme "
+                f"{pos if pos is not None else '?'}"
+                f"{f' ({edge})' if edge else ''} - {entry_kind}."
+            )
+        elif epr:
+            range_line = "\nPásmo pri vstupe: inštrument NEBOL v ustanovenom cenovom pásme."
+        else:
+            range_line = ""
         closed_trade_block = f"""## Zatvorená pozícia (dôvod: {reason_label}) - zatvorená {timing_label}
 Smer: {(ct['direction'] or '').upper()} | Vstup: {ct['entry_price']} | Výstup: {ct['exit_price']}
-Držaná: {ct['hours_held']:.1f}h | PnL: {sign}${ct['pnl_usd']:.2f}
+Držaná: {ct['hours_held']:.1f}h | PnL: {sign}${ct['pnl_usd']:.2f}{range_line}
 {"POZOR: toto zatvorenie NIE JE čerstvé - nižšie uvedené trhové dáta sú AKTUÁLNE (teraz), nie z momentu zatvorenia. Ber ich ako kontext 'čo sa odvtedy stalo', nie ako bezprostredný dôsledok tohto zatvorenia." if hours_since_close is not None and hours_since_close > 1 else ""}
 
 {action_note}

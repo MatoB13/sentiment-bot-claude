@@ -366,6 +366,10 @@ def _build_closed_trade_context(trade: Trade) -> dict:
         "pnl_usd": trade.pnl_usd,
         "close_reason": trade.close_reason,
         "evaluation_only": trade.close_reason in _EVALUATION_ONLY_CLOSE_REASONS,
+        # 2026-08-31 - stav cenoveho pasma V CASE VSTUPU (nie teraz), aby review
+        # vedelo odlisit fade vstup na okraji pasma od bezneho momentum vstupu.
+        # Bez toho sa bot z fade obchodov nema ako poucit. Viz price_range.py.
+        "entry_price_range": trade.entry_price_range,
     }
 
 

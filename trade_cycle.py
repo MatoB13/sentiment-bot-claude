@@ -400,8 +400,26 @@ def _get_recent_closed_trades_context(symbol: str, session) -> list[dict] | None
             "hours_ago": hours_ago,
             "reflection": review.closed_trade_reflection if review else None,
             "sl_tp_verdict": review.sl_tp_calibration_verdict if review else None,
+            # 2026-08-31 - typ vstupu podla cenoveho pasma V CASE VSTUPU. Bez
+            # tohto by Claude v dalsom cykle videl len "short, -30$" a nevedel by
+            # odlisit, ci sla o fade na okraji pasma alebo o bezny momentum
+            # vstup - teda by sa z vlastnych fade obchodov nemal ako poucit.
+            "entry_type": _entry_type_label(t.entry_price_range),
         })
     return out
+
+
+def _entry_type_label(epr: dict | None) -> str | None:
+    """Kratky popis, aky typ vstupu to bol podla cenoveho pasma pri vstupe.
+    None ak udaj chyba (obchody spred 2026-08-31)."""
+    if not epr:
+        return None
+    if not epr.get("in_range"):
+        return "mimo pásma"
+    edge = epr.get("at_edge")
+    if edge:
+        return f"na okraji pásma ({edge})"
+    return "v strede pásma"
 
 
 # 2026-08-27 (prierez cez CELE portfolio, nie len jeden ticker) - portfolio malo
@@ -1442,6 +1460,14 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             expires_at=datetime.now(timezone.utc) + timedelta(hours=config.POSITION_MAX_HOURS),
             status="dry_run" if config.DRY_RUN else "open",
             dry_run=config.DRY_RUN,
+            # 2026-08-31 (na ziadost pouzivatela) - cenove pasmo V CASE VSTUPU sa
+            # ulozi PRIAMO na trade. Bez toho by post-close review ani retrospektiva
+            # nevedeli, ci sloe o vstup na okraji pasma (fade) alebo o bezny
+            # momentum vstup - a teda by sa z fade obchodov nemali ako poucit.
+            # Ulozene na Trade (nie dohladavane spatne z cycle_logs.ta) preto, aby
+            # to prezilo aj self-heal review spusteny o hodiny neskor, ked uz je
+            # aktualne pasmo uplne ine. Viz price_range.py.
+            entry_price_range=(ta or {}).get("price_range"),
         )
 
         if config.DRY_RUN:
