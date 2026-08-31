@@ -11,6 +11,7 @@ Leverage sa nastavuje samostatne pred otvorenim pozicie (POST /v2/leverage) -
 viz https://docs.strikefinance.org/api/trade/trading. `size` je v base-asset
 jednotkach (napr. kolko NAS100 kontraktov), nie notional USD hodnota.
 """
+import email.utils
 import hashlib
 import json
 import time
@@ -20,8 +21,42 @@ import requests
 
 import config
 
+# 2026-08-31 (na ziadost pouzivatela, po opakovanej "signature expired or
+# invalid timestamp" 401 chybe, ktora sa dlho javila ako nevysvetlitelna
+# lokalna flakiness) - skutocna pricina bol posun hodin systemoveho casu voci
+# Strike serveru: aj len ~2.5s rozdiel stacil na zamietnutie, co znamena, ze
+# Strike ma neocakavane presne (uzke) tolerancne okno na X-API-Wallet-Timestamp.
+# int(time.time()) samo o sebe teda nestaci - potrebuje korekciu voci
+# serverovemu casu. Cachovany offset (nie fresh HTTP volanie pri KAZDOM podpise -
+# to by zdvojnasobilo pocet requestov) sa periodicky obnovuje, aj REAKTIVNE
+# pri samotnom 401 (viz _request nizsie) - chrani to nielen tento lokalny beh,
+# ale aj produkciu pre pripad drobneho clock driftu cloud stroja (napr. pri
+# host migracii).
+_clock_offset_seconds = 0.0
+_clock_offset_synced_at = 0.0
+_CLOCK_OFFSET_REFRESH_SECONDS = 1800  # 30 min - staci na drift, netreba castejsie
+
+
+def _sync_clock_offset() -> None:
+    """Zisti (server_time - local_time) z Date HTTP hlavicky ODPOVEDE na
+    lahky, neautentifikovany endpoint (rovnaky uz pouzivany /v2/markets -
+    ziadny novy naklad na burzu). Zlyhanie je NEBLOKUJUCE (ponecha posledny
+    znamy/nulovy offset) - clock sync je bonus presnost, nie kriticka cesta."""
+    global _clock_offset_seconds, _clock_offset_synced_at
+    try:
+        resp = requests.get(f"{config.STRIKE_BASE_URL}/v2/markets", timeout=10)
+        server_ts = email.utils.mktime_tz(email.utils.parsedate_tz(resp.headers["Date"]))
+        _clock_offset_seconds = server_ts - time.time()
+        _clock_offset_synced_at = time.time()
+    except Exception as e:
+        print(f"[strike_client] Clock offset sync zlyhal (neblokujuce, pouzivam "
+              f"posledny znamy offset {_clock_offset_seconds:.1f}s): {e}")
+
 
 def _sign(method: str, path: str, body_str: str = "") -> dict:
+    if time.time() - _clock_offset_synced_at > _CLOCK_OFFSET_REFRESH_SECONDS:
+        _sync_clock_offset()
+
     private_key_bytes = bytes.fromhex(config.STRIKE_API_PRIVATE_KEY)
     if len(private_key_bytes) == 64:
         private_key_bytes = private_key_bytes[:32]
@@ -29,7 +64,7 @@ def _sign(method: str, path: str, body_str: str = "") -> dict:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     private_key = Ed25519PrivateKey.from_private_bytes(private_key_bytes)
 
-    timestamp = int(time.time())
+    timestamp = int(time.time() + _clock_offset_seconds)
     nonce = str(uuid.uuid4())
     body_hash = hashlib.sha256(body_str.encode()).hexdigest()
 
@@ -57,14 +92,29 @@ def _sign(method: str, path: str, body_str: str = "") -> dict:
 _RETRYABLE_STATUS = {429, 502, 503, 504}
 _MAX_RETRIES = 2
 _RETRY_DELAY_SECONDS = 2
+# 2026-08-31 - samostatny (maly) rozpocet SPECIFICKY pre 401 "signature
+# expired/invalid timestamp". Na rozdiel od vseobecnych transientnych chyb
+# vyssie (GET-only, viz komentar nad _RETRYABLE_STATUS) je toto BEZPECNE
+# opakovat aj pre POST/DELETE: zamietnutie kvoli neplatnemu podpisu/timestampu
+# sa NIKDY nedostane k skutocnej exekucii objednavky na burze (Strike ho
+# odmietne este PRED akymkolvek spracovanim) - nehrozi teda duplicitna akcia,
+# ako pri retry po strate odpovede/timeoute (dovod, preco POST/DELETE inak
+# retry nedostavaju).
+_CLOCK_SKEW_MAX_RETRIES = 1
+
+
+def _is_clock_skew_error(resp: requests.Response) -> bool:
+    return resp.status_code == 401 and "signature expired" in resp.text.lower()
 
 
 def _request(method: str, path: str, body: dict | None = None) -> dict:
     body_str = json.dumps(body, separators=(",", ":")) if body is not None else ""
     url = f"{config.STRIKE_BASE_URL}{path}"
     attempts = _MAX_RETRIES + 1 if method.upper() == "GET" else 1
+    clock_skew_retries_left = _CLOCK_SKEW_MAX_RETRIES
 
-    for attempt in range(attempts):
+    attempt = 0
+    while True:
         # Kazdy pokus potrebuje CERSTVY podpis (timestamp/nonce) - opatovne
         # pouzitie povodnych headers pri oneskorenom retry by Strike API mohlo
         # odmietnut ako expirovany/replay podpis.
@@ -75,11 +125,19 @@ def _request(method: str, path: str, body: dict | None = None) -> dict:
         resp = requests.request(method.upper(), url, headers=headers,
                                  data=body_str if body is not None else None, timeout=20)
         if resp.status_code >= 300:
+            if _is_clock_skew_error(resp) and clock_skew_retries_left > 0:
+                clock_skew_retries_left -= 1
+                print(f"[strike_client] {method} {path} -> 401 signature expired - "
+                      "obnovujem clock offset a skusam znova (bezpecne aj pre "
+                      "POST/DELETE, burza tuto poziadavku vobec nespracovala).")
+                _sync_clock_offset()
+                continue
             if resp.status_code in _RETRYABLE_STATUS and attempt < attempts - 1:
                 print(f"[strike_client] {method} {path} -> {resp.status_code} "
                       f"(prechodna chyba), skusam znova o {_RETRY_DELAY_SECONDS}s "
                       f"({attempt + 1}/{attempts - 1})...")
                 time.sleep(_RETRY_DELAY_SECONDS)
+                attempt += 1
                 continue
             raise RuntimeError(f"Strike API {method} {path} -> {resp.status_code}: {resp.text}")
         return resp.json()
