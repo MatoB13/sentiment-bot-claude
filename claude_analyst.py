@@ -1272,8 +1272,19 @@ konsolidácia) od "hodinový range v rámci DENNÉHO range" (vyššie riziko - �
 ktorý by pohyb podporil). KĽÚČOVÉ: keď sa hodinový a vyšší-timeframe `trend`/`trend_strength`
 ZHODUJÚ, ber to ako silnejšie potvrdenie; keď sa ROZCHÁDZAJÚ (napr. hodinový silný uptrend, ale
 `daily_context.trend="downtrend"`), ber hodinový signál opatrnejšie - môže ísť len o krátkodobý
-odraz proti prevažujúcemu smeru, nie o skutočný obrat. Vyšší timeframe má vo všeobecnosti prednosť
-pri rozpore (menej náchylný na šum), ale nie je to mechanické pravidlo - posúď to ako analytik."""
+odraz proti prevažujúcemu smeru, nie o skutočný obrat.
+
+`momentum_state` (2026-08-31, ZEC #153 nález) - `trend_strength="trending"` hovorí LEN o SILE
+trendu (ADX), nič o tom, či je už NATIAHNUTÝ. `momentum_state="overbought"` (RSI>=70) alebo
+`"oversold"` (RSI<=30) na `h4_context`/`daily_context` znamená, že vyšší timeframe je v extréme -
+KONKRÉTNY NÁLEZ: ZEC malo `daily_context` RSI=73.7 označené len ako "trending" (bez varovania),
+čo presvedčilo Claude ignorovať volume-potvrdený (4x priemer) hodinový breakdown ako "len pokles v
+rámci trendu" - cena pokračovala dole aj po zatvorení pozície, teda breakdown bol reálny, nie šum.
+PRETO: keď je vyšší timeframe `overbought`/`oversold` A hodinový signál ukazuje pohyb OPAČNÝM
+smerom (najmä ak je volume-potvrdený), toto NIE JE dôvod dať vyššiemu timeframe prednosť - naopak,
+kombinácia "natiahnutý vyšší timeframe + hodinový obrat" je klasický vzor vyčerpania/obratu, ber ju
+ako PODPORU hodinového signálu, nie ako protiváhu. Vyšší timeframe má prednosť pri rozpore LEN keď
+sám nie je v extréme (`momentum_state="neutral"`) - inak posúď to ako analytik, nie mechanicky."""
 
 
 _SPREAD_NOTE = """

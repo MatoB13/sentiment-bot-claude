@@ -257,6 +257,29 @@ _HTF_MIN_BARS = {"4h": 40, "1D": 20}
 # samostatny dlhsi fetch LEN pre tento ucel (viz get_market_snapshot).
 _HTF_DAILY_LOOKBACK_DAYS = 60
 
+# 2026-08-31 (ZEC #153 incident) - "trend_strength" vyssie (z ADX) hovori LEN
+# o SILE trendu, nie o tom, ci je uz NATIAHNUTY (rizikovy na obrat). Pri #153
+# denny kontext ukazal RSI=73.7 (jasne prekupene pasmo) oznaceny proste ako
+# "trending" bez akehokolvek varovania - _HTF_NOTE nizsie vtedy odporucal dat
+# prednost vyssiemu timeframu pri rozpore s hodinovym, co viedlo k tomu, ze
+# Claude odignoroval volume-potvrdeny hodinovy breakdown ako "len pokracovanie
+# trendu", hoci prave prekupenost/obrat bol pravdepodobnejsi. Rovnaky princip
+# ako "stalling" pri hodinovom _trend_label (RSI neutralny = struktura bez
+# potvrdeneho momentum), len OPACNY smer: RSI extremny = struktura MOZE byt
+# blizko vycerpania, nie automaticke potvrdenie pokracovania.
+_RSI_OVERBOUGHT = 70
+_RSI_OVERSOLD = 30
+
+
+def _momentum_extension_label(rsi: float | None) -> str | None:
+    if rsi is None:
+        return None
+    if rsi >= _RSI_OVERBOUGHT:
+        return "overbought"
+    if rsi <= _RSI_OVERSOLD:
+        return "oversold"
+    return "neutral"
+
 
 def _resample_higher_timeframe(df: pd.DataFrame, rule: str) -> dict | None:
     """Resample-uje uz nacitany hodinovy OHLC df na vyssi timeframe (rule='4h'
@@ -290,12 +313,14 @@ def _resample_higher_timeframe(df: pd.DataFrame, rule: str) -> dict | None:
     else:
         trend = "mixed"
 
+    rsi_val = float(last["rsi14"]) if pd.notna(last["rsi14"]) else None
     return {
         "n_bars": len(agg),
         "trend": trend,
-        "rsi14": round(float(last["rsi14"]), 1) if pd.notna(last["rsi14"]) else None,
+        "rsi14": round(rsi_val, 1) if rsi_val is not None else None,
         "adx14": round(float(last[adx_col]), 1) if pd.notna(last[adx_col]) else None,
         "trend_strength": _trend_strength_label(last[adx_col] if pd.notna(last[adx_col]) else None),
+        "momentum_state": _momentum_extension_label(rsi_val),
     }
 
 
