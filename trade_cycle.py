@@ -27,15 +27,15 @@ from db import (CycleLog, DailyRetrospective, FlaggedMacroEvent, PriceBar,
                  RollingRetrospective, Trade, get_session)
 
 
-# Tolerancia na scheduler jitter/spracovanie predchadzajucich assetov v tom
-# istom cykle - bez nej by drobne oneskorenie (o par sekund) niekedy tesne
-# netrafilo pozadovany interval a preskocilo by sa o cely dalsi tick navyse.
-# POZOR: "last_log.created_at" sa zapise AZ PO dokonceni Claude odpovede (vratane
-# web_search kol/pause_turn pokracovani), takze sa moze bezne posunut o 3-5 minut
-# oproti nominalnemu casu ticku - 0.05h (3 min) na to nestacilo a sposobovalo to
-# obcasne zbytocne preskocenie ticku tesne pod hranicou (viz produkcny incident
-# 2026-07-27: NAS100 preskocilo cyklus po 56min41s, kedze pozadovanych 57min
-# (1h - 3min tolerancia) tesne nedosiahlo).
+# 2026-08-31 - UZ SA NEPOUZIVA (nechane pre historicky kontext). Tolerancia
+# riesila jitter pri povodnom "uplynul interval od posledneho behu?" gate:
+# "last_log.created_at" sa zapise AZ PO dokonceni Claude odpovede (vratane
+# web_search kol/pause_turn), takze sa bezne posunie o 3-5 minut oproti
+# nominalnemu casu ticku a bez tolerancie sa cyklus obcas preskocil o cely
+# dalsi tick (produkcny incident 2026-07-27: NAS100 preskocilo cyklus po
+# 56min41s). Slotova mriezka (viz _is_due) tolerancie nepotrebuje - porovnava
+# sa voci PEVNEMU bodu mriezky, nie voci casu predchadzajuceho behu, takze
+# posun zapisu uz nemoze sposobit preskocenie.
 _TIME_GATE_TOLERANCE_HOURS = 0.1
 
 
@@ -108,11 +108,44 @@ def _check_ta_scale(ta: dict, live_price: float, name: str) -> None:
         )
 
 
+# 2026-08-31 - pevna kotva slotovej mriezky. Konkretny datum je lubovolny,
+# dolezite je LEN to, aby sa nemenil - inak by sa mriezka posunula a vsetky
+# tickery by sa naraz stali "due".
+_SLOT_EPOCH = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+
+def _slot_due_point(now: datetime, interval_hours: float, slot: int) -> datetime:
+    """Posledny bod slotovej mriezky <= now.
+
+    Mriezka je kotvena na _SLOT_EPOCH s krokom `interval_hours`. Ticker so
+    slotom k je due v k-tej RUN_SLOT_COUNT-ine intervalu, teda s offsetom
+    (k-1) * interval / RUN_SLOT_COUNT od zaciatku bloku. Pri 2h intervale a
+    12 slotoch su to 10-minutove okna."""
+    interval_min = interval_hours * 60
+    offset_min = (slot - 1) * (interval_min / config.RUN_SLOT_COUNT)
+    mins_since_epoch = (now - _SLOT_EPOCH).total_seconds() / 60
+    k = math.floor((mins_since_epoch - offset_min) / interval_min)
+    return _SLOT_EPOCH + timedelta(minutes=offset_min + k * interval_min)
+
+
 def _is_due(asset: dict, session) -> bool:
-    """True ak od posledneho zaznamu tohto assetu uplynul jeho pozadovany
-    interval pre aktualny casovy usek (viz _required_interval_hours) - teraz
-    plati pre VSETKY assety rovnako (predtym mali non-variable_interval assety
-    ako ADA vynimku a beeli na kazdom scheduler ticku bez vlastneho gate)."""
+    """True ak je asset due v SVOJOM slote aktualneho intervaloveho bloku.
+
+    2026-08-31 - predtym to bolo cisto "uplynul interval od posledneho behu?",
+    co znamenalo, ze vsetky tickery zbehli v jednej davke hned ako scheduler
+    tikol, a potom bolo dlho ticho (namerane na produkcii: 73% desatminutovych
+    okien bez cyklu, najdlhsie ticho 119 min, v spicke 10 cyklov naraz - presne
+    na _DISPATCH_CONCURRENCY_LIMIT). Pri prechode na 2h baseline by to bolo este
+    horsie (simulacia: 91% stvrthodin bez aktivity, ticho az 240 min).
+
+    Teraz kazdy ticker ma svoj slot v mriezke (viz _slot_due_point a
+    assets._resolve_run_slot). Simulacia 14 dni dala 79% pokrytych 15-min okien
+    namiesto 9% a p90 poklesol z 15 na 2 cykly naraz.
+
+    Poistka RUN_SLOT_MIN_GAP_FRACTION: pri prechode trading -> off-hours ->
+    vikend sa meni dlzka intervalu, takze sa mriezka prekotvi a bod mriezky sa
+    moze objavit hned po predchadzajucom behu. Bez poistky by to spustilo cyklus
+    predcasne (v simulacii sa to stavalo desiatky krat za 14 dni)."""
     now = datetime.now(timezone.utc)
     required_hours = _required_interval_hours(asset, now)
 
@@ -123,13 +156,19 @@ def _is_due(asset: dict, session) -> bool:
         .first()
     )
     if last_log is None:
+        # Novy ticker (alebo prazdna historia) - nenechavame ho cakat na jeho
+        # slot, nech je prvy cyklus hned (rovnake spravanie ako predtym).
         return True
 
     last_time = last_log.created_at
     if last_time.tzinfo is None:
         last_time = last_time.replace(tzinfo=timezone.utc)
-    elapsed_hours = (now - last_time).total_seconds() / 3600
-    return elapsed_hours >= required_hours - _TIME_GATE_TOLERANCE_HOURS
+
+    elapsed_min = (now - last_time).total_seconds() / 60
+    if elapsed_min < config.RUN_SLOT_MIN_GAP_FRACTION * required_hours * 60:
+        return False
+
+    return last_time < _slot_due_point(now, required_hours, asset["run_slot"])
 
 
 def _source_usage_fields(asset: dict, marketaux_news, social, coinmarketcal_events) -> dict:
@@ -159,6 +198,12 @@ def _config_snapshot(asset: dict) -> dict:
         "trade_interval_hours": asset["trade_interval_hours"],
         "off_hours_interval_hours": asset["off_hours_interval_hours"],
         "weekend_interval_hours": asset["weekend_interval_hours"],
+        # 2026-08-31 - v ktorej RUN_SLOT_COUNT-ine sveho intervalu je ticker
+        # due (viz _is_due). Default z poradia v ALL_ASSETS, prebitelne cez
+        # {TICKER}_RUN_SLOT - dashboard to tym padom zobrazuje live z ENV.
+        "run_slot": asset.get("run_slot"),
+        "run_slot_count": config.RUN_SLOT_COUNT,
+        "scheduler_tick_minutes": config.SCHEDULER_TICK_MINUTES,
         "trading_hours_start_utc": asset["trading_hours_start_utc"],
         "trading_hours_end_utc": asset["trading_hours_end_utc"],
         "monitor_interval_minutes": config.MONITOR_INTERVAL_MINUTES,
@@ -1727,7 +1772,40 @@ def run_all_cycles() -> None:
     if not active:
         print("[trade_cycle] Ziadny aktivny asset (skontroluj ENABLE_NVDA/ENABLE_ADA).")
         return
-    print(f"[trade_cycle] Aktivne assety: {[a['name'] for a in active]}")
+    # 2026-08-31 - due-check MUSI byt PRED zdielanym fetchom. Scheduler tika
+    # kazdych SCHEDULER_TICK_MINUTES (5 min) namiesto povodnych ~1-2h, takze pri
+    # povodnom poradi by sa cross-market/session yfinance fetch robil 12-24x
+    # castejsie, aj ked nie je due ani jeden ticker. yfinance nas uz raz
+    # rate-limitoval, preto sa tu konci skor, nez sa cokolvek stiahne.
+    #
+    # Otvorene pozicie NEZAVISIA od tohto gate - ich sledovanie bezi kazdu
+    # minutu v position_monitor.check_open_trades (viz _mechanical_health_escalation).
+    due_names = []
+    try:
+        due_session = get_session()
+        try:
+            for a in active:
+                try:
+                    if _is_due(a, due_session):
+                        due_names.append(a["name"])
+                except Exception as e:
+                    print(f"[trade_cycle] [{a['name']}] _is_due zlyhal, "
+                          f"beriem ako due: {e}")
+                    due_names.append(a["name"])
+        finally:
+            due_session.close()
+    except Exception as e:
+        # DB nedostupna - radsej pokracujeme (run_cycle_for_asset ma vlastny
+        # _is_due gate, takze sa nic nespusti navyse) nez aby sme tichem
+        # preskocili cyklus uplne.
+        print(f"[trade_cycle] Predbezny due-check zlyhal, pokracujem: {e}")
+        due_names = [a["name"] for a in active]
+
+    if not due_names:
+        print("[trade_cycle] Ziaden asset nie je due v tomto ticku - koncim bez fetchu.")
+        return
+    print(f"[trade_cycle] Due v tomto ticku: {due_names}")
+    active = [a for a in active if a["name"] in due_names]
 
     try:
         cross_market = market_data.get_cross_market_snapshot()

@@ -10,7 +10,8 @@ import sl_grid_backtest
 import strike_client
 import trade_cycle
 import watch_monitor
-from db import AtrCalibration, CycleLog, SlTpBacktestCandidate, Trade, get_session
+from db import (AtrCalibration, CycleLog, PriceBar, SlTpBacktestCandidate, Trade,
+                get_session)
 
 # /v2/closedPositions (povodny zdroj) nema ZIADNE price/PnL/fee polia - viz
 # memory strike_api_integration_lessons. Presne udaje sa daju ziskat len cez
@@ -330,6 +331,70 @@ def _apply_exact_close(trade: Trade, fallback_close_reason: str) -> None:
               f"skusim znova pri buducom behu.")
 
 
+def _fast_health_triggers(trade: Trade, session) -> str | None:
+    """Mechanicka kontrola otvorenej pozicie, ktora bezi KAZDU MINUTU (2026-08-31,
+    na ziadost pouzivatela) - vrati dovod na eskalaciu, alebo None.
+
+    PRECO TO VZNIKLO: health check dovtedy bezal na tom istom _is_due intervale
+    ako otvaraci cyklus. Pri prechode na 2h baseline by to znamenalo, ze Claude
+    sa na otvorenu poziciu pozrie o polovicu menej casto - a reakcia na
+    zhorsujucu sa poziciu by trvala az 2 hodiny. Teraz sa cenovy trigger
+    vyhodnocuje kazdu minutu, nezavisle od obchodneho intervalu.
+
+    CENA JE NULOVA: cita sa uz existujuci PriceBar (price_poller ho aktualizuje
+    kazdu minutu), ziadne dalsie API volanie. TA-trend trigger tu ZAMERNE nie je
+    - ten potrebuje cely market snapshot (indikatory, funding, Binance HTTP,
+    higher-timeframe resample) a zostava v planovanom cykle.
+
+    CASOVE BRANENIE JE KRITICKE: povodna SL-proximity vynimka mala semantiku
+    "cooldown sa ignoruje CELY, kazdy nasledujuci cyklus znova prebehne". Pri
+    hodinovom cykle to bolo 1 platene volanie za hodinu, pri minutovom polleri
+    by to bolo 60. Preto HEALTH_CHECK_SL_PROXIMITY_MIN_INTERVAL_MINUTES."""
+    if not trade.entry_price or not trade.symbol:
+        return None
+    sl_pct = None
+    asset = assets.by_symbol(trade.symbol)
+    if asset:
+        sl_pct = asset.get("sl_pct")
+    if not sl_pct or sl_pct <= 0:
+        return None
+
+    bar = (
+        session.query(PriceBar)
+        .filter(PriceBar.symbol == trade.symbol)
+        .order_by(PriceBar.hour_start.desc())
+        .first()
+    )
+    if bar is None or not bar.close:
+        return None
+
+    is_long = (trade.direction or "").lower() == "long"
+    pnl_pct = ((bar.close - trade.entry_price) / trade.entry_price if is_long
+               else (trade.entry_price - bar.close) / trade.entry_price) * 100
+    if pnl_pct >= 0:
+        return None
+
+    now = datetime.now(timezone.utc)
+    last_esc = trade.last_health_escalation_at
+    if last_esc is not None and last_esc.tzinfo is None:
+        last_esc = last_esc.replace(tzinfo=timezone.utc)
+    mins_since = ((now - last_esc).total_seconds() / 60) if last_esc else None
+
+    sl_proximity = -pnl_pct / sl_pct
+    if sl_proximity >= config.HEALTH_CHECK_COOLDOWN_BYPASS_SL_PROXIMITY_FRACTION:
+        if mins_since is None or mins_since >= config.HEALTH_CHECK_SL_PROXIMITY_MIN_INTERVAL_MINUTES:
+            return (f"Nerealizovaná strata {pnl_pct:.2f}% je na {sl_proximity*100:.0f}% "
+                    f"SL vzdialenosti ({sl_pct}%) - minútová kontrola")
+        return None
+
+    if -pnl_pct >= sl_pct * config.HEALTH_CHECK_LOSS_TRIGGER_FRACTION:
+        if mins_since is None or mins_since >= config.HEALTH_CHECK_FAST_POLL_MIN_INTERVAL_MINUTES:
+            return (f"Nerealizovaná strata {pnl_pct:.2f}% dosiahla "
+                    f"{config.HEALTH_CHECK_LOSS_TRIGGER_FRACTION*100:.0f}% SL vzdialenosti "
+                    f"({sl_pct}%) - minútová kontrola")
+    return None
+
+
 def _build_closed_trade_context(trade: Trade) -> dict:
     """Plain dict (nie ORM objekt) so vsetkym, co claude_analyst._build_user_prompt
     potrebuje na popis prave zatvorenej pozicie - extrahovane HNED, kym je
@@ -596,6 +661,26 @@ def _backfill_missing_close_notifications(session, pending_notifications: list) 
         print(f"[position_monitor] Trade {trade.id} [{trade.symbol}]: notifikacia o zatvoreni "
               "sa nikdy neodoslala uspesne - skusam znova.")
         pending_notifications.append((trade.id, trade.symbol, _build_closed_trade_context(trade)))
+
+
+def _fire_fast_health_checks(pending_health: list) -> None:
+    """Spusti health check pre pozicie, ktore prekrocili cenovy trigger pri
+    minutovej kontrole (viz _fast_health_triggers). Bezi AZ PO session.close().
+
+    Ide cez ten isty dispatch_triggered_check ako watch/macro triggery, takze
+    dedi jeho per-symbol in-flight poistku - pozicia teda nemoze mat dva
+    suběžné health checky ani ked poller tikne skor, nez sa predchadzajuci
+    dokonci. run_cycle_for_asset si sam vsimne otvorenu poziciu a sam smeruje
+    na _run_position_health_check (skip_due_check=True obide interval)."""
+    for symbol, reason in pending_health:
+        asset = assets.by_symbol(symbol)
+        if asset is None:
+            continue
+        print(f"[position_monitor] [{asset['name']}] Rychla health kontrola: {reason}")
+        try:
+            trade_cycle.dispatch_triggered_check(asset)
+        except Exception as e:
+            print(f"[position_monitor] [{asset['name']}] dispatch health checku zlyhal: {e}")
 
 
 def _fire_post_close_reviews(pending_reviews: list) -> None:
@@ -905,6 +990,7 @@ def check_open_trades():
     pending_notifications: list = []
     pending_open_notifications: list = []
     pending_recompute: set = set()
+    pending_health: list = []
     try:
         _backfill_missing_exact_data(session, pending_reviews, pending_notifications)
         # 2026-08-31 - analogicky self-heal, ale pre review, ktory sa spustil
@@ -1022,10 +1108,26 @@ def check_open_trades():
                 continue
 
         session.commit()
+        # 2026-08-31 - mechanicka kontrola otvorenych pozicii KAZDU MINUTU
+        # (predtym bezala len na _is_due intervale otvaracieho cyklu, teda
+        # po prechode na 2h baseline by reakcia trvala az 2 hodiny).
+        # Zbiera sa tu, dispatchuje az po session.close() - rovnako ako
+        # post-close review, aby beh na pozadi nedrzal tuto session.
+        for trade in open_trades:
+            try:
+                if trade.status != "open":
+                    continue
+                reason = _fast_health_triggers(trade, session)
+                if reason:
+                    pending_health.append((trade.symbol, reason))
+            except Exception as e:
+                print(f"[position_monitor] Trade {trade.id}: rychla health kontrola "
+                      f"zlyhala (neblokujuce): {e}")
     finally:
         session.close()
 
     # AZ PO session.close() - viz _fire_post_close_reviews docstring.
+    _fire_fast_health_checks(pending_health)
     _fire_post_close_reviews(pending_reviews)
     _fire_close_notifications(pending_notifications)
     _fire_open_notifications(pending_open_notifications)

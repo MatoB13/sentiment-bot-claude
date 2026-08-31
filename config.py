@@ -215,6 +215,22 @@ HEALTH_CHECK_COOLDOWN_BYPASS_WORSENING_FRACTION = _float(
 # takych pripadoch kaslem na cooldown".
 HEALTH_CHECK_COOLDOWN_BYPASS_SL_PROXIMITY_FRACTION = _float(
     "HEALTH_CHECK_COOLDOWN_BYPASS_SL_PROXIMITY_FRACTION", 0.5)
+# 2026-08-31 - MINIMALNY odstup medzi dvoma eskalaciami spustenymi cez
+# SL-proximity vynimku vyssie. KRITICKE od chvile, kedy sa mechanicka kontrola
+# presunula z cyklu (1-2h) na minutovy poller (viz position_monitor.
+# _fast_health_triggers): povodna semantika "cooldown sa ignoruje CELY, kazdy
+# nasledujuci cyklus znova prebehne" znamenala pri hodinovom cykle 1 platene
+# volanie za hodinu, ale pri minutovom polleri by to bolo 60 - pozicia visiaca
+# pol dna tesne nad SL by vygenerovala stovky platenych eskalacii. Zmysel
+# vynimky (nenechat poziciu bez pohladu, kym sa bliži k SL) zostava zachovany,
+# len je ohraniceny v case namiesto "pri kazdom ticku".
+HEALTH_CHECK_SL_PROXIMITY_MIN_INTERVAL_MINUTES = _float(
+    "HEALTH_CHECK_SL_PROXIMITY_MIN_INTERVAL_MINUTES", 15)
+# Ako casto smie minutovy poller spustit mechanicku eskalaciu z BEZNEHO
+# (nie SL-proximity) dovodu - napr. prekrocenie HEALTH_CHECK_LOSS_TRIGGER_FRACTION.
+# Nad tym stale plati HEALTH_CHECK_ESCALATION_COOLDOWN_HOURS.
+HEALTH_CHECK_FAST_POLL_MIN_INTERVAL_MINUTES = _float(
+    "HEALTH_CHECK_FAST_POLL_MIN_INTERVAL_MINUTES", 30)
 # 2026-08-21 (na ziadost pouzivatela, po NAS100 SL incidente - Claude odporucil
 # consider_closing s close_confidence=50 hodinu pred SL, nikdy sa nezasiahlo) -
 # ked position health check vrati recommendation="consider_closing" A
@@ -302,6 +318,39 @@ LEVERAGE = _int("LEVERAGE", 40)
 DEFAULT_SL_PCT = _float("DEFAULT_SL_PCT", 0.4)
 DEFAULT_TP_PCT = _float("DEFAULT_TP_PCT", 0.6)
 TRADE_INTERVAL_HOURS = _float("TRADE_INTERVAL_HOURS", 4)
+
+# --- 2026-08-31: SLOTOVE ROZPRESTRETIE CYKLOV -------------------------------
+# Problem (namerane na 7 dnoch produkcie): scheduler tikal na
+# min(trade_interval_hours), takze VSETKY tickery sa vyhodnotili v jednej davke
+# a potom bolo dlho ticho. Za tyzden: 73% desatminutovych okien bez jedineho
+# cyklu, najdlhsie ticho 119 minut, a v spicke 10 cyklov naraz - presne na
+# _DISPATCH_CONCURRENCY_LIMIT. Pri prechode na 2h baseline by to bolo horsie:
+# simulacia dala 91% stvrthodin bez aktivity a ticho az 240 minut.
+#
+# Riesenie (navrh pouzivatela, overeny simulaciou 14 dni): kazdy ticker dostane
+# slot 1..RUN_SLOT_COUNT. Slot k znamena "som due v k-tej dvanastine svojho
+# intervalu" - pri 2h intervale su to 10-minutove okna, pri 1h 5-minutove.
+# Scheduler tika na SCHEDULER_TICK_MINUTES a _is_due riesi zvysok.
+#
+# Simulacia (15 tickerov, krypto 2/3/3h, tradicne 2/4/6h, 14 dni):
+#                          pokrytych 15-min okien   max ticho   p90 cyklov/tick
+#   bez slotov (2h tick)              9%              240 min        15
+#   so slotmi                        79%              105 min         2
+# Zvysne diery su vikendove (tradicne tickery maju 360-min interval) - to sa
+# fazovanim neda odstranit, len skratenim vikendoveho intervalu.
+#
+# CENA: mriezka sa pri prechode trading -> off-hours -> vikend prekotvi, co
+# obcas prida beh navyse - simulacia ukazala +13% cyklov. Proti predcasnemu
+# behu chrani RUN_SLOT_MIN_GAP_FRACTION nizsie.
+RUN_SLOT_COUNT = _int("RUN_SLOT_COUNT", 12)
+# Ako casto tika scheduler. MUSI delit interval/RUN_SLOT_COUNT bez zvysku,
+# inak by sa slotove okno mohlo minut. Pri 12 slotoch a 2h intervale je okno
+# 10 min, takze 5 min tick ho vzdy trafi.
+SCHEDULER_TICK_MINUTES = _float("SCHEDULER_TICK_MINUTES", 5)
+# Poistka: nikdy nespustit dalsi cyklus skor nez po tomto podiele intervalu od
+# posledneho behu. Chrani pred tym, ze prekotvenie mriezky pri zmene intervalu
+# (trading -> off-hours) spusti cyklus hned po predchadzajucom.
+RUN_SLOT_MIN_GAP_FRACTION = _float("RUN_SLOT_MIN_GAP_FRACTION", 0.5)
 
 # --- Devat tickerov celkovo: NAS100 (index), NVDA (akcia, POZASTAVENE),
 # ADA (krypto), GOLD (komodita), WTI (ropa), NIGHT (krypto, Midnight/Cardano),

@@ -59,9 +59,20 @@ def main():
     # cez _is_due (viz trade_cycle.py).
     now = datetime.now(timezone.utc)
     scheduler = BackgroundScheduler(timezone="UTC")
+    # 2026-08-31 - tick uz NIE JE min(trade_interval_hours), ale pevnych
+    # SCHEDULER_TICK_MINUTES. Dovod: pri odvodenom ticku sa vsetky tickery
+    # vyhodnotili v jednej davke a potom bolo dlho ticho (namerane: 73%
+    # desatminutovych okien bez cyklu, max ticho 119 min, spicka 10 cyklov
+    # naraz - presne na _DISPATCH_CONCURRENCY_LIMIT). Pri 2h baseline by to
+    # bolo horsie (simulacia: 91% stvrthodin bez aktivity, ticho 240 min).
+    # Frekvenciu jednotlivych tickerov teraz plne riesi trade_cycle._is_due
+    # cez slotovu mriezku - tick len urcuje, ako presne vie slot trafit.
+    # run_all_cycles si na zaciatku overi, ci je vobec niekto due, a ak nie,
+    # skonci PRED akymkolvek fetchom (inak by 12x castejsi tick znamenal 12x
+    # viac yfinance volani, ktore uz raz sposobili rate-limit).
     scheduler.add_job(trade_cycle.run_all_cycles, "interval",
-                       hours=base_tick_hours,
-                       next_run_time=now + timedelta(hours=base_tick_hours),
+                       minutes=config.SCHEDULER_TICK_MINUTES,
+                       next_run_time=now + timedelta(minutes=config.SCHEDULER_TICK_MINUTES),
                        id="trade_cycle")
     # 2026-08-16 (produkcny nalez pouzivatela): predtym bezalo na MONITOR_INTERVAL_MINUTES
     # (10 min) - financna ochrana pozicie tym netrpela (TP/SL/likvidaciu vzdy

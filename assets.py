@@ -52,6 +52,8 @@ nesuvisiacimi ETF/tickermi - vsetko tu bolo naozivo overene 2026-07-31). WTI
 navyse needs_eia_data=True (tyzdenne zasoby ropy priamo z eia_client, viz
 trade_cycle.py).
 """
+import os
+
 import config
 
 NAS100 = {
@@ -619,6 +621,38 @@ CRCL = {
 }
 
 ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX, AAOI, MINIMAX, ZEC, GOOGL, UNITREE, NEAR, AAPL, ZHIPU, CRCL]
+
+
+# --- 2026-08-31: run_slot (rozprestretie cyklov v case) ---------------------
+# Slot 1..RUN_SLOT_COUNT urcuje, v ktorej dvanastine sveho intervalu je ticker
+# "due" - viz config.RUN_SLOT_COUNT a trade_cycle._is_due. Default sa odvodi
+# z PORADIA v ALL_ASSETS vyssie (prvych 12 dostane 1-12, trinasty zase 1, atd.),
+# takze pri pridani tickera netreba nic nastavovat a rozlozenie zostane rovnomerne.
+#
+# {TICKER}_RUN_SLOT prebije default - uzitocne, ked chces zamerne striedat typy
+# assetov (napr. krypto/akcia) namiesto poradia, v akom boli pridane. Hodnota
+# mimo 1..RUN_SLOT_COUNT sa ignoruje a pouzije sa default (radsej rovnomerne
+# rozlozenie nez tichy vypadok z mriezky pri preklepe).
+def _resolve_run_slot(asset: dict, index: int) -> int:
+    default_slot = (index % config.RUN_SLOT_COUNT) + 1
+    raw = os.getenv(f"{asset['name']}_RUN_SLOT")
+    if raw is None or raw.strip() == "":
+        return default_slot
+    try:
+        val = int(raw)
+    except ValueError:
+        print(f"[assets] {asset['name']}_RUN_SLOT='{raw}' nie je cislo - "
+              f"pouzivam default {default_slot}")
+        return default_slot
+    if not (1 <= val <= config.RUN_SLOT_COUNT):
+        print(f"[assets] {asset['name']}_RUN_SLOT={val} je mimo rozsahu "
+              f"1..{config.RUN_SLOT_COUNT} - pouzivam default {default_slot}")
+        return default_slot
+    return val
+
+
+for _i, _a in enumerate(ALL_ASSETS):
+    _a["run_slot"] = _resolve_run_slot(_a, _i)
 
 
 def enabled_assets() -> list[dict]:
