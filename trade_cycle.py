@@ -709,7 +709,29 @@ _ADVERSE_TREND = {
 }
 
 
-def _mechanical_health_escalation(asset: dict, ta: dict, open_position: dict) -> str | None:
+def _mechanical_health_escalation(asset: dict, ta: dict, open_position: dict,
+                                   macro_event: str | None = None) -> tuple[str, str] | None:
+    """Vrati (dovod, druh) alebo None. `druh` je jeden z "macro"/"trend"/"loss".
+
+    2026-08-31 - PRECO SA VRACIA AJ DRUH: cooldown bol dovtedy per-POZICIA, nie
+    per-druh triggeru, takze eskalacia kvoli strate o 14:00 umlcala eskalaciu
+    kvoli obratu trendu o 15:00 - hoci obrat trendu je NOVY fakt, ktory Claude
+    este nevidel. Cooldown ma potlacit OPAKOVANIE toho isteho signalu, nie iny
+    signal, ktory nahodou pride v tom istom okne (viz _run_position_health_check).
+
+    2026-08-31 - PRECO PRIBUDOL macro_event: makro trigger otvara mimoriadny
+    cyklus, ale ak je otvorena pozicia, run_cycle_for_asset ho presmeruje sem -
+    a tato funkcia sa dovtedy pytala LEN "je pozicia v problemoch?", nie "stalo
+    sa nieco dolezite?". Produkcny nalez: 16 makro cyklov (CPI, PPI, Retail
+    Sales, SEC vote, Trump-Putin summit) dopadlo na otvorenu poziciu a Claude sa
+    na ne NIKDY nepozrel, lebo pozicia zatial nestracala a trend sa neobratil.
+    Makro udalost je pritom presne ten moment, kedy ma zmysel prehodnotit tezu."""
+    if macro_event:
+        return (f"Makro udalost pocas otvorenej pozicie: {macro_event}", "macro")
+    return _price_based_escalation(asset, ta, open_position)
+
+
+def _price_based_escalation(asset: dict, ta: dict, open_position: dict) -> tuple[str, str] | None:
     """Bez Claude volania (zdarma) rozhodne, ci ma tento health check eskalovat
     na plny Claude cyklus (viz config.HEALTH_CHECK_LOSS_TRIGGER_FRACTION) - vrati
     dovod (str) ak ano, inak None. Pouziva UZ VYPOCITANE TA (market_data.
@@ -718,14 +740,14 @@ def _mechanical_health_escalation(asset: dict, ta: dict, open_position: dict) ->
     direction = (open_position["direction"] or "").lower()
     trend = ta.get("trend")
     if trend in _ADVERSE_TREND.get(direction, set()):
-        return f"TA trend sa obratil proti pozicii (trend={trend})"
+        return (f"TA trend sa obratil proti pozicii (trend={trend})", "trend")
 
     loss_trigger_pct = -asset["sl_pct"] * config.HEALTH_CHECK_LOSS_TRIGGER_FRACTION
     pnl_pct = open_position["unrealized_pnl_pct"]
     if pnl_pct <= loss_trigger_pct:
         return (f"Nerealizovana strata {pnl_pct:.2f}% dosiahla "
                 f"{config.HEALTH_CHECK_LOSS_TRIGGER_FRACTION * 100:.0f}% SL vzdialenosti "
-                f"({asset['sl_pct']}%)")
+                f"({asset['sl_pct']}%)", "loss")
     return None
 
 
@@ -812,7 +834,8 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         "best_price_hours_ago": best_price_hours_ago,
     }
 
-    escalation_reason = _mechanical_health_escalation(asset, ta, open_position)
+    escalation = _mechanical_health_escalation(asset, ta, open_position, macro_event)
+    escalation_reason, escalation_kind = escalation if escalation else (None, None)
 
     cooldown_active = False
     cooldown_bypassed_reason = None
@@ -822,6 +845,26 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
             last_esc = last_esc.replace(tzinfo=timezone.utc)
         hours_since = (datetime.now(timezone.utc) - last_esc).total_seconds() / 3600
         cooldown_active = hours_since < config.HEALTH_CHECK_ESCALATION_COOLDOWN_HOURS
+
+        # 2026-08-31 - VYNIMKA: cooldown plati LEN na OPAKOVANIE TOHO ISTEHO
+        # druhu triggeru. Dovtedy bol per-POZICIA, takze eskalacia kvoli strate
+        # o 14:00 umlcala eskalaciu kvoli obratu trendu o 15:00 - hoci obrat
+        # trendu je NOVY fakt, ktory Claude este nevidel.
+        #
+        # Historicky to nebolo vidiet, lebo cooldown vznikol (2026-08-17, ADA)
+        # pre OPAKOVANU blizkost SL, ale implementoval sa genericky na
+        # escalation_reason. Medzitym sa to prevratilo: stratovy trigger (60% SL)
+        # vzdy prekroci aj SL-proximity prah (50%) a cooldown obide, takze
+        # cooldown realne blokoval UZ LEN trend reversal - teda presne to, na co
+        # nikdy nebol urceny (44 z 59 zablokovanych eskalacii).
+        last_kind = getattr(open_trade, "last_health_escalation_kind", None)
+        if cooldown_active and last_kind and escalation_kind and last_kind != escalation_kind:
+            cooldown_active = False
+            cooldown_bypassed_reason = (
+                f"Iny druh triggeru nez pri poslednej eskalacii "
+                f"({last_kind} -> {escalation_kind}) - nejde o opakovanie toho isteho "
+                f"signalu, ktore ma cooldown potlacit"
+            )
 
         # 2026-08-30 (ZEC #141 incident) - NEZAVISLA (od last_health_escalation_pnl_pct)
         # vynimka: ak je pozicia uz blizko REALNEHO SL zasahu, cooldown sa ignoruje
@@ -921,6 +964,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         else:
             print(f"[{name}] Mechanicka kontrola eskaluje na plny Claude cyklus: {escalation_reason}")
         open_trade.last_health_escalation_at = datetime.now(timezone.utc)
+        open_trade.last_health_escalation_kind = escalation_kind
         open_trade.last_health_escalation_pnl_pct = pnl_pct
         session.add(open_trade)
         session.commit()

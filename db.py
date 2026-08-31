@@ -112,6 +112,14 @@ class Trade(Base):
     # _run_position_health_check) - novy, HORSI fakt, nie opakovanie stareho.
     last_health_escalation_pnl_pct = Column(Float, nullable=True)
 
+    # 2026-08-31 - DRUH triggeru poslednej platenej eskalacie: "macro"/"trend"/"loss"
+    # (viz trade_cycle._mechanical_health_escalation). Cooldown bol dovtedy
+    # per-POZICIA, takze eskalacia kvoli strate umlcala aj eskalaciu kvoli obratu
+    # trendu o hodinu neskor - hoci to je NOVY fakt. Teraz cooldown potlaca len
+    # OPAKOVANIE TOHO ISTEHO druhu, co bol vzdy jeho zamer (ADA incident 2026-08-17
+    # bol o opakovanej blizkosti SL, nie o miesani roznych signalov).
+    last_health_escalation_kind = Column(String, nullable=True)
+
     # 2026-08-31 (na ziadost pouzivatela) - stav cenoveho pasma V CASE VSTUPU
     # (viz price_range.compute_price_range). Ulozene priamo na trade, nie
     # dohladavane spatne z cycle_logs.ta, aby to prezilo aj self-heal review
