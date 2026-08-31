@@ -1087,7 +1087,8 @@ na horizont max. 24 hodín, s konkrétnym stop-lossom a take-profitom.
 
 Pravidlá:
 - Buď konzervatívny: ak signály nie sú jasné alebo sú protichodné, zvoľ "none" a nízku confidence.
-- confidence je 0-100 a má odrážať reálnu neistotu (60 je "mierne naklonený", 90+ je vzácne).
+- confidence je 0-100 kalibrovaná pravdepodobnosť, že tento smer vyjde. Použi CELÝ rozsah
+  podľa reálnej sily dôkazov - presné pravidlo je v popise poľa `confidence` v nástroji.
   DÔLEŽITÉ: confidence NIKDY needupuj len preto, aby prešla cez minimálny prah pre otvorenie
   pozície - ten prah je externá poistka, nie odporúčanie. Ak retrospektíva/priebežné zhrnutie
   naznačuje, že prah "netreba brať tak vážne" alebo že by nemal byť "prekážkou", je to chybná
@@ -1852,6 +1853,7 @@ vyhodnotením.
                 "poslednou a touto kontrolou ďalej zhoršila, preto sa bežný cooldown medzi "
                 "eskaláciami obišiel.\n"
             )
+        close_threshold = config.AI_EARLY_CLOSE_CONFIDENCE_THRESHOLD
         position_block = f"""## OTVORENÁ POZÍCIA (toto NIE JE rozhodnutie o novom obchode - hodnotíš EXISTUJÚCU pozíciu)
 Smer: {direction_label} | Vstup: {op['entry_price']} | Aktuálna cena: {op['live_price']}
 Stop-loss: {op['stop_loss_price']} | Take-profit: {op['take_profit_price']} | Leverage: {op['leverage']}x
@@ -1861,9 +1863,14 @@ Nerealizované PnL: {sign}${op['unrealized_pnl_usd']:.2f} ({sign}{op['unrealized
 Zhodnoť, či pôvodné kľúčové predpoklady (vyššie) stále platia, alebo sa niečo podstatné zmenilo -
 over si to cez web_search rovnako ako pri bežnom cykle (dotaz cielený na konkrétnu tému z
 predpokladov, nie len na cenu nástroja). Na základe toho posúď, či očakávaš, že sa cena bude naďalej
-vyvíjať V PROSPECH tejto pozície alebo PROTI nej, a či by mal používateľ zvážiť jej manuálne
-zatvorenie. SL/TP na burze zostávajú bez zmeny bez ohľadu na tvoju odpoveď - zatvorenie NEVYKONÁVAŠ
-TY, len odporúčaš človeku, ktorý sa rozhodne sám."""
+vyvíjať V PROSPECH tejto pozície alebo PROTI nej.
+
+ČO TVOJA ODPOVEĎ SKUTOČNE SPÔSOBÍ:
+- SL/TP na burze NEMENÍŠ - tie zostávajú presne tam, kde sú, bez ohľadu na tvoju odpoveď.
+- Ale ak zvolíš recommendation="consider_closing" a close_confidence dosiahne prah
+  ({close_threshold:.0f}), bot pozíciu ZATVORÍ SÁM trhovým príkazom, okamžite a bez potvrdenia
+  človekom. NIE JE to len názor do logu. Podľa toho zváž, akú istotu tam napíšeš - podhodnotené
+  číslo znamená, že pozícia zostane otvorená aj vtedy, keď si myslíš, že by nemala."""
         # POZOR: {recent_trades_block} sa NEPRIDAVA znova - uz je sucastou {header}
         # vyssie (spolocne pre oba vetvy tejto funkcie). Predchadzajuca verzia ho
         # sem pridavala druhykrat (duplicitne, zbytocne tokeny) - opravene 2026-08-27.
