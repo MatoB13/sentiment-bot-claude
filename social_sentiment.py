@@ -36,6 +36,15 @@ QUERIES = {
     # vyssie - poucenie z UNITREE naleze). $AAPL uz je pouzite v NAS100
     # dopyte vyssie ako sirsi index-komponent - tu ide o VLASTny AAPL-specificky dopyt.
     "AAPL": '($AAPL OR "Apple Inc" OR "iPhone" OR "Tim Cook") lang:en -is:retweet',
+    # 2026-08-30/31: ZHIPU a CRCL tu chybali od svojho pridania (CRCL uz ZIVY),
+    # takze .get() fallback nizsie im ticho podsuval NAS100 dopyt - presne ta
+    # diera, ktora sa nasla pri UNITREE. Doplnene spolu s PUMP.
+    "ZHIPU": '("Zhipu AI" OR "Z.ai" OR "ChatGLM") lang:en -is:retweet',
+    "CRCL": '($CRCL OR "Circle Internet" OR USDC) lang:en -is:retweet',
+    # NIKDY holé "PUMP" - je to bezne anglicke slovo A zaroven nazov
+    # manipulativnej schemy ("pump and dump"), takze by dopyt zaplavili uplne
+    # nesuvisiace prispevky. Rovnaky dovod ako NIGHT/HYPE/MINIMAX.
+    "PUMP": '("Pump.fun" OR "pumpdotfun" OR $PUMP) lang:en -is:retweet',
 }
 
 

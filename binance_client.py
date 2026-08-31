@@ -1,6 +1,8 @@
 """
-Verejne (bez API kluca) trhove data z Binance - pouziva sa LEN ako doplnkovy
-zdroj OBJEMU pre ADA/NIGHT (viz market_data._merge_volume_from_binance), kde
+Verejne (bez API kluca) trhove data z Binance. Povodne (a stale prevazne) ako
+doplnkovy zdroj OBJEMU pre ADA/NIGHT (viz market_data._merge_volume_from_binance),
+od 2026-08-31 aj ako PLNOHODNOTNY OHLC zdroj pre tickery, ktore na yfinance
+neexistuju (PUMP - viz market_data.fetch_ohlcv_binance), kde
 yfinance pokrytie je prilis riedke/nespolahlive (~41% barov pre ADA, NIGHT
 pravdepodobne mimo yfinance pokrytia celkom). Kryptomeny SU na Binance
 skutocne obchodovane s realnym objemom (na rozdiel od NAS100/NVDA/WTI, ktore
@@ -30,8 +32,16 @@ _FUTURES_DATA_URL = "https://fapi.binance.com/futures/data/globalLongShortAccoun
 
 def get_hourly_klines(symbol: str, limit: int = 500) -> list[dict]:
     """symbol: Binance formát bez pomlčky/lomky (napr. "ADAUSDT", "NIGHTUSDT").
-    Vrati zoznam {"open_time" (ms epoch UTC), "close", "volume"} zoradenych od
-    najstarsieho po najnovsi. limit max 1000 (Binance API strop)."""
+    Vrati zoznam {"open_time" (ms epoch UTC), "open", "high", "low", "close",
+    "volume"} zoradenych od najstarsieho po najnovsi. limit max 1000 (Binance
+    API strop).
+
+    2026-08-31: povodne sa vracal len close+volume (funkcia vznikla vylucne na
+    doplnenie OBJEMU pre ADA/NIGHT). PUMP-USD ale na yfinance neexistuje vobec,
+    takze Binance je preň jediny pouzitelny OHLC zdroj, kym sa nenazbiera
+    dost vlastnych price_bars - viz market_data.fetch_ohlcv_binance. Pridanie
+    open/high/low je spatne kompatibilne: doterajsi volajuci
+    (_merge_volume_from_binance) cita len close/volume a nove kluce ignoruje."""
     resp = requests.get(
         _BASE_URL,
         params={"symbol": symbol, "interval": "1h", "limit": limit},
@@ -40,7 +50,14 @@ def get_hourly_klines(symbol: str, limit: int = 500) -> list[dict]:
     resp.raise_for_status()
     rows = resp.json()
     return [
-        {"open_time": r[0], "close": float(r[4]), "volume": float(r[5])}
+        {
+            "open_time": r[0],
+            "open": float(r[1]),
+            "high": float(r[2]),
+            "low": float(r[3]),
+            "close": float(r[4]),
+            "volume": float(r[5]),
+        }
         for r in rows
     ]
 

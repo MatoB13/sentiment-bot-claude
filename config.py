@@ -53,6 +53,7 @@ NEAR_EFFORT = os.getenv("NEAR_EFFORT", "")
 AAPL_EFFORT = os.getenv("AAPL_EFFORT", "")
 ZHIPU_EFFORT = os.getenv("ZHIPU_EFFORT", "")
 CRCL_EFFORT = os.getenv("CRCL_EFFORT", "")
+PUMP_EFFORT = os.getenv("PUMP_EFFORT", "")
 
 # Strike
 STRIKE_API_PRIVATE_KEY = os.getenv("STRIKE_API_PRIVATE_KEY", "")
@@ -454,6 +455,7 @@ ENABLE_ZHIPU = _bool("ENABLE_ZHIPU", "false")
 # MINIMAX/UNITREE/ZHIPU synteticky trackovanych sukromnych firiem) - viz CRCL
 # sekcia nizsie pre plne zdovodnenie SL/TP aj korelacnu analyzu.
 ENABLE_CRCL = _bool("ENABLE_CRCL", "true")
+ENABLE_PUMP = _bool("ENABLE_PUMP", "true")
 
 # Presny symbol/asset identifikator zisti cez strike_client.get_markets() - toto
 # su len predpoklady podla existujuceho NAS100-USD pomenovacieho vzoru, okrem
@@ -906,3 +908,43 @@ CRCL_TP_PCT = _float("CRCL_TP_PCT", 8.4)
 CRCL_TRADE_INTERVAL_HOURS = _float("CRCL_TRADE_INTERVAL_HOURS", TRADE_INTERVAL_HOURS)
 CRCL_OFF_HOURS_INTERVAL_HOURS = _float("CRCL_OFF_HOURS_INTERVAL_HOURS", OFF_HOURS_INTERVAL_HOURS)
 CRCL_WEEKEND_INTERVAL_HOURS = _float("CRCL_WEEKEND_INTERVAL_HOURS", WEEKEND_INTERVAL_HOURS)
+
+
+# ============================== PUMP (AKTIVNY od 2026-08-31) ==============================
+# Pridany 2026-08-31 na ziadost pouzivatela (Strike pridal PUMP-USD ~27. 8.).
+# Pump.fun - Solana launchpad pre meme tokeny, token PUMP (ICO jul 2025).
+#
+# KORELACIA (overena 2026-08-31, viz [[sentiment_bot_pump_correlation_check]]):
+# konzistentne NIZSIA nez priemer krypta - 0.28 vs 0.44 na celej historii,
+# 0.49 vs 0.63 na poslednych 200h. Voci tradicnym aktivam prakticky nula
+# (GOOGL 0.02, WTI -0.06, UNITREE 0.00). Najnizsia dvojica je PUMP-NIGHT (0.13).
+# Nie je to nekorelovany ticker, ale v ramci krypta je najnezavislejsi.
+#
+# ZDROJ DAT: Pump.fun na Yahoo Finance NEEXISTUJE (overenych 6 variantov
+# tickera, vsetky prazdne), preto NEMA yf_symbol a pouziva sa Binance
+# PUMPUSDT ako OHLC zdroj, kym sa nenazbiera MIN_OWN_BARS vlastnych price_bars
+# (~9 dni) - viz market_data.fetch_ohlcv_binance a assets.py binance_ohlc_symbol.
+# Binance cena bola overena proti Strike mark_price (pomer 1.002 = ten isty
+# instrument, rovnaka kontrola ako po HYPE mismatchi pri NEAR).
+#
+# SL/TP z REALNYCH dat (politika [[feedback_new_ticker_sl_tp_derivation]]):
+# hodinovy ATR14 z 1000 Binance barov. Median 2.775% za 14 dni (2.69% za 7 dni,
+# 2.11% za 48h, 2.06% za cele 42-dnove okno) - volatilita sa upokojuje, zamerne
+# beriem to KONZERVATIVNEJSIE 14-dnove cislo, nie najtichsie okno (presne ta
+# chyba, ktora pri UNITREE dala 0.209% SL). Je to NAJVOLATILNEJSI ticker
+# v portfoliu: 2.775% vs CRCL 2.35%, ZEC 1.64%, ADA 1.26%.
+# Pomer SL/ATR 2.20x = median NASICH KRYPTO tickerov (ADA 2.55, BTC 2.56,
+# NEAR 2.26, ZEC 2.14, NIGHT 1.66) - NIE akciovy 2.34x a NIE sweep k=1.0,
+# ktory pri 59% SL hit rate za 24h vysiel absurdne tesne.
+# 2.775 * 2.20 = 6.1% SL, TP 9.15% -> 9.2% (pomer 1.5, ako ostatne tickery).
+STRIKE_PUMP_SYMBOL = os.getenv("STRIKE_PUMP_SYMBOL", "PUMP-USD")
+PUMP_MIN_CONFIDENCE = _int("PUMP_MIN_CONFIDENCE", MIN_CONFIDENCE)
+PUMP_MARGIN_USD = _float("PUMP_MARGIN_USD", 50)
+PUMP_LEVERAGE = _int("PUMP_LEVERAGE", 5)  # DEAD - viz risk_manager._leverage_from_cushion, skutocna paka sa odvodzuje z cushion multiple nizsie
+PUMP_LIQUIDATION_CUSHION_MULTIPLE = _float("PUMP_LIQUIDATION_CUSHION_MULTIPLE", LIQUIDATION_CUSHION_MULTIPLE)
+PUMP_SL_PCT = _float("PUMP_SL_PCT", 6.1)
+PUMP_TP_PCT = _float("PUMP_TP_PCT", 9.2)
+# 24/7 krypto - rovnake intervaly ako ADA/ZEC/NEAR, ziadne off-hours/vikend rozlisenie.
+PUMP_TRADE_INTERVAL_HOURS = _float("PUMP_TRADE_INTERVAL_HOURS", ADA_TRADE_INTERVAL_HOURS)
+PUMP_OFF_HOURS_INTERVAL_HOURS = _float("PUMP_OFF_HOURS_INTERVAL_HOURS", PUMP_TRADE_INTERVAL_HOURS)
+PUMP_WEEKEND_INTERVAL_HOURS = _float("PUMP_WEEKEND_INTERVAL_HOURS", PUMP_TRADE_INTERVAL_HOURS)

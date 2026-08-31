@@ -325,6 +325,42 @@ def _resample_higher_timeframe(df: pd.DataFrame, rule: str) -> dict | None:
     }
 
 
+def fetch_ohlcv_binance(binance_symbol: str, limit: int = 500) -> pd.DataFrame:
+    """Plnohodnotny hodinovy OHLCV z Binance - obdoba fetch_ohlcv_coingecko,
+    ale s realnym objemom a hodinovym (nie 4-hodinovym) rozlisenim.
+
+    2026-08-31, pre PUMP-USD: Pump.fun na Yahoo Finance NEEXISTUJE (overenych
+    6 variantov tickera, vsetky prazdne), takze bezny yfinance fallback by pre
+    tento ticker vratil prazdno a cyklus by sa donekonecna preskakoval, kym sa
+    nenazbiera MIN_OWN_BARS vlastnych barov (~9 dni). Binance PUMPUSDT cena
+    bola overena proti Strike mark_price (pomer 1.002 = ten isty instrument).
+
+    Vracia prazdny DataFrame pri zlyhani - volajuci (get_price_history) sa
+    sprava rovnako ako pri kazdom inom zlyhanom zdroji, ziadna vynimka nevytecie."""
+    try:
+        klines = binance_client.get_hourly_klines(binance_symbol, limit=limit)
+    except Exception as e:
+        print(f"[market_data] Binance OHLC fetch pre {binance_symbol} zlyhal: {e}")
+        return pd.DataFrame()
+    if not klines:
+        print(f"[market_data] Binance OHLC pre {binance_symbol} vratil prazdno.")
+        return pd.DataFrame()
+
+    idx = pd.to_datetime([k["open_time"] for k in klines], unit="ms", utc=True).tz_localize(None)
+    df = pd.DataFrame(
+        {
+            "open": [k["open"] for k in klines],
+            "high": [k["high"] for k in klines],
+            "low": [k["low"] for k in klines],
+            "close": [k["close"] for k in klines],
+            "volume": [k["volume"] for k in klines],
+        },
+        index=idx,
+    )
+    df.index.name = "timestamp"
+    return df
+
+
 def _load_own_bars(symbol: str, session, lookback_days: int = 30) -> pd.DataFrame:
     cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=lookback_days)
     bars = (
@@ -418,6 +454,15 @@ def get_price_history(asset: dict, session) -> pd.DataFrame:
         elif asset.get("include_volume"):
             df = _merge_volume(df, asset["yf_symbol"], asset.get("yf_fallback"))
         return df
+
+    # 2026-08-31 - Binance ma prednost pred CoinGecko/yfinance tam, kde je
+    # nastaveny: je to hodinovy OHLCV s realnym objemom (CoinGecko dava 4h a
+    # ziadny volume). Pouziva sa pre ticker, ktory na yfinance vobec nie je
+    # (PUMP) - viz assets.py binance_ohlc_symbol.
+    if asset.get("binance_ohlc_symbol"):
+        print(f"[market_data] {symbol}: vlastne price_bars chybaju/su zastarale, "
+              f"padam spat na Binance ({asset['binance_ohlc_symbol']}).")
+        return fetch_ohlcv_binance(asset["binance_ohlc_symbol"])
 
     if asset.get("coingecko_id"):
         print(f"[market_data] {symbol}: vlastne price_bars chybaju/su zastarale, padam spat na CoinGecko.")

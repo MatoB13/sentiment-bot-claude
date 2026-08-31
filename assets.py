@@ -620,7 +620,49 @@ CRCL = {
     "effort": config.CRCL_EFFORT,
 }
 
-ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX, AAOI, MINIMAX, ZEC, GOOGL, UNITREE, NEAR, AAPL, ZHIPU, CRCL]
+PUMP = {
+    "name": "PUMP",
+    "asset_class": "crypto",
+    "strike_symbol": config.STRIKE_PUMP_SYMBOL,
+    # POZOR: Pump.fun na yfinance NEEXISTUJE (overenych 6 variantov tickera
+    # 2026-08-31, vsetky prazdne) - preto yf_symbol=None a OHLC ide z Binance
+    # (viz binance_ohlc_symbol nizsie). Ziadny iny nas ticker takto nema
+    # yf_symbol prazdny, takze kazdy kod, ktory ho cita, musi znest None -
+    # overene: _merge_volume sa preň nevola (binance_volume_symbol ma prednost)
+    # a get_price_history sa k yfinance vetve preň vobec nedostane.
+    "yf_symbol": None,
+    "yf_fallback": None,
+    # Binance PUMPUSDT = ten isty instrument ako Strike PUMP-USD (cena overena,
+    # pomer 1.002). Sluzi na DVE veci: plnohodnotny OHLC fallback, kym sa
+    # nenazbiera dost vlastnych price_bars (~9 dni), a potom uz len ako zdroj
+    # objemu, rovnako ako pri ADA/NIGHT/NEAR.
+    "binance_ohlc_symbol": "PUMPUSDT",
+    "binance_volume_symbol": "PUMPUSDT",
+    "coinmarketcal_slug": "pump-fun",
+    "sl_pct": config.PUMP_SL_PCT,
+    "tp_pct": config.PUMP_TP_PCT,
+    "leverage": config.PUMP_LEVERAGE,
+    "liquidation_cushion_multiple": config.PUMP_LIQUIDATION_CUSHION_MULTIPLE,
+    "margin_usd": config.PUMP_MARGIN_USD,
+    "min_confidence": config.PUMP_MIN_CONFIDENCE,
+    "enabled": config.ENABLE_PUMP,
+    "needs_btc_proxy": True,
+    "include_volume": True,
+    "trade_interval_hours": config.PUMP_TRADE_INTERVAL_HOURS,
+    "off_hours_interval_hours": config.PUMP_OFF_HOURS_INTERVAL_HOURS,
+    "weekend_interval_hours": config.PUMP_WEEKEND_INTERVAL_HOURS,
+    "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
+    "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
+    # "PUMP" samotne je bezne anglicke slovo (pumpa, cerpadlo) - holy ticker by
+    # dal falosne zhody, rovnaky problem ako mal NIGHT. "PUMPUSD" je rovnaky
+    # bezpecny tvar, aky uz pouziva NEAR (tiez bezne slovo).
+    "marketaux_query": {"symbols": "PUMPUSD"},
+    "effort": config.PUMP_EFFORT,
+}
+
+
+ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX, AAOI, MINIMAX, ZEC,
+              GOOGL, UNITREE, NEAR, AAPL, ZHIPU, CRCL, PUMP]
 
 
 # --- 2026-08-31: run_slot (rozprestretie cyklov v case) ---------------------

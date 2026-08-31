@@ -1067,6 +1067,21 @@ ASSET_TEXT = {
         ),
         "macro_rules": _CRYPTO_MACRO_RULES,
     },
+    "PUMP": {
+        "label": "krypto PUMP (Pump.fun, Solana launchpad pre meme tokeny) perpetuál",
+        "news_focus": (
+            'správach o Pump.fun samotnom (objem a počet nových tokenov na platforme, podiel na '
+            'trhu voči konkurenčným launchpadom, revenue a spätné odkupy tokenu, zmeny v poplatkoch '
+            'alebo mechanike vydávania), tokenomike a odomykaní (ICO z júla 2025, vesting/unlock '
+            'harmonogramy, pohyby tímových a investorských peňaženiek), regulačnom tlaku (žaloby '
+            'a vyšetrovania okolo meme-coin launchpadov, postoj SEC k tokenom s revenue-share '
+            'charakterom), stave Solana ekosystému (sieťová aktivita, výpadky, poplatky, DEX objemy) '
+            'a v širšom krypto naratíve (BTC dominancia, risk-on/off, veľké likvidácie). '
+            'POZOR: "pump" je zároveň bežné slovo aj názov manipulatívnej schémy ("pump and dump") - '
+            'pri vyhľadávaní vždy over, či výsledok hovorí naozaj o Pump.fun a nie o niečom inom'
+        ),
+        "macro_rules": _CRYPTO_MACRO_RULES,
+    },
 }
 
 # System prompt je rozdeleny na 2 cache_control bloky (viz _system_prompt_blocks nizsie):
