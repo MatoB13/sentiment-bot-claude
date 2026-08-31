@@ -40,6 +40,27 @@ from db import AtrCalibration, RiskOverride, RiskOverrideHistory, get_session
 
 _K_CANDIDATES = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0]
 
+# 2026-08-31 (UNITREE #140/#145 incident) - "najnovsi ATR%" (posledny riadok
+# df, jeden bodovy odpocet) sa ukazal krehky: UNITREE malo v ramci tej istej
+# 9-dnovej historie ATR% kolisajuce od ~2.3% (den po IPO) po ~0.14-0.34%
+# (kratke pokojne okna) - trafit vypocet presne do jedneho z tychto tichych
+# okien dalo absurdne tesny navrh (0.209% SL), ktory potom (bez tejto opravy)
+# islo priamo do RiskOverride cez auto-apply. Median za posledne
+# _ATR_ROBUST_WINDOW_BARS hodin namiesto jedneho bodu vyhladi tento sum,
+# rovnaky princip ako uz pouzity pri manualnych ATR kalibraciach tento tyzden
+# (72h okno pre UNITREE/CRCL namiesto poslednej sviecky).
+_ATR_ROBUST_WINDOW_BARS = 48
+
+# Absolutna bezpecnostna podlaha na navrhovane SL% - NEZAVISLA od
+# risk_manager.SAFETY_FLOOR_MULTIPLE (ten je len NASOBOK uz existujuceho
+# cieloveho sl_pct, takze ak by bol SAMOTNY cielovy sl_pct/override chybny -
+# presne to sa stalo pri UNITREE cez auto-apply - floor v risk_manager
+# nepomoze). 0.3% je zamerne pod najtesnejsim aktualnym legitimnym cielom v
+# portfoliu (NAS100 0.4%), takze ziadny sucasny dobre kalibrovany ticker sa
+# tymto neorezeva - je to cisto poistka proti degenerovanemu/sumovemu
+# vstupu, nie navrh vhodnej sirky pre konkretny ticker.
+_MIN_SUGGESTED_SL_PCT = 0.3
+
 # 2026-08-20, na ziadost pouzivatela (odcestovany, bez pocitaca/CLI pristupu
 # pocas cesty) - MINIMAX/UNITREE su JEDINE tickery bez akehokolvek externeho
 # fallback zdroja (yfinance/CoinGecko, viz assets.py) - market_data.
@@ -55,7 +76,23 @@ _K_CANDIDATES = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0]
 # odhad. Ziadne Claude/LLM volanie, cista uz aj tak vypocitana aritmetika.
 # Guard proti opakovanemu re-aplikovaniu kazdy den: preskoci, ak uz existuje
 # RiskOverride so source=AUTO_APPLY_SOURCE pre dany symbol.
-AUTO_APPLY_SYMBOLS = {"MINIMAX-USD", "UNITREE-USD"}
+#
+# 2026-08-31 (UNITREE #140/#145 incident): tento mechanizmus 30.8. tichy
+# PREPISAL predtym manualne (a robustne, z 72h ATR priemeru) skalibrovany
+# UNITREE override (2.0%/3.0%) hodnotou 0.209%/0.3135% - vypocitanou z
+# JEDNEHO bodoveho ATR odcitania (0.139%) presne v momente, ked ticker prvy
+# raz prekrocil MIN_OWN_BARS prah. Rovnaky (menej extremny) incident sa stal
+# aj pri MINIMAX 25.8. (3.2%/4.8% manualne -> 1.6641%/2.4961% auto). V oboch
+# pripadoch UZ MAME manualnu, robustnu kalibraciu - "prvy raz dost dat" ucel
+# tohto mechanizmu (viz komentar vyssie) je pre tieto dva tickery uz splneny,
+# takze ich vynechavame, aby sa incident nemohol zopakovat (aj po oprave
+# _compute_for_asset nizsie na robustnejsi ATR vypocet - dve nezavisle
+# poistky su lepsie nez jedna). Zaroven boli existujuce riadky v risk_overrides
+# rucne opravene spat na 2.0%/3.0% (UNITREE) a 3.2%/4.8% (MINIMAX) so
+# source="manual_atr_recalibration" - BEZ tohto vynechania by ich guard
+# vyssie (kontroluje presne AUTO_APPLY_SOURCE) povazoval za "este neaplikovane"
+# a pri najblizsom dennom behu by ich znova prepisal.
+AUTO_APPLY_SYMBOLS: set[str] = set()
 AUTO_APPLY_SOURCE = "auto_atr_recalibration"
 
 # ~1 den - priblizne zodpoveda typickej dobe drzania pred POSITION_MAX_HOURS
@@ -198,15 +235,23 @@ def _compute_for_asset(asset: dict, session) -> None:
     ratio = (tp_pct / sl_pct) if sl_pct else 1.5
 
     best_k, stats = _sweep_k(df, ratio)
+    # 2026-08-31 - median za posledne _ATR_ROBUST_WINDOW_BARS namiesto
+    # jedneho posledneho riadku (viz konstanta vyssie pre plne zdovodnenie -
+    # UNITREE #140/#145 incident). latest_atr_pct (jednobodova hodnota) sa
+    # stale zapisuje do AtrCalibration.atr_pct nizsie len INFORMATIVNE (aby
+    # dashboard vedel zobrazit "aktualny" odpocet), ale VYPOCET navrhu z nej
+    # uz nevychadza.
     latest_atr_pct = float(df["atr_pct"].iloc[-1])
-    suggested_sl = round(latest_atr_pct * best_k, 4)
+    robust_atr_pct = float(df["atr_pct"].tail(_ATR_ROBUST_WINDOW_BARS).median())
+    suggested_sl = max(round(robust_atr_pct * best_k, 4), _MIN_SUGGESTED_SL_PCT)
     suggested_tp = round(suggested_sl * ratio, 4)
 
     # Priblizny odhad zdroja (get_price_history() sama o sebe zdroj nevracia) -
     # cisto informativne pole, na skutocnu logiku sweepu nema vplyv.
     source = "own_bars" if len(df) >= market_data.MIN_OWN_BARS else "fallback"
 
-    print(f"[sl_calibration] [{name}] ATR%={latest_atr_pct:.4f} k={best_k} "
+    print(f"[sl_calibration] [{name}] ATR%={latest_atr_pct:.4f} (posledny bod), "
+          f"median{_ATR_ROBUST_WINDOW_BARS}h={robust_atr_pct:.4f} k={best_k} "
           f"(expectancy={stats.get('expectancy', 0):.3f}R, "
           f"tp_rate={stats.get('tp_rate', 0):.2f}, sl_rate={stats.get('sl_rate', 0):.2f}) "
           f"-> navrhovane SL={suggested_sl:.3f}%/TP={suggested_tp:.3f}% "
@@ -219,7 +264,7 @@ def _compute_for_asset(asset: dict, session) -> None:
         suggested_sl_pct=suggested_sl, suggested_tp_pct=suggested_tp,
     ))
 
-    _maybe_auto_apply(asset, symbol, suggested_sl, suggested_tp, latest_atr_pct, len(df), source, session)
+    _maybe_auto_apply(asset, symbol, suggested_sl, suggested_tp, robust_atr_pct, len(df), source, session)
 
 
 def compute_all() -> None:
