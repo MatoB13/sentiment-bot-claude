@@ -1445,6 +1445,14 @@ AKO S TÝM PRACOVAŤ:
    Dôležité, aby si tomu rozumel správne: NIE je to preto, že by sme vedeli, že sa cena vráti
    do stredu. Je to preto, že alternatíva je rovnako zlá - takže tým nič neriskuješ.
 
+   AK SA NAPRIEK TOMU ROZHODNEŠ VSTÚPIŤ V SMERE POHYBU (long na vrchole, short na dne),
+   MUSÍŠ to v `reasoning` výslovne obhájiť: napíš, že ideš proti tomuto backtestu, a uveď
+   KONKRÉTNY dôvod, prečo je táto situácia iná (napr. čerstvý katalyzátor z web_search, ktorý
+   pásmo ruší, alebo potvrdené prerazenie na nadpriemernom objeme). "Silný trend", "momentum"
+   ani "ADX je vysoký" taký dôvod NIE SÚ - presne tie sprevádzali stratové vstupy vo vzorke.
+   Ak taký konkrétny dôvod nemáš, zvoľ "none" alebo vstup proti pohybu. Neobhájený vstup
+   v smere na okraji je horší než žiadny obchod.
+
 3) `in_range` = true, ale `at_edge` = null (si v strede pásma) -> priamy vstup teraz nemá oporu
    v dátach ani jedným smerom. Namiesto neho NASTAV watch_price na okraj pásma (`range_high`
    alebo `range_low`) a do `watch_rationale` napíš, že pri dosiahnutí okraja zvážiš vstup proti
