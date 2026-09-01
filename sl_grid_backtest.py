@@ -21,6 +21,15 @@ PriceBar, okno POSITION_MAX_HOURS - rovnaka politika ako zivy bot), s
 leverage prepocitanou cez rovnaky vzorec ako risk_manager (_leverage_from_cushion),
 aby $ PnL bolo realisticke.
 
+NAKLADY (2026-09-01, po externom audite): z kazdeho simulovaneho obchodu sa
+odpocita poplatok + spread ako % z notional (config.BACKTEST_FEE_PCT_OF_NOTIONAL
+je MEDIAN z nasich 163 realnych obchodov, spread je median daneho tickera z jeho
+vlastnych cyklov). Predtym sa pocital cisty cenovy pohyb, co systematicky
+zvyhodnovalo tesne SL: tesnejsi SL -> vyssia paka -> vacsi notional -> vacsie
+realne naklady, ktore ale simulacia nevidela. POZOR: samotne naklady NEODSTRANUJU
+overfit na malu vzorku - kandidat postaveny na 2 stastnych obchodoch zo 17
+zostava skresleny aj po ich zapocitani.
+
 Lokalna citlivost (2026-08-19): pre TOP 1 kandidata kazdeho tickera sa navyse
 otestuje plna 3x3 mriezka okolo neho (viz _LOCAL_SENSITIVITY_OFFSETS) - ukaze,
 ci #1 sedi v stabilnej plosine alebo je to osamely vrchol/sum.
@@ -48,6 +57,8 @@ import pandas_ta as ta
 import config
 import risk_manager
 import strike_client
+from sqlalchemy import text
+
 from db import (CycleLog, PriceBar, SlTpBacktestCandidate, SlTpBacktestCandidateConstrained,
                  SlTpLocalSensitivity, SlTpLocalSensitivityConstrained, SlTpRecomputeStatus, Trade, get_session)
 
@@ -103,6 +114,22 @@ _LOCAL_SENSITIVITY_OFFSETS = [
     ("SL+0.25", 7, 0.25, 0.0),
     ("SL+0.25/TP+0.25", 8, 0.25, 0.25),
 ]
+
+
+def _ticker_spread_pct(symbol: str, session) -> float:
+    """Median spreadu tohto tickera z jeho vlastnej historie cyklov.
+
+    2026-09-01 - spread je pri tesnych SL podstatna cast nakladu: pri SL 0.54 %
+    (ZEC, sl_k=0.5) je spread 0.06 % viac nez desatina celej SL vzdialenosti.
+    Berie sa median per ticker, lebo rozptyl naprieč portfoliom je velky
+    (BTC 0.002 %, vacsina 0.06-0.08 %, NIGHT 0.36 %) - jedna zdielana konstanta
+    by NIGHT podhodnotila sestnastnasobne."""
+    row = session.execute(text("""
+        SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY (ta->>'spread_pct')::float)
+        FROM cycle_logs
+        WHERE COALESCE(symbol, 'NAS100-USD') = :sym AND ta->>'spread_pct' IS NOT NULL
+    """), {"sym": symbol}).scalar()
+    return float(row) if row is not None else config.BACKTEST_FALLBACK_SPREAD_PCT
 
 
 def _prepare_trade(t: Trade, session, market_meta_cache: dict) -> dict | None:
@@ -177,7 +204,12 @@ def _leverage_for(p: dict, sl_dist: float):
 
 
 def _first_touch_pnl(p: dict, sl_price: float, tp_price: float, sl_pct: float, tp_pct: float,
-                      leverage: float) -> float:
+                      leverage: float, cost_pct: float = 0.0) -> float:
+    """cost_pct (2026-09-01) = poplatky + spread ako % z NOTIONAL za cely
+    round-trip. Odpocitava sa z kazdeho simulovaneho obchodu bez ohladu na
+    vysledok - plati sa aj pri strate. Bez toho simulacia systematicky
+    zvyhodnovala tesne SL, lebo tesnejsi SL znamena vyssiu paku a teda vacsi
+    notional, z ktoreho sa naklady pocitaju."""
     entry = p["entry"]
     is_long = p["is_long"]
     outcome = "no_touch"
@@ -190,16 +222,18 @@ def _first_touch_pnl(p: dict, sl_price: float, tp_price: float, sl_pct: float, t
         if hit_tp:
             outcome = "tp"
             break
+    notional = p["trade"].margin_usd * leverage
+    cost = notional * cost_pct / 100
     if outcome == "sl":
-        return p["trade"].margin_usd * leverage * (-sl_pct / 100)
+        return notional * (-sl_pct / 100) - cost
     if outcome == "tp":
-        return p["trade"].margin_usd * leverage * (tp_pct / 100)
+        return notional * (tp_pct / 100) - cost
     last_close = p["fwd_bars"][-1].close
     pnl_pct = ((last_close - entry) / entry) if is_long else ((entry - last_close) / entry)
-    return p["trade"].margin_usd * leverage * pnl_pct
+    return notional * pnl_pct - cost
 
 
-def _simulate(prepared: list[dict], sl_k: float, tp_k: float) -> dict | None:
+def _simulate(prepared: list[dict], sl_k: float, tp_k: float, cost_pct: float = 0.0) -> dict | None:
     """First-touch simulacia danej (sl_k, tp_k) kombinacie naprieč VSETKYMI
     pripravenymi obchodmi (uz filtrovanymi na jeden ticker volajucim)."""
     total_pnl = 0.0
@@ -219,7 +253,8 @@ def _simulate(prepared: list[dict], sl_k: float, tp_k: float) -> dict | None:
         except Exception:
             continue
 
-        pnl = _first_touch_pnl(p, sl_price, tp_price, sl_k * p["atr_pct"], tp_k * p["atr_pct"], leverage)
+        pnl = _first_touch_pnl(p, sl_price, tp_price, sl_k * p["atr_pct"], tp_k * p["atr_pct"],
+                                leverage, cost_pct)
         total_pnl += pnl
         wins += 1 if pnl > 0 else 0
         n += 1
@@ -229,7 +264,7 @@ def _simulate(prepared: list[dict], sl_k: float, tp_k: float) -> dict | None:
     return {"sl_k": sl_k, "tp_k": tp_k, "total_pnl": total_pnl, "win_rate": wins / n, "trade_count": n}
 
 
-def _run_full_grid(prepared_for_symbol: list[dict]) -> list[dict]:
+def _run_full_grid(prepared_for_symbol: list[dict], cost_pct: float = 0.0) -> list[dict]:
     """Cely (sl_k, tp_k) grid search pre JEDEN ticker (uz filtrovane obchody)
     - vrati VSETKY pouzitelne vysledky (neusporiadane, nefiltrovane). _top_n()
     nizsie z nich odvodi volny aj 1.5x-obmedzeny rebricek bez druhej
@@ -237,7 +272,7 @@ def _run_full_grid(prepared_for_symbol: list[dict]) -> list[dict]:
     results = []
     for sl_k in _SL_K_GRID:
         for tp_k in _TP_K_GRID:
-            r = _simulate(prepared_for_symbol, sl_k, tp_k)
+            r = _simulate(prepared_for_symbol, sl_k, tp_k, cost_pct)
             if r is not None:
                 results.append(r)
     return results
@@ -256,7 +291,8 @@ def _top_n(results: list[dict], min_reward_risk_ratio: float | None = None) -> l
 
 
 def _run_local_sensitivity_for_symbol(prepared_for_symbol: list[dict], base_sl_k: float, base_tp_k: float,
-                                       min_reward_risk_ratio: float | None = None) -> list[dict]:
+                                       min_reward_risk_ratio: float | None = None,
+                                       cost_pct: float = 0.0) -> list[dict]:
     """Otestuje plnu 3x3 mriezku okolo #1 (base_sl_k, base_tp_k), vsetky
     kombinacie delta z {-0.25, 0, +0.25} na oboch osiach (viz
     _LOCAL_SENSITIVITY_OFFSETS) - _simulate() je uz genericka na lubovolny
@@ -275,7 +311,7 @@ def _run_local_sensitivity_for_symbol(prepared_for_symbol: list[dict], base_sl_k
             continue
         if min_reward_risk_ratio is not None and tp_k < min_reward_risk_ratio * sl_k:
             continue
-        r = _simulate(prepared_for_symbol, sl_k, tp_k)
+        r = _simulate(prepared_for_symbol, sl_k, tp_k, cost_pct)
         if r is None:
             continue
         r["variant"] = variant
@@ -298,9 +334,13 @@ def _write_candidates(session, symbol: str, top: list[dict], model, label: str) 
 
 
 def _write_sensitivity(session, symbol: str, prepared: list[dict], base_sl_k: float, base_tp_k: float,
-                        model, label: str, min_reward_risk_ratio: float | None = None) -> None:
-    """Spolocny zapis lokalnej citlivosti pre volny/obmedzeny rebricek."""
-    sensitivity = _run_local_sensitivity_for_symbol(prepared, base_sl_k, base_tp_k, min_reward_risk_ratio)
+                        model, label: str, min_reward_risk_ratio: float | None = None,
+                        cost_pct: float = 0.0) -> None:
+    """Spolocny zapis lokalnej citlivosti pre volny/obmedzeny rebricek.
+    cost_pct MUSI byt rovnaky ako pri hlavnom gride - inak by citlivost okolo #1
+    pocitala v inych jednotkach nez rebricek, z ktoreho to #1 pochadza."""
+    sensitivity = _run_local_sensitivity_for_symbol(prepared, base_sl_k, base_tp_k,
+                                                     min_reward_risk_ratio, cost_pct)
     print(f"[sl_grid_backtest] [{symbol}] lokalna citlivost {label} okolo #1 ({len(sensitivity)}/9 pouzitelnych):")
     for r in sensitivity:
         print(f"  {r['variant']}: SL_k={r['sl_k']} TP_k={r['tp_k']} total_pnl=${r['total_pnl']:.2f} "
@@ -359,14 +399,23 @@ def recompute_symbol(symbol: str) -> None:
             symbol=symbol, computed_at=datetime.now(timezone.utc), closed_trade_count=len(prepared),
         ))
 
-        full_results = _run_full_grid(prepared)
+        # 2026-09-01 - naklady na obchod (poplatky + spread). Bez nich simulacia
+        # systematicky zvyhodnovala tesne SL: tesnejsi SL -> vyssia paka ->
+        # vacsi notional -> vacsie realne naklady, ktore ale nevidela.
+        spread_pct = _ticker_spread_pct(symbol, session)
+        cost_pct = config.BACKTEST_FEE_PCT_OF_NOTIONAL + spread_pct
+        print(f"[sl_grid_backtest] [{symbol}] naklad na obchod: poplatky "
+              f"{config.BACKTEST_FEE_PCT_OF_NOTIONAL:.4f} % + spread {spread_pct:.4f} % "
+              f"= {cost_pct:.4f} % z notional")
+
+        full_results = _run_full_grid(prepared, cost_pct)
 
         top_free = _top_n(full_results)
         if top_free:
             _write_candidates(session, symbol, top_free, SlTpBacktestCandidate,
                                f"volny rebricek ({len(prepared)} obchodov)")
             _write_sensitivity(session, symbol, prepared, top_free[0]["sl_k"], top_free[0]["tp_k"],
-                                SlTpLocalSensitivity, "(volny)")
+                                SlTpLocalSensitivity, "(volny)", cost_pct=cost_pct)
         else:
             print(f"[sl_grid_backtest] [{symbol}] volny rebricek: ziadne pouzitelne vysledky "
                   f"({len(prepared)} obchodov).")
@@ -377,7 +426,7 @@ def recompute_symbol(symbol: str) -> None:
                                f"obmedzeny rebricek TP>={_MIN_REWARD_RISK_RATIO}xSL ({len(prepared)} obchodov)")
             _write_sensitivity(session, symbol, prepared, top_constrained[0]["sl_k"], top_constrained[0]["tp_k"],
                                 SlTpLocalSensitivityConstrained, "(obmedzeny)",
-                                min_reward_risk_ratio=_MIN_REWARD_RISK_RATIO)
+                                min_reward_risk_ratio=_MIN_REWARD_RISK_RATIO, cost_pct=cost_pct)
         else:
             print(f"[sl_grid_backtest] [{symbol}] obmedzeny rebricek: ziadne pouzitelne vysledky "
                   f"(TP>={_MIN_REWARD_RISK_RATIO}xSL, {len(prepared)} obchodov).")

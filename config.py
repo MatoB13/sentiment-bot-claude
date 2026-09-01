@@ -910,6 +910,21 @@ CRCL_OFF_HOURS_INTERVAL_HOURS = _float("CRCL_OFF_HOURS_INTERVAL_HOURS", OFF_HOUR
 CRCL_WEEKEND_INTERVAL_HOURS = _float("CRCL_WEEKEND_INTERVAL_HOURS", WEEKEND_INTERVAL_HOURS)
 
 
+
+# --- SL/TP grid backtest: naklady na obchod (2026-09-01, po externom audite) ---
+# Simulacia v sl_grid_backtest.py pocitala CISTY cenovy pohyb (margin * leverage
+# * pct) a poplatky ani spread nezapocitavala vobec. To systematicky zvyhodnovalo
+# kombinacie s tesnym SL: tesnejsi SL -> vyssia paka -> vacsi notional -> vacsie
+# realne naklady, ktore ale simulacia nevidela.
+#
+# Sadzba je MEDIAN Z NASICH REALNYCH OBCHODOV (163 uzavretych, fees_usd/
+# notional_usd), nie odhad z cennika - median 0.0769 %, priemer 0.0785 %,
+# p90 0.0950 %. Je to za CELY round-trip, teda vstup aj vystup dokopy.
+BACKTEST_FEE_PCT_OF_NOTIONAL = _float("BACKTEST_FEE_PCT_OF_NOTIONAL", 0.0769)
+# Spread sa berie PER TICKER z jeho vlastnej historie (median ta.spread_pct);
+# toto je len zaloha, ked ticker este ziadny zaznam nema. Rozpatie naprieč
+# portfoliom je siroke - BTC 0.002 %, vacsina 0.06-0.08 %, NIGHT az 0.36 %.
+BACKTEST_FALLBACK_SPREAD_PCT = _float("BACKTEST_FALLBACK_SPREAD_PCT", 0.08)
 # ============================== PUMP (AKTIVNY od 2026-08-31) ==============================
 # Pridany 2026-08-31 na ziadost pouzivatela (Strike pridal PUMP-USD ~27. 8.).
 # Pump.fun - Solana launchpad pre meme tokeny, token PUMP (ICO jul 2025).
