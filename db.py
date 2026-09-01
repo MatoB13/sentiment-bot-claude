@@ -510,6 +510,34 @@ class RiskOverride(Base):
     source = Column(String, nullable=True)  # napr. "dashboard_apply"
 
 
+class AssetConfigLive(Base):
+    """AKTUALNA konfiguracia kazdeho assetu tak, ako ju worker vidi PRAVE TERAZ
+    (2026-09-01, na ziadost pouzivatela).
+
+    Dovod: nas100-monitor-web bezi na Verceli a vidi VYHRADNE tuto Postgres DB -
+    k Railway ENV premennym workera pristup nema (a mat nema, su tam aj Strike/
+    Claude kluce). Dashboard preto konfiguraciu doteraz cital z
+    CycleLog.config_snapshot, teda z posledneho REALNE ZBEHNUTEHO cyklu daneho
+    tickera. Po zmene ENV sa nova hodnota objavila az po dalsom behu - pri
+    12-hodinovom intervale teda az o pol dna.
+
+    Tento riadok zapise worker SAM hned pri starte (a zmena ENV na Railway
+    redeploy/restart vyvola), takze dashboard vidi novu hodnotu prakticky
+    okamzite. Jeden riadok na symbol, upsert - ziadna historia; tu ide o
+    "co plati teraz", historicke "s cim bot naozaj bezal" zostava v
+    CycleLog.config_snapshot a ma sa dalej pouzivat na spatnu analyzu.
+
+    Zapisuju sa VSETKY assety z ALL_ASSETS vratane vypnutych (rovnaky vzor ako
+    price_poller) - dashboard tak vie ukazat aj konfiguraciu tickera, ktory
+    este ani raz nezbehol."""
+    __tablename__ = "asset_config_live"
+
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False, unique=True, index=True)
+    config_snapshot = Column(JSON, nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class RiskOverrideHistory(Base):
     """Append-only log KAZDEJ zmeny RiskOverride (2026-08-19, na ziadost
     pouzivatela) - RiskOverride vyssie je len JEDEN aktualny riadok na symbol

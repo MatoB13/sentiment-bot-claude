@@ -23,8 +23,8 @@ import risk_manager
 import risk_overrides
 import social_sentiment
 import strike_client
-from db import (CycleLog, DailyRetrospective, FlaggedMacroEvent, PriceBar,
-                 RollingRetrospective, Trade, get_session)
+from db import (AssetConfigLive, CycleLog, DailyRetrospective, FlaggedMacroEvent,
+                 PriceBar, RollingRetrospective, Trade, get_session)
 
 
 # 2026-08-31 - UZ SA NEPOUZIVA (nechane pre historicky kontext). Tolerancia
@@ -226,6 +226,48 @@ def _config_snapshot(asset: dict) -> dict:
         "claude_model": config.CLAUDE_MODEL,
         "effort": asset.get("effort") or None,
     }
+
+
+def publish_live_configs() -> None:
+    """Zapise AKTUALNU konfiguraciu vsetkych assetov do db.AssetConfigLive -
+    vola sa RAZ pri starte workera (main.py).
+
+    Bez toho dashboard cakal na najblizsi realny cyklus tickera, kym zobrazil
+    zmenenu ENV premennu (viz AssetConfigLive docstring) - pri 12h intervale
+    az pol dna. Zmena ENV na Railway vyvola restart, takze tento zapis nastane
+    hned po nej.
+
+    Pouziva ROVNAKU _config_snapshot() ako bezny cyklus, takze sa tvar dat
+    nemoze rozist. Zlyhanie tu NESMIE zhodit start workera - je to len
+    zobrazovaci komfort, nie nic, na com by zaviselo obchodovanie."""
+    session = get_session()
+    try:
+        now = datetime.now(timezone.utc)
+        for asset in assets.ALL_ASSETS:
+            symbol = asset["strike_symbol"]
+            # SL/TP moze byt prebity cez RiskOverride (dashboard tlacidlo
+            # "Nastavit ako default") - snapshot musi ukazat to, s cim sa naozaj
+            # pojde, presne ako to robi run_cycle_for_asset.
+            try:
+                eff_sl, eff_tp = risk_overrides.get_effective_sl_tp(session, asset)
+                effective = {**asset, "sl_pct": eff_sl, "tp_pct": eff_tp}
+            except Exception:
+                effective = asset
+            row = session.query(AssetConfigLive).filter(
+                AssetConfigLive.symbol == symbol,
+            ).first()
+            if row is None:
+                row = AssetConfigLive(symbol=symbol)
+                session.add(row)
+            row.config_snapshot = _config_snapshot(effective)
+            row.updated_at = now
+        session.commit()
+        print(f"[trade_cycle] Live konfiguracia zapisana pre {len(assets.ALL_ASSETS)} assetov.")
+    except Exception as e:
+        session.rollback()
+        print(f"[trade_cycle] Zapis live konfiguracie zlyhal (nekriticke): {e}")
+    finally:
+        session.close()
 
 
 def _upsert_rolling(session, symbol: str, summary: str | None, based_through_date: str) -> None:

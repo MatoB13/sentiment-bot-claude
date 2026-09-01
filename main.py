@@ -45,6 +45,12 @@ def main():
     except Exception as e:
         print(f"[main] funding_tracker.backfill_if_empty zlyhal neocakavane: {e}")
 
+    # 2026-09-01 - zverejni aktualnu konfiguraciu do DB, aby ju dashboard videl
+    # HNED po zmene ENV a nie az po najblizsom cykle tickera (viz
+    # db.AssetConfigLive). Zmena premennej na Railway vyvola restart, takze sem
+    # sa dostaneme prave vtedy, kedy treba.
+    trade_cycle.publish_live_configs()
+
     # Prve spustenie kazdeho jobu je explicitne volanie nizsie ("hned na starte"),
     # takze scheduler ma zacat tikat az o jeden cely interval neskor - inak by sa
     # prvy beh zdvojil. POZOR: next_run_time=None (povodny pokus, ako tomu predist)
