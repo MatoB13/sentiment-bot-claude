@@ -28,11 +28,18 @@ vs 20 clankov) by to nevyriesil, len by menil KOLKO starych clankov sa
 posle. Preto teraz FRESHNESS FILTER (config.MARKETAUX_MAX_ARTICLE_AGE_HOURS,
 25h - tesne nad POSITION_MAX_HOURS a najdlhsim beznym cyklom, viz config.py
 komentar) namiesto/popri pocte - clanky nad tento vek sa do promptu vobec
-nedostanu (radsej 0 clankov nez zavadzajuco stare). Kedze API vracia
-zoradene podla published_at zostupne (sort=published_desc), staci pri prvom
-prilis starom clanku prestat (vsetky dalsie su tiez stare)."""
+nedostanu (radsej 0 clankov nez zavadzajuco stare).
+
+POZOR (2026-09-01, po externom audite): povodne sa cerstvost riesila LEN
+lokalne, s predpokladom "API vracia zoradene podla datumu, staci pri prvom
+starom clanku prestat". Ten predpoklad plati pre `symbols` dopyty, ale pri
+`search` dopytoch Marketaux poradie NEDODRZIAVA (overene naozivo - veky prisli
+ako 35101, 41024, 23752, 44380 h a ziadna hodnota parametra `sort` to nezmenila).
+Tickery so `search` dopytom preto systematicky vracali prazdno, hoci cerstve
+clanky existovali. Teraz sa posiela `published_after` a filtruje az API;
+lokalny filter ostava len ako poistka a uz nerobi break."""
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import requests
 
@@ -51,6 +58,44 @@ _MAX_RESULT_ARTICLES = 8
 
 # {cache_key: (fetched_at_epoch_seconds, result)}
 _cache: dict[str, tuple[float, list[dict] | None]] = {}
+
+
+def _normalize(text: str) -> str:
+    """Len pismena a cislice, male - aby "SK Hynix" naslo aj "SKHynix" a
+    "Circle Internet" aj "Circle Internet Group (CRCL)"."""
+    return "".join(ch for ch in (text or "").lower() if ch.isalnum())
+
+
+def _is_relevant(article: dict, query: dict) -> bool:
+    """Vyskytuje sa hladany vyraz naozaj v titulku alebo snippete?
+
+    2026-09-01 (po externom audite): Marketaux pri `search` dopytoch vracia aj
+    clanky, kde sa hladane slovo NIKDE v texte nenachadza - matchuje cez vlastne
+    tagy/entity. Overene naozivo:
+      - search "Cardano" vratil "Virtune AB completed the rebalancing" a
+        "Bitcoin holds near $79K" - slovo Cardano ani v jednom titulku/snippete
+      - search "Midnight" (bez entity_types) vratil indicke danove priznania,
+        iPhone 18, ceny CNG v Mumbai a thajsky rezort
+    Taky "kontext" je pre rozhodovanie horsi nez ziadny - Claude by staval tezu
+    na clankoch o inom aktive.
+
+    Tyka sa LEN `search` dopytov. Pri `symbols` dopytoch je entita priradena
+    burzovym symbolom, takze clanok o nej je relevantny, aj ked ju v titulku
+    nemenuje (napr. "Tech Stocks Retreat" pre QQQ) - tam sa nefiltruje.
+
+    Viacslovna fraza sa overuje PO SLOVACH: staci, ze sa v texte vyskytnu
+    vsetky (v lubovolnom poradi), inak by "SK Hynix" nenaslo "SKHynix and
+    Nvidia Collaborate"."""
+    search = (query or {}).get("search")
+    if not search:
+        return True  # symbols-based dopyt - nefiltrujeme
+
+    haystack = _normalize((article.get("title") or "") + " " + (article.get("snippet") or ""))
+    # operatory Marketaux syntaxe ("+", "|", uvodzovky) nie su sucastou hladaneho textu
+    words = [w for w in search.replace('"', " ").replace("+", " ").replace("|", " ").split() if w]
+    if not words:
+        return True
+    return all(_normalize(w) in haystack for w in words)
 
 
 def _cache_key(query: dict, limit: int) -> str:
@@ -77,11 +122,26 @@ def get_news_sentiment(query: dict, limit: int = _RAW_FETCH_LIMIT) -> list[dict]
         if age_hours < config.MARKETAUX_CACHE_HOURS:
             return result
 
+    # 2026-09-01 - CERSTVOST SA VYNUCUJE NA STRANE API cez published_after.
+    # Predtym sa spoliehalo na "sort=published_desc" + break pri prvom starom
+    # clanku (viz nizsie). Live test ukazal DVE veci:
+    #   1. "sort" Marketaux pri `search` dopytoch IGNORUJE - vysledky prisli
+    #      v poradi 35101, 41024, 23752, 44380 hodin a ziadny variant hodnoty
+    #      (published_desc / published_on / sort_order=desc / bez sortu) na tom
+    #      nic nezmenil. Pri `symbols` dopytoch zoradene su.
+    #   2. break-pri-prvom-starom preto pri `search` zahadzoval CERSTVE clanky,
+    #      ktore lezali dalej v zozname - tickery s `search` dopytom (HYPE,
+    #      NIGHT, MINIMAX, UNITREE, SKHYNIX) tak systematicky vracali prazdno.
+    # published_after je overene spolahlivy: "search=Cardano" bez neho vratil
+    # 0 cerstvych, s nim 2 (stare 3h a 10h).
+    published_after = (datetime.now(timezone.utc)
+                       - timedelta(hours=config.MARKETAUX_MAX_ARTICLE_AGE_HOURS)
+                       ).strftime("%Y-%m-%dT%H:%M")
     params = {
         "api_token": config.MARKETAUX_API_KEY,
         "language": "en",
         "limit": limit,
-        "sort": "published_desc",
+        "published_after": published_after,
     }
     params.update(query)
 
@@ -104,7 +164,14 @@ def get_news_sentiment(query: dict, limit: int = _RAW_FETCH_LIMIT) -> list[dict]
             continue  # bez pouzitelneho datumu nevieme overit cerstvost - radsej preskocit
         age_hours = (now - pub_dt).total_seconds() / 3600
         if age_hours > config.MARKETAUX_MAX_ARTICLE_AGE_HOURS:
-            break  # zoradene zostupne podla datumu - vsetko dalsie je tiez stare
+            # `continue`, NIE `break` - poradie sa uz nepredpoklada (viz komentar
+            # pri published_after vyssie). Filter tu ostava ako druha poistka pre
+            # pripad, ze by API published_after niekedy ignorovalo; vyhodit ho by
+            # znamenalo tichu zavislost na spravani cudzieho API.
+            continue
+
+        if not _is_relevant(a, query):
+            continue
 
         # entities[0] existuje len pri symbol-based dopyte (nie pri holom 'search'
         # bez entity match) - sentiment_score potom chyba, co je OK, zobrazi sa bez neho.

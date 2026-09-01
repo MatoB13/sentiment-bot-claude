@@ -472,7 +472,10 @@ ZEC = {
     "weekend_interval_hours": config.ZEC_WEEKEND_INTERVAL_HOURS,
     "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
-    "marketaux_query": {"symbols": "ZECUSD"},
+    # 2026-09-01: "ZECUSD" ako symbol nema v Marketaux ziadne cerstve clanky
+    # (najnovsi 78 dni stary), kym search "Zcash" vracia relevantne cenove
+    # analyzy ("Zcash Reverses From 883.00 Resistance").
+    "marketaux_query": {"search": "Zcash"},
     "effort": config.ZEC_EFFORT,
 }
 
@@ -616,7 +619,10 @@ CRCL = {
     "weekend_interval_hours": config.CRCL_WEEKEND_INTERVAL_HOURS,
     "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
-    "marketaux_query": {"symbols": "CRCL"},
+    # 2026-09-01: symbol "CRCL" vracia found=0, search "Circle Internet" vracia
+    # aj clanky o samotnej firme, aj o regulacii stablecoinov (Circle je
+    # vydavatel USDC, teda priamy driver).
+    "marketaux_query": {"search": "Circle Internet"},
     "effort": config.CRCL_EFFORT,
 }
 
