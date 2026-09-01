@@ -204,6 +204,10 @@ def _config_snapshot(asset: dict) -> dict:
         "run_slot": asset.get("run_slot"),
         "run_slot_count": config.RUN_SLOT_COUNT,
         "scheduler_tick_minutes": config.SCHEDULER_TICK_MINUTES,
+        # 2026-09-01 - dashboard z toho predpoveda buduce behy (cifernik pri
+        # matici Rozvrh behov). Bez tejto hodnoty by musel konstantu hadat,
+        # a pri jej zmene v config.py by sa predpoved ticho rozisla s realitou.
+        "run_slot_min_gap_fraction": config.RUN_SLOT_MIN_GAP_FRACTION,
         "trading_hours_start_utc": asset["trading_hours_start_utc"],
         "trading_hours_end_utc": asset["trading_hours_end_utc"],
         "monitor_interval_minutes": config.MONITOR_INTERVAL_MINUTES,
