@@ -100,6 +100,9 @@ def compute_price_range(symbol: str, session) -> dict | None:
       at_edge           "vrchol" | "dno" | None
       touches_top/bottom  kolko barov sa dotklo ktoreho okraja
       width_stability   pomer sirky druhej a prvej polovice okna
+      hourly_sigma_pct  smerodajna odchylka hodinovych zmien (%)
+      min_width_required_pct  hranica, ktoru musi sirka prekonat (2x sigma)
+      failed_conditions zoznam podmienok, ktore NEPRESLI (prazdny = in_range)
       efficiency_ratio  doplnkovy kontext (viz _efficiency_ratio)
     """
     cutoff = (datetime.now(timezone.utc).replace(tzinfo=None)
@@ -142,15 +145,30 @@ def compute_price_range(symbol: str, session) -> dict | None:
     stability = (w2 / w1) if w1 else None
     out["width_stability"] = round(stability, 2) if stability is not None else None
 
-    in_range = (
-        touches_top >= _MIN_TOUCHES_PER_SIDE
-        and touches_bottom >= _MIN_TOUCHES_PER_SIDE
-        and stability is not None
-        and _WIDTH_STABILITY_RANGE[0] <= stability <= _WIDTH_STABILITY_RANGE[1]
-        and sigma > 0
-        and width_pct >= _MIN_WIDTH_SIGMA_MULTIPLE * sigma
-    )
+    # 2026-09-01 (po externom audite) - ktora KONKRETNE podmienka padla.
+    # Dovod: ZEC 31.8. nahlasil falosny `data_issue` ("rozpor v datach"), lebo
+    # videl in_range=false pri dotykoch 4/6 a nemal ako zistit, ze padla
+    # width_stability. Styri podmienky su nezavisle a staci, aby zlyhala jedna -
+    # bez tohto zoznamu to z vystupu proste nebolo vidiet.
+    failed = []
+    if touches_top < _MIN_TOUCHES_PER_SIDE:
+        failed.append("touches_top")
+    if touches_bottom < _MIN_TOUCHES_PER_SIDE:
+        failed.append("touches_bottom")
+    if stability is None or not (_WIDTH_STABILITY_RANGE[0] <= stability <= _WIDTH_STABILITY_RANGE[1]):
+        failed.append("width_stability")
+    # Minimalna sirka sa doteraz nedala spatne overit VOBEC - sigma sa nikam
+    # neukladala, takze ani dashboard ani spatna analyza nevedeli povedat, ci
+    # pasmo padlo prave na nej. Teraz sa uklada aj pozadovana hranica.
+    min_width_required = _MIN_WIDTH_SIGMA_MULTIPLE * sigma if sigma > 0 else None
+    out["hourly_sigma_pct"] = round(sigma, 4) if sigma else None
+    out["min_width_required_pct"] = round(min_width_required, 3) if min_width_required else None
+    if not (sigma > 0 and width_pct >= _MIN_WIDTH_SIGMA_MULTIPLE * sigma):
+        failed.append("min_width")
+
+    in_range = not failed
     out["in_range"] = in_range
+    out["failed_conditions"] = failed
 
     if not in_range:
         out["position_in_range"] = None

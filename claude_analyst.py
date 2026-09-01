@@ -1400,6 +1400,18 @@ pravidlo "vždy stavaj proti davu". Blízko 1.0 (vyvážené) = neutrálny fakt,
 
 
 _RANGE_NOTE = """
+POZOR NA VYKLAD `in_range=false`: pasmo vyzaduje STYRI NEZAVISLE podmienky naraz a staci,
+aby padla JEDNA. `failed_conditions` hovori, ktora to bola:
+- `touches_top` / `touches_bottom` - okraj nema dost dotykov (menej nez 3), pasmo este nie je
+  ustanovene alebo sa cena drzi len pri jednej strane
+- `width_stability` - sirka druhej polovice okna sa voci prvej vyrazne zmenila (mimo 0.6-1.4),
+  teda pasmo sa prave rozsiruje alebo zuzuje
+- `min_width` - pasmo je uzsie nez 2x hodinova sigma (`min_width_required_pct`), takze by ho
+  spread a poplatky zjedli
+NIE JE ZIADNY ROZPOR, ked su dotyky v poriadku a `in_range` je aj tak false - vtedy padla ina
+podmienka. NEHLAS to ako `data_issue`; `data_issue` je na zjavne pokazene vstupy (nulova alebo
+zastarana cena, nezmyselne TA cisla), nie na tento uplne bezny stav.
+
 `price_range` (2026-08-31) - je inštrument práve teraz vnútri USTANOVENÉHO cenového pásma?
 
 Čo toto pole JE a čo NIE JE: je to mechanické meranie z vlastných hodinových dát - pásmo sa uzná
