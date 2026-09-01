@@ -337,6 +337,21 @@ class PriceBar(Base):
     high = Column(Float, nullable=False)
     low = Column(Float, nullable=False)
     close = Column(Float, nullable=False)
+
+    # 2026-09-01 - mikroštruktura z /v2/markets, ktoru poller uz aj tak kazdu
+    # minutu stahuje, len ju doteraz zahadzoval. Ukladaju sa ako PRIEMER za
+    # hodinu (sucet + pocet vzoriek, delenie az pri citani) - jedna nahodna
+    # hodnota z konca hodiny by bola prilis suma na to, aby sa z nej dalo nieco
+    # citat, a priemer sa da pocitat priebezne bez drzania celej vzorky.
+    #
+    # Ciel (dohodnute s pouzivatelom 2026-09-01): najprv MERAT, az potom
+    # pripadne stavat trigger. Objem by bol lepsi kandidat, ale Strike ho vobec
+    # nevracia a externe zdroje pokryvaju len cast tickerov - toto pokryva 100 %
+    # a nestoji ziadne volanie navyse.
+    spread_pct_sum = Column(Float, nullable=True)      # (ask-bid)/mark * 100
+    book_imbalance_sum = Column(Float, nullable=True)  # (bid_size-ask_size)/(bid_size+ask_size), -1..1
+    premium_pct_sum = Column(Float, nullable=True)     # (mark-index)/index * 100
+    micro_samples = Column(Integer, nullable=True)     # delitel pre vsetky tri vyssie
     # Kedy bol tento riadok naposledy dotknuty pollerom (2026-08-15) - NA ROZDIEL
     # od hour_start (vzdy zaokruhlene na zaciatok hodiny) toto je skutocny cas
     # posledneho 1-min tiku. Pridane po tom, co monitor-web zobrazoval "live"

@@ -1281,6 +1281,29 @@ namiesto automatického braní prekonania úrovne ako dostatočného potvrdenia 
 "cena prekonala watch level" samo osebe nie je zárukou kvality vstupu."""
 
 
+# 2026-09-01 (z otazky pouzivatela, ci sa da watch nastavit aj na objem):
+# Strike objem nevracia vobec a externe zdroje pokryvaju len cast tickerov,
+# ale bid/ask VELKOSTI a index_price v tej istej odpovedi ano. Doteraz sa
+# z nich bral len spread. Tieto tri polia su surove fakty, nie odporucanie -
+# zamerne sa nehovori "pri zapornej nerovnovahe shortuj", lebo to overene nie je.
+_MICROSTRUCTURE_NOTE = """
+MIKROŠTRUKTÚRA TRHU (`book_imbalance`, `book_depth_usd`, `premium_pct`) - doplnok k `spread_pct`
+vyššie, z tej istej odpovede burzy:
+- `book_imbalance` je -1 až +1: +1 = celý objem na najlepšej cene stojí na strane BID
+  (kupujúci tlačia), -1 = všetko na ASK (predávajúci). Je to LEN najlepšia úroveň knihy,
+  nie celá hĺbka - vie sa zmeniť v sekundách a jedna veľká objednávka ju prevráti.
+  Ber to ako slabý, krátkodobý kontext, nie ako smerový signál.
+- `book_depth_usd` je dolárový objem na najlepšej cene. Pri tenkom trhu (nízka hodnota)
+  je sklz pri vstupe aj výstupe reálne riziko a stojí za nižšiu confidence.
+- `premium_pct` je rozdiel medzi mark cenou perpetuálu a indexovou cenou podkladu.
+  Trvalo kladná prémia znamená, že sa za dlhú pozíciu platí navyše (súvisí s funding),
+  výrazný skok naznačuje jednostranné pozicionovanie.
+- Žiadne z týchto čísel NEMÁ overenú prediktívnu hodnotu na našej histórii - zbierame ich
+  od 1. 9. 2026 práve preto, aby sa to dalo posúdiť. Neopieraj o ne rozhodnutie samo o sebe;
+  použi ich nanajvýš ako doplnkový dôvod pre už inak podloženú tézu, alebo ako varovanie
+  pred zlou likviditou.
+"""
+
 _FUNDING_NOTE = """
 TA obsahuje aj `funding` (ak už máme aspoň jeden zaznamenaný údaj) - AKTUÁLNU trhovú
 funding rate {instrument} zo Strike (`current_rate_pct_per_hour`) a jej krátky nedávny
@@ -1446,6 +1469,7 @@ hodinách. Vyhľadávaj len ak to dáva zmysel (max. niekoľko vyhľadávaní).
 {trend_strength_note}
 {htf_note}
 {spread_note}
+{microstructure_note}
 {long_short_note}
 {range_note}
 
@@ -1465,6 +1489,7 @@ def _system_prompt_blocks(asset: dict) -> list[dict]:
     candle_format = "[open,high,low,close,volume]" if include_volume else "[open,high,low,close]"
     volume_note = _VOLUME_NOTE.format(instrument=asset["name"]) if include_volume else ""
     funding_note = _FUNDING_NOTE.format(instrument=asset["name"])
+    microstructure_note = _MICROSTRUCTURE_NOTE
     per_asset_text = _PER_ASSET_SYSTEM_APPENDIX_TEMPLATE.format(
         label=text["label"],
         instrument=asset["name"],
@@ -1475,6 +1500,7 @@ def _system_prompt_blocks(asset: dict) -> list[dict]:
         candle_format=candle_format,
         volume_note=volume_note,
         funding_note=funding_note,
+        microstructure_note=microstructure_note,
         trend_label_note=_TREND_LABEL_NOTE,
         trend_strength_note=_TREND_STRENGTH_NOTE,
         htf_note=_HTF_NOTE,

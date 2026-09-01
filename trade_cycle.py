@@ -82,6 +82,29 @@ def _add_spread_to_ta(ta: dict, market_meta: dict, live_price: float) -> None:
     except (TypeError, ValueError):
         pass
 
+    # 2026-09-01 - VELKOSTI na najlepsej cene a rozdiel mark vs index. Doteraz
+    # sa z market_meta bral len spread (viz vyssie), hoci obe tieto hodnoty su
+    # v tej istej odpovedi. Hovoria nieco, co zo samotnej ceny vidno nie je:
+    # na ktoru stranu knihy sa tlaci a ci perpetual ide s premiou voci indexu.
+    # Vzniklo z otazky pouzivatela, ci by sa nedal watch nastavit aj na objem -
+    # ten Strike nevracia vobec, ale toto ano a stoji nula volani navyse.
+    try:
+        bsz = float(market_meta.get("bid1_size") or 0)
+        asz = float(market_meta.get("ask1_size") or 0)
+        if bsz + asz > 0:
+            ta["book_imbalance"] = round((bsz - asz) / (bsz + asz), 3)
+            ta["book_depth_usd"] = round((bsz * float(market_meta["bid1_price"])
+                                          + asz * float(market_meta["ask1_price"])), 0)
+    except (TypeError, ValueError, KeyError):
+        pass
+
+    try:
+        index = float(market_meta.get("index_price") or 0)
+        if index > 0 and live_price > 0:
+            ta["premium_pct"] = round((live_price - index) / index * 100, 4)
+    except (TypeError, ValueError):
+        pass
+
 
 def _check_ta_scale(ta: dict, live_price: float, name: str) -> None:
     """Preventivna poistka proti scale-mismatch dat (2026-08-09, po SKHYNIX

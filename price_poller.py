@@ -14,6 +14,63 @@ import strike_client
 from db import AccountSnapshot, FundingRateBar, PriceBar, get_session
 
 
+def _microstructure(market: dict) -> dict | None:
+    """Spread / nerovnovaha knihy / premium z jedneho /v2/markets zaznamu.
+
+    2026-09-01 - vsetky tri sa daju spocitat z dat, ktore poller uz kazdu minutu
+    stahuje; doteraz sa zahadzovali. Spread uz Claude videl (trade_cycle
+    ._add_spread_to_ta od 2026-08-29), ale VELKOSTI na najlepsej cene a rozdiel
+    mark vs index nie - pritom prave tie hovoria nieco, co z ceny nevidno:
+    na ktoru stranu knihy sa tlaci a ci perpetual ide s premiou voci indexu.
+
+    Vracia None, ak trh nema pouzitelnu knihu (velmi tenke synteticke trackery
+    maju obcas prazdne bid/ask) - volajuci to jednoducho preskoci, nie je to chyba."""
+    try:
+        bid = float(market.get("bid1_price") or 0)
+        ask = float(market.get("ask1_price") or 0)
+        mark = float(market.get("mark_price") or 0)
+    except (TypeError, ValueError):
+        return None
+    if not (bid > 0 and ask >= bid and mark > 0):
+        return None
+
+    out = {"spread_pct": (ask - bid) / mark * 100}
+
+    try:
+        bsz = float(market.get("bid1_size") or 0)
+        asz = float(market.get("ask1_size") or 0)
+        if bsz + asz > 0:
+            # -1 = vsetko na strane ask (predajny tlak), +1 = vsetko na bid.
+            out["book_imbalance"] = (bsz - asz) / (bsz + asz)
+    except (TypeError, ValueError):
+        pass
+
+    try:
+        index = float(market.get("index_price") or 0)
+        if index > 0:
+            out["premium_pct"] = (mark - index) / index * 100
+    except (TypeError, ValueError):
+        pass
+    return out
+
+
+def _accumulate_micro(bar, micro: dict | None) -> None:
+    """Priebezny sucet + pocitadlo, aby sa dal priemer za hodinu spocitat bez
+    drzania jednotlivych vzoriek. micro_samples je spolocny delitel; ked nejaka
+    zlozka pre dany trh chyba (napr. prazdna kniha), ostane jej sucet None a
+    citanie ju proste preskoci."""
+    if not micro:
+        return
+    bar.micro_samples = (bar.micro_samples or 0) + 1
+    for field, key in (("spread_pct_sum", "spread_pct"),
+                       ("book_imbalance_sum", "book_imbalance"),
+                       ("premium_pct_sum", "premium_pct")):
+        val = micro.get(key)
+        if val is None:
+            continue
+        setattr(bar, field, (getattr(bar, field) or 0.0) + val)
+
+
 def poll_prices() -> None:
     """Zavola sa kazdu minutu (viz main.py) - vytvori/aktualizuje PriceBar
     riadok pre AKTUALNU hodinu KAZDEHO assetu v registri (nie len enabled_assets()
@@ -48,6 +105,7 @@ def poll_prices() -> None:
 
     prices = {m.get("symbol"): m.get("mark_price") for m in markets}
     funding_rates = {m.get("symbol"): m.get("funding_rate") for m in markets}
+    micro_by_symbol = {m.get("symbol"): _microstructure(m) for m in markets}
     now = datetime.now(timezone.utc)
     hour_start = now.replace(minute=0, second=0, microsecond=0, tzinfo=None)
 
@@ -68,14 +126,16 @@ def poll_prices() -> None:
                 .first()
             )
             if bar is None:
-                session.add(PriceBar(symbol=symbol, hour_start=hour_start,
-                                      open=price, high=price, low=price, close=price,
-                                      updated_at=now.replace(tzinfo=None)))
+                bar = PriceBar(symbol=symbol, hour_start=hour_start,
+                               open=price, high=price, low=price, close=price,
+                               updated_at=now.replace(tzinfo=None))
+                session.add(bar)
             else:
                 bar.high = max(bar.high, price)
                 bar.low = min(bar.low, price)
                 bar.close = price
                 bar.updated_at = now.replace(tzinfo=None)
+            _accumulate_micro(bar, micro_by_symbol.get(symbol))
             updated += 1
 
             raw_funding = funding_rates.get(symbol)
