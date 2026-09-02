@@ -2247,6 +2247,8 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
     decision, web_search_log, usage = _call_claude(asset, system_blocks, user_prompt,
                                                      DECISION_TOOL, "submit_trade_decision")
     _validate_decision(decision)
+    # ta["last_price"] je cena, s ktorou Claude v tomto cykle pracoval
+    _drop_already_met_watch(decision, (ta or {}).get("last_price"), f" [{asset['name']}]")
     return decision, web_search_log, usage
 
 
@@ -2291,6 +2293,8 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
     decision, web_search_log, usage = _call_claude(asset, system_blocks, user_prompt,
                                                      POSITION_HEALTH_TOOL, "submit_position_health_check")
     _validate_health_decision(decision)
+    _drop_already_met_watch(decision, (open_position or {}).get("live_price"),
+                             f" [{asset['name']} health]")
     return decision, web_search_log, usage
 
 
@@ -2671,6 +2675,44 @@ def _extract_web_search_log(content_blocks: list) -> list[dict]:
             pending_query = None
             pending_raw_input = None
     return log
+
+
+def _drop_already_met_watch(decision: dict, live_price: float | None, label: str = "") -> None:
+    """Zahodi watch uroven, ktora je UZ V MOMENTE NASTAVENIA splnena.
+
+    2026-09-01 produkcny nalez (CRCL): Claude nastavil "below 96.3" pri cene
+    88.88, teda uroven, ktora uz davno platila. Poller ju vyhodnotil ako splnenu
+    na najblizsom tiku a o DVE MINUTY spustil plateny mimoriadny cyklus - v ktorom
+    Claude sam nahlasil data_issue ("nepreukazuje ziadny nedavny dotyk 96.3 ani
+    iny logicky spustac"). Zmiatol sam seba vlastnym watchom.
+
+    Za 7 dni islo o 21 z 1054 nastavenych watchov (2 %). Skoda je trojaka:
+    zbytocny plateny cyklus, spotrebovany WATCH_TRIGGER_MAX_PER_HOUR budget
+    (moze vytlacit legitimny watch) a matuci vstup pre dalsie rozhodovanie.
+
+    Zahadzuje sa LEN ta jedna uroven, nie cely cyklus - rozhodnutie o smere je
+    nezavisle a platne. Druhy par (watch_price_2) sa posudzuje samostatne, takze
+    obojstranny watch prezije aj vtedy, ked je nezmyselna len jedna jeho polovica."""
+    if live_price is None:
+        return
+    try:
+        price = float(live_price)
+    except (TypeError, ValueError):
+        return
+    if price <= 0:
+        return
+
+    for price_key, dir_key in (("watch_price", "watch_direction"),
+                                ("watch_price_2", "watch_direction_2")):
+        wp, wd = decision.get(price_key), decision.get(dir_key)
+        if wp is None or wd not in ("above", "below"):
+            continue
+        already = (wd == "above" and price >= float(wp)) or (wd == "below" and price <= float(wp))
+        if already:
+            print(f"[claude_analyst]{label} watch {wd} {wp} je uz splneny pri live cene "
+                  f"{price} - zahadzujem (inak by hned spustil zbytocny cyklus).")
+            decision.pop(price_key, None)
+            decision.pop(dir_key, None)
 
 
 def _validate_decision(decision: dict) -> None:
