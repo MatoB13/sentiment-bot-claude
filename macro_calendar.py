@@ -87,3 +87,11 @@ def get_pending_events(now: datetime, lookback_minutes: int = 30) -> list[dict]:
     perzistentnom stave."""
     cutoff = now - timedelta(minutes=lookback_minutes)
     return [e for e in MACRO_EVENTS if cutoff <= e["datetime_utc"] <= now]
+
+
+def get_upcoming_events(now: datetime, until: datetime) -> list[dict]:
+    """Opak get_pending_events - udalosti, ktore este len PRIDU, v okne
+    (now, until]. Pouziva trade_cycle._events_before_next_run, aby Claude v
+    poslednom cykle pred udalostou vedel, ze ziadny dalsi planovany beh uz
+    pred nou nebude (2026-09-02, viz jej docstring)."""
+    return [e for e in MACRO_EVENTS if now < e["datetime_utc"] <= until]

@@ -20,6 +20,7 @@ import config
 import discord_client
 import eia_client
 import fred_client
+import macro_calendar
 import market_data
 import marketaux_client
 import retrospective
@@ -151,12 +152,17 @@ def _slot_due_point(now: datetime, interval_hours: float, slot: int,
 
     2026-09-02 (navrh pouzivatela), DVE zmeny:
 
-    1. PEVNA PATMINUTOVKA namiesto zlomku vlastneho intervalu. Predtym bol
+    1. PEVNY KROK MEDZI SLOTMI namiesto zlomku vlastneho intervalu. Predtym bol
        offset (slot-1) * interval/12, takze cislo slotu nehovorilo nic o case,
        kym mali tickery rozne intervaly: slot 3 pri 2h vysiel na :20 a slot 2
        pri 4h tiez na :20. Tickery s ROZNYMI slotmi sa tak stretavali -
        namerane dvojice NAS100+GOOGL (:00), ADA+UNITREE (:20), WTI+NEAR (:40),
        NIGHT+CRCL (:100).
+
+       Krok je HODINA + sirka slotu (65 min pri 12 slotoch), nie len sirka
+       slotu: inak by sa vsetkych 12 slotov zmestilo do jednej hodiny a pri
+       dlhom intervale by zvysok bloku ostal prazdny (pri 12h intervale dve
+       dvojhodinove davky denne a 20 hodin ticha).
 
     2. HODINOVY OFFSET pre tickery, ktore ZDIELAJU slot. Pri 16 tickeroch na
        12 slotov su styri sloty obsadene dvojmo a tie by sa inak stretavali
@@ -169,9 +175,18 @@ def _slot_due_point(now: datetime, interval_hours: float, slot: int,
     1 = 0), co je ocakavane a spravne: tam sa kolizii vyhnut neda a je lepsie
     ostat na predvidatelnej mriezke."""
     interval_min = interval_hours * 60
-    offset_min = (slot - 1) * config.RUN_SLOT_WIDTH_MINUTES
+    # Krok medzi slotmi je HODINA + sirka slotu (pri 12 slotoch 65 min), nie len
+    # sirka slotu. Slot 1 tak bezi o :00, slot 2 o 1:05, slot 3 o 2:10 atd.
+    # Bez tej hodiny by sa pri dlhom intervale zmestili vsetky sloty do jedinej
+    # hodiny a zvysok bloku by bol prazdny - pri 12h intervale by cely den
+    # znamenal dve dvojhodinove davky a 20 hodin ticha.
+    # Modulo interval zabezpeci, ze sa offset "zabali" aj do kratkeho bloku:
+    # pri 2h intervale davaju sloty 1-12 minuty 0, 65, 10, 75, 20, 85, 30, 95,
+    # 40, 105, 50, 115 - stale 12 roznych miest, len rozhadzanych cez obe hodiny.
+    offset_min = (slot - 1) * (60 + config.RUN_SLOT_WIDTH_MINUTES)
     if hour_offset:
-        offset_min += (hour_offset % max(int(interval_hours), 1)) * 60
+        offset_min += hour_offset * 60
+    offset_min %= interval_min
     mins_since_epoch = (now - _SLOT_EPOCH).total_seconds() / 60
     k = math.floor((mins_since_epoch - offset_min) / interval_min)
     return _SLOT_EPOCH + timedelta(minutes=offset_min + k * interval_min)
@@ -219,6 +234,60 @@ def _is_due(asset: dict, session) -> bool:
 
     return last_time < _slot_due_point(now, required_hours, asset["run_slot"],
                                         asset.get("run_slot_hour_offset") or 0)
+
+
+def _next_scheduled_run(asset: dict, now: datetime) -> datetime:
+    """Kedy je najblizsi PLANOVANY beh tohto tickera (dalsi bod jeho slotovej
+    mriezky po `now`). Nezohladnuje watch/makro triggery - tie su prave to
+    NEplanovane."""
+    required_hours = _required_interval_hours(asset, now)
+    if not asset.get("run_slot"):
+        return now + timedelta(hours=required_hours)
+    last_point = _slot_due_point(now, required_hours, asset["run_slot"],
+                                 asset.get("run_slot_hour_offset") or 0)
+    return last_point + timedelta(hours=required_hours)
+
+
+def _events_before_next_run(asset: dict, session, now: datetime) -> list[dict]:
+    """Makro udalosti s vopred znamym casom, ktore nastanu PRED najblizsim
+    planovanym behom tohto tickera - teda tie, pre ktore je TENTO cyklus
+    posledna prilezitost nieco nastavit.
+
+    2026-09-02 (navrh pouzivatela). Predtym sa taketo udalosti riesili az
+    spatne: watch_monitor._check_macro_events v case udalosti spustil
+    mimoriadny cyklus pre KAZDY aktivny ticker naraz. Namerane za 30 dni:
+    220 takych cyklov za $22.73, z toho 72 % skoncilo na direction=none a
+    obchod z nich vzisiel v 1 % pripadov - presne tolko, co z bezneho
+    planovaneho behu. Watch-triggered cyklus pritom otvara obchod v 11,5 %.
+    Zaplatilo sa teda za to, ze sa bot "pozrel", nie za to, ze sa nieco stalo.
+
+    Namiesto toho sa Claude o udalosti dozvie VOPRED (viz claude_analyst
+    pre_macro_events blok) a nastavi obojstranne watch urovne; lacny poller
+    ho potom zobudi az ked sa cena naozaj pohne. watch_monitor spusti v case
+    udalosti cyklus uz len tickerom, ktore ziadnu zivu uroven nemaju (poistka,
+    aby udalost neprepadla uplne).
+
+    Zdroje su rovnake dva ako v watch_monitor._pending_events_with_scope:
+    rucny macro_calendar.MACRO_EVENTS (globalny) a Claudom zaznacene
+    FlaggedMacroEvent (globalne alebo len pre jeden ticker)."""
+    until = _next_scheduled_run(asset, now)
+    out = [{"name": e["name"], "datetime_utc": e["datetime_utc"]}
+           for e in macro_calendar.get_upcoming_events(now, until)]
+
+    symbol = asset["strike_symbol"]
+    for row in session.query(FlaggedMacroEvent).all():
+        dt = row.datetime_utc if row.datetime_utc.tzinfo else row.datetime_utc.replace(tzinfo=timezone.utc)
+        if not (now < dt <= until):
+            continue
+        # flagged_by_symbol=None = globalna udalost (tyka sa vsetkych tickerov),
+        # inak len toho, ktory si ju zaznacil - rovnaka semantika ako scope
+        # v _save_flagged_macro_event.
+        if row.flagged_by_symbol is not None and row.flagged_by_symbol != symbol:
+            continue
+        out.append({"name": row.name, "datetime_utc": dt})
+
+    out.sort(key=lambda e: e["datetime_utc"])
+    return out
 
 
 def _source_usage_fields(asset: dict, marketaux_news, social, coinmarketcal_events) -> dict:
