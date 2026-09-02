@@ -141,15 +141,37 @@ def _check_ta_scale(ta: dict, live_price: float, name: str) -> None:
 _SLOT_EPOCH = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 
-def _slot_due_point(now: datetime, interval_hours: float, slot: int) -> datetime:
+def _slot_due_point(now: datetime, interval_hours: float, slot: int,
+                     hour_offset: int = 0) -> datetime:
     """Posledny bod slotovej mriezky <= now.
 
     Mriezka je kotvena na _SLOT_EPOCH s krokom `interval_hours`. Ticker so
-    slotom k je due v k-tej RUN_SLOT_COUNT-ine intervalu, teda s offsetom
-    (k-1) * interval / RUN_SLOT_COUNT od zaciatku bloku. Pri 2h intervale a
-    12 slotoch su to 10-minutove okna."""
+    slotom k bezi vzdy v k-tej PATMINUTOVKE HODINY (slot 1 = :00, slot 2 = :05,
+    ... slot 12 = :55); interval urcuje uz len to, kazdu kolku hodinu.
+
+    2026-09-02 (navrh pouzivatela), DVE zmeny:
+
+    1. PEVNA PATMINUTOVKA namiesto zlomku vlastneho intervalu. Predtym bol
+       offset (slot-1) * interval/12, takze cislo slotu nehovorilo nic o case,
+       kym mali tickery rozne intervaly: slot 3 pri 2h vysiel na :20 a slot 2
+       pri 4h tiez na :20. Tickery s ROZNYMI slotmi sa tak stretavali -
+       namerane dvojice NAS100+GOOGL (:00), ADA+UNITREE (:20), WTI+NEAR (:40),
+       NIGHT+CRCL (:100).
+
+    2. HODINOVY OFFSET pre tickery, ktore ZDIELAJU slot. Pri 16 tickeroch na
+       12 slotov su styri sloty obsadene dvojmo a tie by sa inak stretavali
+       kazdy spolocny nasobok intervalov. Druhy ticker v slote dostane +1h,
+       treti +2h atd. ADA (slot 3, +0h) tak bezi 06:10/08:10, NEAR (slot 3,
+       +1h) 07:10/11:10. Simulacia ustaleneho stavu: kolizne okna klesli
+       z 31 na 4 (19 % -> 2 %).
+
+    Offset je modulo interval - pri 1h intervale by +1h nespravilo nic (1 mod
+    1 = 0), co je ocakavane a spravne: tam sa kolizii vyhnut neda a je lepsie
+    ostat na predvidatelnej mriezke."""
     interval_min = interval_hours * 60
-    offset_min = (slot - 1) * (interval_min / config.RUN_SLOT_COUNT)
+    offset_min = (slot - 1) * config.RUN_SLOT_WIDTH_MINUTES
+    if hour_offset:
+        offset_min += (hour_offset % max(int(interval_hours), 1)) * 60
     mins_since_epoch = (now - _SLOT_EPOCH).total_seconds() / 60
     k = math.floor((mins_since_epoch - offset_min) / interval_min)
     return _SLOT_EPOCH + timedelta(minutes=offset_min + k * interval_min)
@@ -195,7 +217,8 @@ def _is_due(asset: dict, session) -> bool:
     if elapsed_min < config.RUN_SLOT_MIN_GAP_FRACTION * required_hours * 60:
         return False
 
-    return last_time < _slot_due_point(now, required_hours, asset["run_slot"])
+    return last_time < _slot_due_point(now, required_hours, asset["run_slot"],
+                                        asset.get("run_slot_hour_offset") or 0)
 
 
 def _source_usage_fields(asset: dict, marketaux_news, social, coinmarketcal_events) -> dict:
@@ -229,6 +252,8 @@ def _config_snapshot(asset: dict) -> dict:
         # due (viz _is_due). Default z poradia v ALL_ASSETS, prebitelne cez
         # {TICKER}_RUN_SLOT - dashboard to tym padom zobrazuje live z ENV.
         "run_slot": asset.get("run_slot"),
+        # 2026-09-02 - +N hodin pre tickery zdielajuce slot (viz _slot_due_point).
+        "run_slot_hour_offset": asset.get("run_slot_hour_offset") or 0,
         "run_slot_count": config.RUN_SLOT_COUNT,
         "scheduler_tick_minutes": config.SCHEDULER_TICK_MINUTES,
         # 2026-09-01 - dashboard z toho predpoveda buduce behy (cifernik pri

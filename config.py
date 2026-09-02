@@ -344,6 +344,11 @@ TRADE_INTERVAL_HOURS = _float("TRADE_INTERVAL_HOURS", 4)
 # obcas prida beh navyse - simulacia ukazala +13% cyklov. Proti predcasnemu
 # behu chrani RUN_SLOT_MIN_GAP_FRACTION nizsie.
 RUN_SLOT_COUNT = _int("RUN_SLOT_COUNT", 12)
+# 2026-09-02 (navrh pouzivatela) - slot je PEVNA CAST HODINY, nie zlomok
+# vlastneho intervalu tickera. Pri 12 slotoch je to 5 minut: slot 1 = :00,
+# slot 2 = :05, ... slot 12 = :55. Odvodene z RUN_SLOT_COUNT, takze zmena
+# poctu slotov automaticky zmeni ich sirku.
+RUN_SLOT_WIDTH_MINUTES = 60.0 / RUN_SLOT_COUNT
 # Ako casto tika scheduler. MUSI delit interval/RUN_SLOT_COUNT bez zvysku,
 # inak by sa slotove okno mohlo minut. Pri 12 slotoch a 2h intervale je okno
 # 10 min, takze 5 min tick ho vzdy trafi.

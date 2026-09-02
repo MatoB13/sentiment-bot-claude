@@ -699,8 +699,27 @@ def _resolve_run_slot(asset: dict, index: int) -> int:
     return val
 
 
-for _i, _a in enumerate(ALL_ASSETS):
-    _a["run_slot"] = _resolve_run_slot(_a, _i)
+# 2026-09-02 (na ziadost pouzivatela) - sloty sa pridelujú LEN AKTIVNYM
+# tickerom. Predtym sa index pocital cez cely ALL_ASSETS vratane vypnutych,
+# takze NVDA (slot 2), AAPL (slot 4) a ZHIPU (slot 5) svoje sloty drzali, hoci
+# necyklovali - v matici rozvrhu potom slot 2 vyzeral poloprazdny, kym sloty
+# 1, 3, 6 a 7 mali po dvoch tickeroch. Vypnuty ticker ma run_slot=None; ked sa
+# zapne, sloty sa pri najblizsom starte prepocitaju (poradie ostatnych sa moze
+# posunut - slot nie je trvala identita tickera, len miesto v mriezke).
+#
+# run_slot_hour_offset: kolke je to kolo cez vsetky sloty. Prvych
+# RUN_SLOT_COUNT aktivnych tickerov ma 0, dalsich RUN_SLOT_COUNT ma +1h atd.
+# Tickery, ktore zdielaju slot, sa tak nestretavaju - viz trade_cycle
+# ._slot_due_point.
+_active_index = 0
+for _a in ALL_ASSETS:
+    if not _a["enabled"]:
+        _a["run_slot"] = None
+        _a["run_slot_hour_offset"] = None
+        continue
+    _a["run_slot"] = _resolve_run_slot(_a, _active_index)
+    _a["run_slot_hour_offset"] = _active_index // config.RUN_SLOT_COUNT
+    _active_index += 1
 
 
 def enabled_assets() -> list[dict]:
