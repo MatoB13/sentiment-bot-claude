@@ -384,6 +384,49 @@ def _own_data_is_fresh(df: pd.DataFrame) -> bool:
     return last_bar_age <= timedelta(hours=OWN_DATA_STALE_HOURS)
 
 
+def _reindex_volume(vol: pd.Series, target_index, tolerance: str = "90min") -> pd.Series:
+    """Priradi objem k nasim barom, ale KAZDY zdrojovy bar pouzije NAJVIAC RAZ.
+
+    2026-09-02 produkcny nalez (z nocnej kontroly): samotny
+    reindex(method="nearest") priradi TEN ISTY zdrojovy bar viacerym nasim barom,
+    ked zdroj zaostava alebo ma riedsi raster. Nase price_bars su 24/7 hodinove
+    (Strike perp), yfinance ma len burzove hodiny a este aj tie s oneskorenim.
+    Namerane: NAS100 51 duplikatov z 532 hodnot (10 %), GOOGL 33 z 187 (18 %).
+
+    Najhorsie na tom bolo, ze duplikat dostaval typicky prave NAJNOVSI bar
+    (yfinance zaostava o hodinu) - a z neho sa pocita
+    `last_candle_volume_vs_avg20_ratio`, ktory je v prompte ako signal objemoveho
+    potvrdenia. Claude teda staval uvahy typu "prerazenie nie je potvrdene
+    objemom" na objeme z PREDCHADZAJUCEJ hodiny.
+
+    Opakovane pouzitie sa preto nastavi na NaN - rovnaky princip ako pri
+    chybajucom matchi (viz _merge_volume): radsej genuinne chybajuci udaj nez
+    konkretne, ale nespravne tvrdenie.
+
+    Ponecha sa ten nas bar, ktory je zdrojovemu CASOVO NAJBLIZSI - nie prvy
+    v poradi. Pri medzere v zdroji (napr. chyba bar 04:00) by inak susedny bar
+    05:00 "ukradol" hodnotu baru 04:00 a sam by ostal prazdny, hoci ma vlastny
+    presny protajsok."""
+    tol = pd.Timedelta(tolerance)
+    merged = vol.reindex(target_index, method="nearest", tolerance=tol)
+    # Ktory zdrojovy bar sa ku ktoremu nasmu baru priradil (rovnakym pravidlom).
+    src = pd.Series(vol.index.values, index=vol.index).reindex(
+        target_index, method="nearest", tolerance=tol)
+    matched = src.notna()
+    if not matched.any():
+        return merged
+
+    delta = (pd.Series(target_index, index=target_index) - src).abs()
+    # V ramci kazdeho zdrojoveho baru nechat len nas bar s najmensim odstupom.
+    keep_idx = set(delta[matched].groupby(src[matched]).idxmin().values)
+    drop = matched & ~pd.Series(
+        [t in keep_idx for t in target_index], index=target_index)
+    if drop.any():
+        merged = merged.copy()
+        merged[drop] = float("nan")
+    return merged
+
+
 def _merge_volume(df: pd.DataFrame, yf_symbol: str, yf_fallback: str | None) -> pd.DataFrame:
     """Vlastne price_bars nemaju volume (Strike mark_price je len cena, ziadny
     order-book/trade objem) - pre assety, ktore volume-price divergenciu
@@ -400,7 +443,10 @@ def _merge_volume(df: pd.DataFrame, yf_symbol: str, yf_fallback: str | None) -> 
     na FALOSNU nulu, ktora vyzerala ako skutocne namerany udaj a Claude ju
     opakovane vyhodnocoval ako podozrive/nekonzistentne data (data_issue).
     Teraz chybajuci match ostava NaN -> _recent_candles ho seriaizuje ako
-    null (genuinne chybajuce), nie 0 (konkretne, zavadzajuce tvrdenie)."""
+    null (genuinne chybajuce), nie 0 (konkretne, zavadzajuce tvrdenie).
+
+    POZOR 2 (2026-09-02): z rovnakeho dovodu sa NaN nastavuje aj tam, kde by sa
+    ten isty zdrojovy bar pouzil OPAKOVANE - viz _reindex_volume."""
     try:
         yf_df = fetch_ohlcv(yf_symbol, yf_fallback)
     except Exception as e:
@@ -413,7 +459,7 @@ def _merge_volume(df: pd.DataFrame, yf_symbol: str, yf_fallback: str | None) -> 
 
     idx = yf_df.index.tz_convert("UTC").tz_localize(None) if yf_df.index.tz is not None else yf_df.index
     vol = pd.Series(yf_df["volume"].values, index=idx)
-    df["volume"] = vol.reindex(df.index, method="nearest", tolerance=pd.Timedelta("90min"))
+    df["volume"] = _reindex_volume(vol, df.index)
     return df
 
 
@@ -436,7 +482,7 @@ def _merge_volume_from_binance(df: pd.DataFrame, binance_symbol: str) -> pd.Data
 
     idx = pd.to_datetime([k["open_time"] for k in klines], unit="ms", utc=True).tz_localize(None)
     vol = pd.Series([k["volume"] for k in klines], index=idx)
-    df["volume"] = vol.reindex(df.index, method="nearest", tolerance=pd.Timedelta("90min"))
+    df["volume"] = _reindex_volume(vol, df.index)
     return df
 
 
