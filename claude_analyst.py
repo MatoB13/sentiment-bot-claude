@@ -1566,6 +1566,7 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                         open_position: dict | None = None,
                         closed_trade: dict | None = None,
                         macro_event: str | None = None,
+                        pre_macro_events: list[dict] | None = None,
                         coinmarketcal_events: list[dict] | None = None,
                         recent_trades_context: list[dict] | None = None,
                         portfolio_performance: dict | None = None,
@@ -1916,6 +1917,44 @@ Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/sp
 {recent_trades_block}{portfolio_performance_block}{portfolio_exposure_block}
 {retro_block}"""
 
+    # 2026-09-02 (navrh pouzivatela) - makro udalost, ktora nastane PRED
+    # najblizsim planovanym behom tohto tickera (viz
+    # trade_cycle._events_before_next_run). Toto je posledny cyklus, v ktorom
+    # sa da nieco nastavit: predtym sa taka udalost riesila az spatne
+    # hromadnym mimoriadnym cyklom pre vsetky tickery naraz, ktory za 30 dni
+    # stal $22.73 a obchod z neho vzisiel v 1 % pripadov (rovnako ako z
+    # bezneho behu). Watch-triggered cyklus otvara obchod v 11,5 % - preto sa
+    # teraz plati az za reakciu na pohyb, nie za "pozretie sa".
+    pre_macro_block = ""
+    if pre_macro_events:
+        lines = []
+        for e in pre_macro_events:
+            dt = e["datetime_utc"]
+            hours = (dt - now).total_seconds() / 3600
+            lines.append(f"- **{e['name']}** o {dt.strftime('%H:%M')} UTC "
+                         f"(o {hours:.1f}h od teraz)")
+        events_text = "\n".join(lines)
+        plural = "udalosťami" if len(pre_macro_events) > 1 else "udalosťou"
+        pre_macro_block = f"""## Toto je POSLEDNÝ plánovaný cyklus pred makro {plural}
+{events_text}
+
+Ďalší plánovaný beh {instrument} príde AŽ PO nej. Bot v čase udalosti sám od seba mimoriadny
+cyklus nespustí, ak tu necháš živú watch úroveň - namiesto toho ťa lacný poller zobudí až
+vtedy, keď sa cena naozaj pohne tam, kam ukážeš.
+
+Preto v tomto cykle VŽDY nastav watch úrovne, aj keď ideš do direction=none - a nastav ich
+OBOJSTRANNE (watch_price/watch_direction aj watch_price_2/watch_direction_2). Smer reakcie na
+makro číslo nie je vopred známy; jednostranná úroveň by zachytila len polovicu možných
+scenárov. Úrovne umiestni tam, kde by ťa pohyb naozaj zaujímal - teda za hranicou bežného šumu
+(orientačne aspoň ~1 ATR od aktuálnej ceny), nie tesne pri cene, kde ťa zobudí každý tick. Ak
+watch necháš prázdny, bot v čase udalosti spustí plný (platený) cyklus ako poistku.
+
+Tento blok NERUŠÍ Event Risk Gate zo system promptu - ak ti pravidlá hovoria pred touto
+udalosťou nevstupovať, stále platia. Hovorí len to, že po tomto cykle už ďalšia PLÁNOVANÁ
+príležitosť pred udalosťou nebude.
+
+"""
+
     macro_event_block = ""
     if macro_event:
         macro_event_block = f"""## Práve zverejnená makro udalosť: {macro_event}
@@ -1992,7 +2031,7 @@ vyvíjať V PROSPECH tejto pozície alebo PROTI nej.
         # POZOR: {recent_trades_block} sa NEPRIDAVA znova - uz je sucastou {header}
         # vyssie (spolocne pre oba vetvy tejto funkcie). Predchadzajuca verzia ho
         # sem pridavala druhykrat (duplicitne, zbytocne tokeny) - opravene 2026-08-27.
-        return f"{header}\n{macro_event_block}{position_block}\n"
+        return f"{header}\n{pre_macro_block}{macro_event_block}{position_block}\n"
 
     closed_trade_block = ""
     if closed_trade:
@@ -2179,7 +2218,7 @@ Ak tento cyklus zvolíš direction=long alebo short a tvoja confidence vyjde v r
 """
 
     return f"""{header}
-{macro_event_block}{closed_trade_block}## Cielove SL/TP vzdialenosti
+{pre_macro_block}{macro_event_block}{closed_trade_block}## Cielove SL/TP vzdialenosti
 Stop-loss cca {asset['sl_pct']}% od aktuálnej ceny, take-profit cca {asset['tp_pct']}%
 (pri LONG: stop_loss_price = last_price * (1 - {asset['sl_pct']}/100), take_profit_price =
 last_price * (1 + {asset['tp_pct']}/100); pri SHORT opačne). Môžeš sa mierne odchýliť podľa
@@ -2204,6 +2243,7 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
             confidence_streak: dict | None = None,
             closed_trade: dict | None = None,
             macro_event: str | None = None,
+            pre_macro_events: list[dict] | None = None,
             coinmarketcal_events: list[dict] | None = None,
             watch_retrigger_streak: dict | None = None,
             watch_set_context: dict | None = None,
@@ -2240,6 +2280,7 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
                                       confidence_streak, watch_retrigger_streak, watch_set_context,
                                       open_position=None,
                                       closed_trade=closed_trade, macro_event=macro_event,
+                                      pre_macro_events=pre_macro_events,
                                       coinmarketcal_events=coinmarketcal_events,
                                       recent_trades_context=recent_trades_context,
                                       portfolio_performance=portfolio_performance,
@@ -2262,6 +2303,7 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                              eia_data: dict | None = None,
                              marketaux_news: list[dict] | None = None,
                              macro_event: str | None = None,
+                             pre_macro_events: list[dict] | None = None,
                              new_stats_text: str | None = None,
                              coinmarketcal_events: list[dict] | None = None,
                              recent_trades_context: list[dict] | None = None,
@@ -2286,7 +2328,9 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                                       retrospective_reflection, new_stats_text,
                                       fred_macro, eia_data, marketaux_news,
                                       confidence_streak=None, open_position=open_position,
-                                      macro_event=macro_event, coinmarketcal_events=coinmarketcal_events,
+                                      macro_event=macro_event,
+                                      pre_macro_events=pre_macro_events,
+                                      coinmarketcal_events=coinmarketcal_events,
                                       recent_trades_context=recent_trades_context,
                                       portfolio_performance=portfolio_performance,
                                       portfolio_exposure=portfolio_exposure)

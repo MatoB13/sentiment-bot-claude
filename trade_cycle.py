@@ -1342,6 +1342,8 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
             asset, open_position, ta, cross_market, market_session, social, btc_proxy,
             prev_assumptions, prev_cycle_time, retrospective_reflection,
             fred_macro, eia_data, marketaux_news, macro_event,
+            pre_macro_events=_events_before_next_run(
+                asset, session, datetime.now(timezone.utc)),
             new_stats_text=new_stats_text,
             coinmarketcal_events=coinmarketcal_events,
             recent_trades_context=recent_trades_context,
@@ -1717,6 +1719,8 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 retrospective_reflection, new_stats_text,
                 fred_macro, eia_data, marketaux_news,
                 confidence_streak, closed_trade, macro_event,
+                pre_macro_events=_events_before_next_run(
+                    asset, session, datetime.now(timezone.utc)),
                 coinmarketcal_events=coinmarketcal_events,
                 watch_retrigger_streak=watch_retrigger_streak,
                 watch_set_context=watch_set_context,

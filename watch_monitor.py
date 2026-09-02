@@ -145,12 +145,48 @@ def _pending_events_with_scope(session, now) -> list[dict]:
     return out
 
 
+def _has_live_watch(session, asset: dict) -> bool:
+    """Ma tento ticker prave teraz zivu watch uroven, na ktoru ho poller zobudi?
+
+    Zamerne presna kopia podmienok z _check_price_watch_for_assets nizsie
+    (najnovsi CycleLog; pri otvorenej pozicii sa uznava LEN watch patriaci
+    prave tejto pozicii) - keby sa rozisli, _check_macro_events by tu videl
+    "uroven existuje", ale poller by ju o minutu ignoroval a udalost by
+    prepadla uplne."""
+    symbol = asset["strike_symbol"]
+    last_log = (
+        session.query(CycleLog)
+        .filter(CycleLog.symbol == symbol)
+        .order_by(CycleLog.created_at.desc())
+        .first()
+    )
+    if last_log is None:
+        return False
+
+    open_trade = session.query(Trade).filter(
+        Trade.symbol == symbol, Trade.status == "open",
+    ).first()
+    if open_trade and last_log.trade_id != open_trade.id:
+        return False
+
+    return bool((last_log.watch_price is not None and last_log.watch_direction)
+                or (last_log.watch_price_2 is not None and last_log.watch_direction_2))
+
+
 def _check_macro_events(session) -> None:
     """Makro udalosti s PEVNE ZNAMYM casom vopred, na rozdiel od cenoveho watch
     vyssie NEPOTREBUJU cakat na nejaku podmienku - proste nastanu v znamy cas
-    (viz _pending_events_with_scope pre oba zdroje). Spusti mimoriadny cyklus
-    pre VSETKY aktivne assety (FOMC/CPI/NFP) alebo LEN pre asset, ktory
-    udalost sam zaznacil (Claudom pridane udalosti), max
+    (viz _pending_events_with_scope pre oba zdroje).
+
+    2026-09-02 (navrh pouzivatela) - toto uz NIE JE hlavny mechanizmus, ale
+    POISTKA. Ticker, ktory ma v case udalosti zivu watch uroven, sa preskoci
+    (viz _has_live_watch nizsie) - o udalosti sa dozvedel uz v poslednom
+    planovanom cykle pred nou a nastavil urovne, na ktore ho zobudi lacny
+    poller az ked sa cena naozaj pohne. Cyklus tu bezi len tickerom BEZ zivej
+    urovne, aby im udalost neprepadla uplne.
+
+    Inak spusti mimoriadny cyklus pre VSETKY aktivne assety (FOMC/CPI/NFP)
+    alebo LEN pre asset, ktory udalost sam zaznacil (Claudom pridane), max
     config.MACRO_EVENT_MAX_TRIGGERS_PER_HOUR udalosti za hodinu (bezpecnostna
     poistka pri nahodnom zhluku) - zvysok sa spracuje na buducich tikoch, kym
     sa hodinove okno neposunie. "Pauza po poslednom" nepotrebuje vlastnu
@@ -185,6 +221,33 @@ def _check_macro_events(session) -> None:
         else:
             target_assets = [a for a in assets.enabled_assets() if a["strike_symbol"] == event["symbol"]]
             scope_label = event["symbol"]
+        # 2026-09-02 (navrh pouzivatela) - POISTKA, NIE HLAVNY MECHANIZMUS.
+        # Ticker, ktory ma zivu watch uroven, uz makro udalost oceakava (viz
+        # trade_cycle._events_before_next_run - dozvedel sa o nej v poslednom
+        # planovanom cykle pred nou a nastavil obojstranne urovne). Lacny
+        # poller ho zobudi az ked sa cena naozaj pohne, cize sa plati za
+        # REAKCIU, nie za "pozretie sa".
+        #
+        # Preco to nie je uplne vypnute: namerane za 30 dni malo v case
+        # udalosti zivu uroven 56 % tickerov (z nich 89 % obojstrannu). Zvysnym
+        # 44 % by udalost prepadla bez povsimnutia, preto pre ne cyklus stale
+        # bezi. Ako sa bude prompt uchytavat, tento podiel ma klesat sam.
+        #
+        # Podklad k zmene (30 dni): 220 makro cyklov za $22.73, 72 % skoncilo
+        # na direction=none a obchod z nich vzisiel v 1 % pripadov - presne
+        # tolko, co z bezneho planovaneho behu. Watch-triggered cyklus otvara
+        # obchod v 11,5 %.
+        skipped = [a["name"] for a in target_assets if _has_live_watch(session, a)]
+        target_assets = [a for a in target_assets if a["name"] not in skipped]
+        if skipped:
+            print(f"[watch_monitor] Makro udalost {key} - {len(skipped)} tickerov ma "
+                  f"zivu watch uroven, cakaju na cenu namiesto cyklu: {', '.join(skipped)}")
+        if not target_assets:
+            print(f"[watch_monitor] Makro udalost {key} - vsetky tickery v scope maju "
+                  f"zivu watch uroven, ziadny mimoriadny cyklus netreba.")
+            session.add(TriggeredMacroEvent(event_key=key))
+            session.commit()
+            continue
         print(f"[watch_monitor] Makro udalost {key} - spustam mimoriadne cykly pre {scope_label}.")
         # Zapisane HNED (pred behom cyklov), aby sa pri padnutom procese
         # uprostred slucky nizsie nespustala tato udalost znova od zaciatku.
