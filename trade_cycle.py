@@ -6,6 +6,10 @@ potom sa pouzije pre kazdy aktivny asset z assets.py nezavisle - kazdy ma
 vlastnu poziciu, vlastny risk (SL/TP%, leverage, margin, min_confidence) a
 vlastne Claude rozhodnutie. Zlyhanie jedneho assetu nesmie zhodit ostatne."""
 import math
+import re
+import unicodedata
+
+from sqlalchemy import or_
 import threading
 from datetime import datetime, timedelta, timezone
 
@@ -699,6 +703,60 @@ def _get_retrospective_context(asset: dict, session) -> tuple[str | None, str | 
 # namiesto presneho mena.
 _DUPLICATE_EVENT_WINDOW_HOURS = 3
 
+# 2026-09-02 - SIRSIE okno, ale plati LEN ked sa zhoduje aj NAZOV (viz
+# _same_macro_event). Cisto casove okno takto siroke by zlucilo naozaj rozne
+# udalosti - 14.8. mali Retail Sales, SEC Regulation Crypto vote a Michigan
+# inflation expectations vsetky ten isty den a su to tri nezavisle veci.
+# Riziko nesie okno len vtedy, ked rozhoduje samo; tu rozhoduje az spolu s menom.
+_NAME_DUPLICATE_WINDOW_HOURS = 24
+
+# Slova bez rozlisovacej hodnoty - po ich odstraneni ostane jadro nazvu.
+# Claude pomenuva tu istu udalost zakazdym trochu inak a strieda slovencinu
+# s anglictinou, takze porovnanie musi byt na jadre, nie na celom retazci.
+_MACRO_NAME_STOPWORDS = {
+    "the", "a", "an", "of", "for", "and", "us", "usa",
+    "report", "reports", "release", "data", "meeting", "vote", "day",
+    "economic", "policy", "annual", "first", "prvy", "prve", "prvej",
+    "vysledky", "sprava", "zasadnutie", "stretnutie", "rozhodnutie",
+    "january", "february", "march", "april", "may", "june", "july", "august",
+    "september", "october", "november", "december",
+    "januar", "februar", "marec", "april", "maj", "jun", "jul", "augusta",
+    "septembra", "oktobra", "novembra", "decembra",
+    "q1", "q2", "q3", "q4",
+}
+
+
+def _macro_name_core(name: str) -> set:
+    """Jadro nazvu udalosti: bez diakritiky, bez obsahu zatvoriek, bez
+    vyplnkovych slov a rokov. "PPI (júl 2026)" a "PPI (July, US Producer Price
+    Index)" tak obe daju jadro obsahujuce "ppi"."""
+    text_ = unicodedata.normalize("NFKD", (name or "").lower())
+    text_ = "".join(ch for ch in text_ if not unicodedata.combining(ch))
+    text_ = re.sub(r"\([^)]*\)", " ", text_)
+    text_ = re.sub(r"[^a-z0-9]+", " ", text_)
+    return {w for w in text_.split()
+            if len(w) > 2 and w not in _MACRO_NAME_STOPWORDS and not w.isdigit()}
+
+
+def _same_macro_event(a: str, b: str) -> bool:
+    """Su to dve pomenovania TEJ ISTEJ udalosti? Jaccard podobnost jadier.
+
+    Overene na celej realnej historii (72 spustenych udalosti): 0 falosnych
+    zluceni - tri nezavisle udalosti zo 14.8. ostali oddelene - a spravne
+    zlucilo vsetky varianty (CPI/PPI/FOMC Minutes/Jackson Hole/Zcash governance/
+    Cardano Constitutional Committee)."""
+    wa, wb = _macro_name_core(a), _macro_name_core(b)
+    if not wa or not wb:
+        return False
+    inter = len(wa & wb)
+    if not inter:
+        return False
+    if inter / len(wa | wb) >= 0.5:
+        return True
+    # Kratky nazov ("CPI") vnoreny v dlhsom ("CPI (July) release") - Jaccard by
+    # ho kvoli velkosti zjednotenia nechytil, hoci ide zjavne o to iste.
+    return inter >= 2 and inter >= min(len(wa), len(wb)) * 0.8
+
 
 def _save_flagged_macro_event(event: dict | None, symbol: str, session) -> None:
     """Ak Claude tento cyklus vratil upcoming_macro_event (viz claude_analyst
@@ -745,19 +803,61 @@ def _save_flagged_macro_event(event: dict | None, symbol: str, session) -> None:
     # od tejto - ak ano, ide takmer isto o tu istu realnu udalost pod inym
     # menom, preskocime (prvy zaznamenany nazov/riadok "vyhrava").
     dt_naive = dt.replace(tzinfo=None)
+    window = (
+        FlaggedMacroEvent.datetime_utc >= dt_naive - timedelta(hours=_DUPLICATE_EVENT_WINDOW_HOURS),
+        FlaggedMacroEvent.datetime_utc <= dt_naive + timedelta(hours=_DUPLICATE_EVENT_WINDOW_HOURS),
+    )
     near_duplicate = (
         session.query(FlaggedMacroEvent.id)
         .filter(FlaggedMacroEvent.flagged_by_symbol == target_symbol)
-        .filter(FlaggedMacroEvent.datetime_utc >= dt_naive - timedelta(hours=_DUPLICATE_EVENT_WINDOW_HOURS))
-        .filter(FlaggedMacroEvent.datetime_utc <= dt_naive + timedelta(hours=_DUPLICATE_EVENT_WINDOW_HOURS))
+        .filter(*window)
         .first()
     )
     if near_duplicate:
         return
 
-    exists = session.query(FlaggedMacroEvent.id).filter(FlaggedMacroEvent.event_key == key).first()
-    if exists:
-        return
+    # 2026-09-02 - DEDUP PODLA NAZVU v sirsom okne, plus pravidlo, ze GLOBALNA
+    # udalost pokryva aj per-ticker zaznam o tej istej veci.
+    #
+    # Preco nestaci casove okno vyssie: Claude pomenuva tu istu udalost zakazdym
+    # inak a niekedy jej da iny cas. FOMC september mal v DB OSEM zaznamov na ten
+    # isty termin ("FOMC rozhodnutie (september)", "FOMC September meeting (rate
+    # decision)", "FOMC Meeting (September)", ...), Jackson Hole 27.8. mal zaznamy
+    # o 00:00 aj o 14:00. Na celej historii bolo takto duplicitnych 77 zo 131.
+    #
+    # Preco sa MUSI zhodovat aj nazov, nielen cas a scope: Claude casto zadava
+    # 00:00, ked presny cas nepozna, takze nesuvisiace udalosti kolidiju casom.
+    # V DB je realny priklad - "Circle Arc mainnet launch" (CRCL) ma presne ten
+    # isty cas ako globalne "FOMC meeting (September)". Cisto casova globalna
+    # prednost by Circle Arc zahodila, hoci s FOMC nema nic spolocne, a CRCL by
+    # prisiel o samostatne spustenie v case tej svojej udalosti.
+    #
+    # Globalny zaznam blokuje per-ticker (globalna spusti vsetky assety vratane
+    # tohto), ale NIE naopak - per-ticker udalost ma uzsi rozsah, takze nesmie
+    # zabranit neskorsej globalnej.
+    if target_symbol is None:
+        name_scope_filter = FlaggedMacroEvent.flagged_by_symbol.is_(None)
+    else:
+        name_scope_filter = or_(
+            FlaggedMacroEvent.flagged_by_symbol == target_symbol,
+            FlaggedMacroEvent.flagged_by_symbol.is_(None),
+        )
+    nearby = (
+        session.query(FlaggedMacroEvent.name, FlaggedMacroEvent.flagged_by_symbol)
+        .filter(name_scope_filter)
+        .filter(FlaggedMacroEvent.datetime_utc >= dt_naive - timedelta(hours=_NAME_DUPLICATE_WINDOW_HOURS))
+        .filter(FlaggedMacroEvent.datetime_utc <= dt_naive + timedelta(hours=_NAME_DUPLICATE_WINDOW_HOURS))
+        .all()
+    )
+    for existing_name, existing_scope in nearby:
+        if _same_macro_event(existing_name, event["name"]):
+            scope_note = ("GLOBALNA udalost, ktora spusti aj tento ticker"
+                          if existing_scope is None and target_symbol is not None
+                          else "uz zaznacena udalost")
+            print(f"[trade_cycle] upcoming_macro_event '{event['name']}' je ine pomenovanie "
+                  f"tej istej veci - {scope_note}: '{existing_name}' - preskakujem.")
+            return
+
     session.add(FlaggedMacroEvent(
         event_key=key, name=event["name"], datetime_utc=dt, flagged_by_symbol=target_symbol,
     ))
