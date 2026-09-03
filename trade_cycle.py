@@ -437,14 +437,39 @@ def _save_pending_retrospective(name: str, symbol: str, pending_stats: dict, dec
             print(f"[{name}] Ulozenie dennej retrospektivy zlyhalo, pokracujem: {e}")
             session.rollback()
 
-    if decision.get("summary_reflection"):
-        try:
-            _upsert_rolling(session, symbol, decision["summary_reflection"], for_date)
-            session.commit()
+    # based_through_date sa posunie AJ KED Claude summary_reflection nevratil
+    # (obe reflexne polia su v schemach VOLITELNE - viz claude_analyst
+    # DECISION_TOOL/POSITION_HEALTH_TOOL).
+    #
+    # 2026-09-03 produkcny nalez (MINIMAX, 14 platenych health checkov za 28
+    # minut, $1.62): kym sa datum neposunul, _get_retrospective_context vracal
+    # new_stats_text stale dokola, a to je SAMOSTATNY dovod na plne Claude
+    # volanie v _run_position_health_check - nezavisly od mechanickeho triggeru
+    # a zamerne neposuvajuci last_health_escalation_at. Minutovy poller teda
+    # nemal co zabrzdit: podmienka platila o minutu znova, presne rovnako.
+    # Merane naprieč vsetkymi tickermi: v hodine po polnoci UTC bolo platenych
+    # 82 % health checkov, o 19:00-23:00 len 5 % - cize slo o kazdonocny vzor,
+    # nie o vypadok jedneho tickera.
+    #
+    # Zmysel funkcie je zamysliet sa nad vcerajskom RAZ. Ak model pole vynecha,
+    # opakovat to kazdu minutu nic neprinesie - preto sa den oznaci za
+    # spracovany uz po prvom pokuse. Volajuci nas vola az PO uspesnom Claude
+    # volani, takze "pokus" naozaj znamena, ze model dostal data a odpovedal;
+    # pri zlyhanom volani (vynimka vyssie v cykle) sa sem vobec nedostaneme a
+    # den zostane nespracovany na dalsi pokus.
+    summary = decision.get("summary_reflection")
+    try:
+        _upsert_rolling(session, symbol, summary, for_date)
+        session.commit()
+        if summary:
             print(f"[{name}] Aktualizovane priebezne zhrnutie (based_through={for_date}).")
-        except Exception as e:
-            print(f"[{name}] Ulozenie priebezneho zhrnutia zlyhalo, pokracujem: {e}")
-            session.rollback()
+        else:
+            print(f"[{name}] Claude nevratil summary_reflection - priebezne zhrnutie zostava "
+                  f"nezmenene, ale {for_date} sa oznacuje za spracovany (jeden pokus denne, "
+                  f"inak by sa cyklus opakoval donekonecna).")
+    except Exception as e:
+        print(f"[{name}] Ulozenie priebezneho zhrnutia zlyhalo, pokracujem: {e}")
+        session.rollback()
 
 
 # Kolko WATCH-triggered cyklov za sebou (bez otvorenej pozicie medzi nimi) sa
@@ -1045,7 +1070,8 @@ def _carry_forward_position_watch(session, open_trade: Trade) -> dict:
 
 def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dict, market_session: dict,
                                 btc_proxy: dict | None, fred_macro: dict | None, session,
-                                macro_event: str | None = None, watch_triggered: bool = False) -> None:
+                                macro_event: str | None = None, watch_triggered: bool = False,
+                                fast_poll: bool = False) -> None:
     """Ked uz je otvorena pozicia, namiesto predosleho ticheho 'skipped' zaznamu
     (2026-08 spatna vazba pouzivatela: chcel Claudeho priebezny nazor na
     otvorenu poziciu, nie len zahltenu historiu signalov bez obsahu) spustime
@@ -1246,6 +1272,23 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         print(f"[{name}] Vypocet retrospektivy zlyhal (pokracujem bez nej): {e}")
         session.rollback()
         retrospective_reflection, new_stats_text, pending_stats = None, None, None
+
+    # 2026-09-03 (MINIMAX incident) - POISTKA k oprave v _save_pending_retrospective.
+    # Nespracovana retrospektiva smie eskalovat na plne Claude volanie LEN vo
+    # vlastnom planovanom cykle tickera, nie ked kontrolu dispatchol minutovy
+    # poller (position_monitor._fast_health_triggers). Dovod: brzda toho polleru
+    # (HEALTH_CHECK_SL_PROXIMITY_MIN_INTERVAL_MINUTES / _FAST_POLL_...) sa pocita
+    # z last_health_escalation_at, ktory sa pri retrospektiva-only eskalacii
+    # zamerne NEPOSUVA - takze taka eskalacia nema co minutovy poller zabrzdit.
+    # Retrospektiva nie je casovo citliva (ide o vcerajsie cisla), pokojne pocka
+    # na najblizsi planovany cyklus alebo na zatvorenie pozicie; ked uz sme aj
+    # tak zavolali Claude z INEHO dovodu, blok sa v prompte objavi normalne
+    # (new_stats_text sa nuluje len ako DOVOD na volanie, nie ako obsah).
+    if fast_poll and not real_escalation and new_stats_text is not None:
+        print(f"[{name}] Vcerajsok este nie je v retrospektive, ale tuto kontrolu vyvolal "
+              f"minutovy poller - nechavam to na planovany cyklus (inak by sa to opakovalo "
+              f"kazdu minutu).")
+        new_stats_text, pending_stats = None, None
 
     if not real_escalation and new_stats_text is None:
         if escalation_reason is None:
@@ -1497,7 +1540,8 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                          skip_due_check: bool = False,
                          closed_trade: dict | None = None,
                          macro_event: str | None = None,
-                         watch_triggered: bool = False) -> None:
+                         watch_triggered: bool = False,
+                         fast_poll: bool = False) -> None:
     """Kompletny cyklus pre JEDEN asset - vlastna DB session/commit, aby chyba
     v jednom assete neponechala nedokoncenu transakciu pre dalsi.
 
@@ -1593,7 +1637,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
         if open_trade:
             _run_position_health_check(asset, open_trade, cross_market, market_session, btc_proxy,
                                         fred_macro, session, macro_event,
-                                        watch_triggered=watch_triggered)
+                                        watch_triggered=watch_triggered, fast_poll=fast_poll)
             return
 
         try:
@@ -1960,7 +2004,8 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
 
 
 def run_triggered_check(asset: dict, closed_trade: dict | None = None,
-                         macro_event: str | None = None, watch_triggered: bool = False) -> None:
+                         macro_event: str | None = None, watch_triggered: bool = False,
+                         fast_poll: bool = False) -> None:
     """Mimoriadny cyklus LEN pre jeden asset, mimo bezneho zdielaneho hodinoveho
     tiku - vola ho watch_monitor.py (watch_price/watch_direction podmienka
     splnena ALEBO macro_event - viz nizsie) alebo position_monitor.py
@@ -2006,6 +2051,7 @@ def run_triggered_check(asset: dict, closed_trade: dict | None = None,
 
     run_cycle_for_asset(asset, cross_market, market_session, btc_proxy, fred_macro,
                          skip_due_check=True, closed_trade=closed_trade, macro_event=macro_event,
+                         fast_poll=fast_poll,
                          watch_triggered=watch_triggered)
 
 

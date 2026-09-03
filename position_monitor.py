@@ -678,7 +678,12 @@ def _fire_fast_health_checks(pending_health: list) -> None:
             continue
         print(f"[position_monitor] [{asset['name']}] Rychla health kontrola: {reason}")
         try:
-            trade_cycle.dispatch_triggered_check(asset)
+            # fast_poll=True (2026-09-03, MINIMAX incident): trade_cycle vdaka
+            # tomu vie, ze tuto kontrolu vyvolal MINUTOVY poller, a nenecha
+            # nespracovanu retrospektivu eskalovat na plne Claude volanie - jej
+            # eskalacia totiz neposuva last_health_escalation_at, cize by nemala
+            # co zabrzdit nas vlastny dalsi tik o minutu (viz tam).
+            trade_cycle.dispatch_triggered_check(asset, fast_poll=True)
         except Exception as e:
             print(f"[position_monitor] [{asset['name']}] dispatch health checku zlyhal: {e}")
 
