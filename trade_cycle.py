@@ -192,6 +192,25 @@ def _slot_due_point(now: datetime, interval_hours: float, slot: int,
     return _SLOT_EPOCH + timedelta(minutes=offset_min + k * interval_min)
 
 
+def _interval_regime_start(asset: dict, now: datetime) -> datetime:
+    """Odkedy plati interval, ktory plati PRAVE TERAZ.
+
+    Interval sa meni len na celych hodinach (obchodne hodiny cez
+    trading_hours_start/end_utc, vikend), takze staci krokovat po hodinach
+    dozadu, kym sa _required_interval_hours nezmeni. Strop 72 hodin je
+    poistka - pri 24/7 assete (vsetky tri intervaly rovnake) sa hodnota nikdy
+    nezmeni a vratime "davno", cim sa obmedzenie v _is_due stane bezzubym.
+    Presne tak to ma byt: bez zmeny intervalu niet co riesit."""
+    current = _required_interval_hours(asset, now)
+    probe = now.replace(minute=0, second=0, microsecond=0)
+    for _ in range(72):
+        prev = probe - timedelta(hours=1)
+        if _required_interval_hours(asset, prev) != current:
+            return probe
+        probe = prev
+    return probe
+
+
 def _is_due(asset: dict, session) -> bool:
     """True ak je asset due v SVOJOM slote aktualneho intervaloveho bloku.
 
@@ -232,8 +251,36 @@ def _is_due(asset: dict, session) -> bool:
     if elapsed_min < config.RUN_SLOT_MIN_GAP_FRACTION * required_hours * 60:
         return False
 
-    return last_time < _slot_due_point(now, required_hours, asset["run_slot"],
-                                        asset.get("run_slot_hour_offset") or 0)
+    # 2026-09-04 (nalez pouzivatela z cifernika) - bod mriezky sa uzna LEN ak
+    # lezi uz v AKTUALNOM intervalovom rezime.
+    #
+    # PRECO: pri skrateni intervalu (off-hours -> trading) ma nova mriezka
+    # HUSTEJSIU sadu bodov, ktora obsahuje aj body v MINULOSTI - medzi poslednym
+    # behom a teraz. Tie tam pocas cakania vobec neexistovali, ale _is_due ich
+    # vyhodnotila ako "zmeskane" a ticker spustila okamzite. Vsetky tickery
+    # prechadzaju hranicu v tom istom tiku, takze sa zhlukli - a slot prestal
+    # platit presne v tom momente.
+    #
+    #   ADA: off-hours 4h mriezka ... 06:10, 10:10
+    #        trading   2h mriezka ... 06:10, 08:10, 10:10
+    #        posledny beh 06:11 -> o 10:01 "vidi" bod 08:10 -> bezi hned,
+    #        namiesto svojho 10:10
+    #
+    # Namerane cistou simulaciou _is_due (7 dni, ziadne restarty ani triggery):
+    # prvy tik po 10:00 UTC mal 7.9 tickerov/den pri priemere 1.16 na okno;
+    # najvacsie okno malo 17 tickerov. Po tejto zmene: 0.7 na hranici, najvacsie
+    # okno 2, priemer 1.02.
+    #
+    # Behov ubudlo o 12 % - prave o tie "zmeskane" body, ktore neboli realne.
+    # Prvy beh po otvoreni trhu tym prirodzene pride neskor (median 115 min
+    # namiesto 5), ale tych 5 minut nebola vlastnost: to len vsetky tickery
+    # naraz preskocili front. Kto chce rychlu reakciu na otvorenie trhu, ten
+    # potrebuje vlastny trigger, nie tuto chybu.
+    due = _slot_due_point(now, required_hours, asset["run_slot"],
+                           asset.get("run_slot_hour_offset") or 0)
+    if due < _interval_regime_start(asset, now):
+        return False
+    return last_time < due
 
 
 def _next_scheduled_run(asset: dict, now: datetime) -> datetime:
