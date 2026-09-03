@@ -2145,6 +2145,47 @@ def dispatch_triggered_check(asset: dict, **kwargs) -> None:
     threading.Thread(target=_run, daemon=True, name=f"triggered-{name}").start()
 
 
+def _dispatch_scheduled_cycle(asset: dict, cross_market: dict, market_session: dict,
+                               btc_proxy: dict | None, fred_macro: dict | None) -> None:
+    """Ako dispatch_triggered_check(), ale pre BEZNY (planovany) cyklus zo
+    scheduler tiku - viz run_all_cycles pre dovod, preco uz nebezi seriovo.
+
+    Rozdiel oproti dispatch_triggered_check: NEvola run_triggered_check (ta si
+    fetchuje vlastny makro snapshot), ale priamo run_cycle_for_asset s uz
+    nacitanym ZDIELANYM snapshotom. Inak by 17 tickerov znamenalo 17 sad
+    yfinance volani namiesto jednej - a yfinance nas uz raz rate-limitoval.
+
+    Zdiela s dispatch_triggered_check aj semafor aj in-flight mnozinu, takze
+    planovane a mimoriadne behy sa navzajom nezdupluju ani neprekrocia spolocny
+    strop suběžnosti."""
+    name = asset["name"]
+    symbol = asset["strike_symbol"]
+
+    with _triggered_check_lock:
+        if symbol in _triggered_check_in_flight:
+            # Bezny stav pri dlhom cykle: tick tikol znova, kym predchadzajuci
+            # beh tohto tickera este nezapisal CycleLog, takze _is_due ho stale
+            # vidi ako due. Nie je to chyba - len sa nespusti druhykrat.
+            print(f"[trade_cycle] [{name}] predchadzajuci beh este prebieha - "
+                  "preskakujem duplicitny planovany cyklus.")
+            return
+        _triggered_check_in_flight.add(symbol)
+
+    def _run():
+        with _dispatch_semaphore:
+            try:
+                run_cycle_for_asset(asset, cross_market, market_session,
+                                     btc_proxy, fred_macro)
+            except Exception as e:
+                # jeden asset nesmie zhodit ostatne v tom istom tiku
+                print(f"[trade_cycle] [{name}] planovany cyklus na pozadi zlyhal: {e}")
+            finally:
+                with _triggered_check_lock:
+                    _triggered_check_in_flight.discard(symbol)
+
+    threading.Thread(target=_run, daemon=True, name=f"scheduled-{name}").start()
+
+
 def _mark_disabled_assets() -> None:
     """Nulovy-naklad (ziadne Claude/web_search volanie) zapis CycleLog s
     outcome='disabled' pre kazdy asset, ktory je momentalne VYPNUTY
@@ -2254,16 +2295,34 @@ def run_all_cycles() -> None:
     except Exception as e:
         print(f"[trade_cycle] FRED fetch zlyhal (pokracujem bez neho): {e}")
 
+    # 2026-09-03 (produkcny nalez pouzivatela) - cykly sa dispatchuju NA POZADI,
+    # nie seriovo priamo v tiku.
+    #
+    # PRECO: predtym tu bol `for asset in active: run_cycle_for_asset(...)`, teda
+    # cely tick trval tolko, kolko vsetky due cykly dokopy (1-3 min kazdy).
+    # APScheduler ma max_instances=1, takze KAZDY tick, ktory padol do beziaceho,
+    # sa ticho preskocil - tickery, ktore sa medzitym stali due, sa nakopili a
+    # spustili az v najblizsom volnom tiku, znova seriovo. Tym sa zhluk sam
+    # udrziaval: cim viac tickerov v davke, tym dlhsie blokovanie, tym vacsia
+    # dalsia davka.
+    #
+    # Namerane (3.9., po restarte workera o 06:12): 8 planovanych cyklov medzi
+    # 10:00 a 10:20 UTC, hoci slotova mriezka predpoveda MAX 1 ticker na 5-min
+    # okno - a hned po zhluku 37 minut ticha, kym davka dobiehala. Za 10 dni
+    # malo 3+ tickerov 36 % davok a po velkej davke bolo priemerne 47 min ticha.
+    #
+    # Tick sa teraz vrati hned po dispatchi, takze uz nikdy nezablokuje dalsi.
+    # Suběžnost ohranicuje ten isty _dispatch_semaphore ako pri watch/makro
+    # triggeroch a per-symbol in-flight poistka zabrani tomu, aby dalsi tick
+    # spustil ticker, ktory este bezi (ma este stary CycleLog, takze by ho
+    # _is_due znova vyhodnotil ako due).
+    #
+    # Zdielany snapshot (cross_market/session/btc/fred) sa nacita RAZ vyssie a
+    # odovzda do vlakien - yfinance volani teda nepribudne ani jedno.
     for asset in active:
-        try:
-            run_cycle_for_asset(
-                asset, cross_market, market_session,
-                btc_proxy if asset.get("needs_btc_proxy") else None,
-                fred_macro,
-            )
-        except Exception as e:
-            # jeden asset nesmie zhodit ostatne v tom istom cykle
-            print(f"[trade_cycle] [{asset['name']}] neocakavana chyba, pokracujem dalsim assetom: {e}")
+        _dispatch_scheduled_cycle(asset, cross_market, market_session,
+                                   btc_proxy if asset.get("needs_btc_proxy") else None,
+                                   fred_macro)
 
 
 if __name__ == "__main__":
