@@ -115,9 +115,18 @@ DECISION_TOOL = {
                     "'prekračujem prah na otvorenie'). Kalibrované znamená: ak by si rovnaké "
                     "číslo priradil opakovane naprieč mnohými nezávislými rozhodnutiami, malo "
                     "by približne zodpovedať skutočnému podielu tých, čo naozaj vyjdú. Použi "
-                    "CELÝ rozsah 0-100 podľa reálnej presvedčivosti dôkazov - nedrž sa umelo "
-                    "blízko prahu na otvorenie ani sa nevyhýbaj vysokým/nízkym hodnotám, ak "
-                    "si nimi skutočne istý."
+                    # 2026-09-04 - povodne tu stalo "nedrz sa umelo blizko prahu na
+                    # otvorenie". Odkedy sa prah v prompte NEUVADZA (viz threshold_block
+                    # v _build_user_prompt), by ta veta sama prezradila, ze nejaka
+                    # hranica existuje - a tym by kotvu, ktoru sme prave odstranili,
+                    # znova naznacila. Zvysok formulacie zostava nezmeneny.
+                    #
+                    # Pri direction=none sa ZAMERNE nic nedopĺňa: spravanie uz je take,
+                    # ake ma byt (cim vyssia confidence, tym skor Claude nastavi watch -
+                    # namerane 63 % v pasme 20-29 vs 91 % v pasme 40-49 na 4403 cykloch),
+                    # takze opisovat to v prompte by nanajvys uskodilo.
+                    "CELÝ rozsah 0-100 podľa reálnej presvedčivosti dôkazov - nevyhýbaj sa "
+                    "vysokým ani nízkym hodnotám, ak si nimi skutočne istý."
                 ),
             },
             "stop_loss_price": {
@@ -203,9 +212,10 @@ DECISION_TOOL = {
             "confidence_threshold_note": {
                 "type": "string",
                 "description": (
-                    "VYPLŇ VZDY, ked direction=long alebo short A tvoja confidence vyjde v pasme "
-                    "tesne pod prahom na otvorenie pozicie (presne cislicne pasmo pre tento cyklus "
-                    "dostanes v user sprave). Napis, PRI AKEJ CENE by tvoja confidence z CISTO "
+                    "VYPLŇ VZDY, ked direction=long alebo short, ale tvoje presvedcenie je len "
+                    "STREDNE - teda setup vidis, ale nie je presvedcivy (2026-09-04: prah sa "
+                    "zamerne neuvadza, riadis sa vlastnym presvedcenim, nie hranicou). "
+                    "Napis, PRI AKEJ CENE by tvoja confidence z CISTO "
                     "TECHNICKEHO hladiska (potvrdeny breakout, uspesny retest, prekonanie "
                     "konkretnej urovne - NIKDY plynutim casu) prekrocila prah - a tu istu cenu daj "
                     "aj do watch_price/watch_direction, aby ju lacny poller sledoval a pri splneni "
@@ -2262,14 +2272,33 @@ Držaná: {ct['hours_held']:.1f}h | PnL: {sign}${ct['pnl_usd']:.2f}{range_line}
 {sltp_eval_block}
 """
 
-    threshold_low = asset["min_confidence"] - config.WATCH_CONFIDENCE_MARGIN
-    threshold_high = asset["min_confidence"] - 1
-    threshold_block = f"""
-## Prah na otvorenie pozície
-Minimálna confidence na otvorenie pozície pre {instrument} je aktuálne {asset['min_confidence']}.
-Ak tento cyklus zvolíš direction=long alebo short a tvoja confidence vyjde v rozmedzí
-{threshold_low:.0f}-{threshold_high:.0f} (tesne pod prahom), VŽDY vyplň confidence_threshold_note
-(presné pravidlo, čo tam napísať, je v system prompte).
+    # 2026-09-04 (navrh pouzivatela, po merani z 3.-4.9.) - PRAH SA UZ NEUVADZA.
+    #
+    # Doteraz tu stalo "Minimalna confidence na otvorenie je X". Namerane na 859
+    # cykloch: 82 % rozhodnuti nad prahom lezalo do 2 bodov nad nim - cislo teda
+    # nenieslo rozlisovaciu informaciu, len sa prisposobovalo hranici. Meranie s
+    # ukrytym prahom (30 cyklov, $6.12) dalo rozpatie 18 bodov namiesto 3 a
+    # median 52; realizovany win rate 42 % na 178 obchodoch sedi na 52 omnoho
+    # lepsie nez na vtedajsich 66.
+    #
+    # Marza sa teraz skaluje confidence (risk_manager.validate_and_size), takze
+    # cely rozsah sa realne pouziva. Vzorec sa tu ZAMERNE NEUVADZA - inak by sa
+    # cislo znova stalo pakou na velkost pozicie namiesto odhadu a stratili by
+    # sme moznost overit kalibraciu.
+    threshold_block = """
+## Čo tvoja odpoveď spôsobí
+Toto NIE JE cvičenie ani názor do logu. Ak vrátiš direction=long/short, bot môže na základe
+tejto odpovede otvoriť REÁLNU pozíciu s pákou za živé peniaze - okamžite a bez potvrdenia
+človekom.
+
+`confidence` píš ako svoj úprimný kalibrovaný odhad pravdepodobnosti, že tento setup vyjde -
+NIE ako "koľko treba, aby sa obchod otvoril". Prah ti zámerne neuvádzame a nesnaž sa ho
+uhádnuť; číslo má byť tvoje presvedčenie, nie páka na výsledok. Používaj celý rozsah 0-100.
+
+Ak si na vážkach, správna odpoveď je nízka confidence (prípadne direction="none") plus watch
+úroveň - NIE číslo posunuté tak, aby vyšiel želaný výsledok. Vždy, keď navrhuješ smer, ale
+tvoje presvedčenie je len stredné, pridaj aj watch_price/watch_direction s cenou, ktorá by ťa
+presvedčila výraznejšie.
 """
 
     return f"""{header}

@@ -84,8 +84,9 @@ def validate_and_size(decision: dict, has_open_position: bool,
                        cushion_multiple: float, margin_usd: float) -> dict:
     """Vrati dict pripraveny na strike_client.open_bracket_position, alebo vyhodi RejectedTrade.
 
-    Position sizing: `margin_usd` je fixna (per-asset config), ale `leverage`
-    sa od 2026-08-08 DOPOCITAVA z (uz orezanej) SL vzdialenosti a
+    Position sizing: `margin_usd` je per-asset config SKALOVANY confidence
+    (2026-09-04: marza = margin_usd * confidence/100 - viz komentar nizsie),
+    a `leverage` sa od 2026-08-08 DOPOCITAVA z (uz orezanej) SL vzdialenosti a
     `cushion_multiple` - viz _leverage_from_cushion. Notional = margin_usd *
     (takto dopocitana) leverage, teda uz NIE JE fixny naprieč obchodmi ako
     predtym - siri SL prirodzene znamena nizsiu paku (a teda mensi notional
@@ -160,6 +161,30 @@ def validate_and_size(decision: dict, has_open_position: bool,
         tp = tp + tick if decision["direction"] == "long" else tp - tick
 
     risk_reward = tp_distance / sl_distance if sl_distance else 0
+
+    # 2026-09-04 (navrh pouzivatela) - MARZA SA SKALUJE CONFIDENCE.
+    #
+    # Doteraz bola marza fixna a confidence fungovala ako binarny prah: 64 =
+    # nic, 66 = plna pozicia. Namerane na 859 cykloch: 82 % rozhodnuti nad
+    # prahom lezalo do 2 bodov nad nim, cize cislo nenieslo ziadnu rozlisovaciu
+    # informaciu - Claude sa rozhodol obchodovat a napisal cislo, ktore to
+    # umoznilo. Meranie s ukrytym prahom (30 cyklov) dalo rozpatie 18 bodov
+    # namiesto 3, s medianom 52 - a realizovany win rate 42 % na 178 obchodoch
+    # sedi na 52 podstatne lepsie nez na vtedajsich 66.
+    #
+    # Teraz sa cely rozsah pouzije: marza = margin_usd * confidence/100.
+    # Ziadny utes, ku ktoremu by sa dalo ukotvit - kazdy bod confidence sa
+    # premietne do penazi.
+    #
+    # POZOR: Claude o tomto vzorci NEVIE a vediet nema (viz claude_analyst) -
+    # inak by sa cislo znova stalo pakou na velkost pozicie namiesto odhadu
+    # pravdepodobnosti a stratili by sme moznost overit jeho kalibraciu.
+    #
+    # Skaluje sa PRED _leverage_from_cushion, lebo paka zavisi od marze cez
+    # margin_tiers - inak by sa notional pocital z inej marze, nez sa realne
+    # posle na burzu.
+    confidence_scale = max(0.0, min(1.0, float(decision["confidence"]) / 100.0))
+    margin_usd = margin_usd * confidence_scale
 
     # Paka az TERAZ, z uz finalnej (po tick-zaokruhleni) SL vzdialenosti -
     # viz _leverage_from_cushion.
