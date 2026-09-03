@@ -248,6 +248,20 @@ def _next_scheduled_run(asset: dict, now: datetime) -> datetime:
     return last_point + timedelta(hours=required_hours)
 
 
+def _schedule_context(asset: dict, now: datetime) -> dict:
+    """Kedy bude najblizsi PLANOVANY beh + aky interval prave plati.
+
+    2026-09-03 (z otazky pouzivatela) - Claude sa rozhodoval o watch urovni bez
+    toho, aby vedel, ako dlho bude bez nej "slepy". V prompte bolo len "cyklus
+    bezi kazdych Xh", co pri mimoriadnom cykle zavadza: mriezka je ukotvena,
+    takze po watch triggeri BTC o 19:07 nasledoval dalsi beh o 20:30, nie o
+    21:07. Viz claude_analyst schedule_line."""
+    return {
+        "next_run": _next_scheduled_run(asset, now),
+        "interval_hours": _required_interval_hours(asset, now),
+    }
+
+
 def _events_before_next_run(asset: dict, session, now: datetime) -> list[dict]:
     """Makro udalosti s vopred znamym casom, ktore nastanu PRED najblizsim
     planovanym behom tohto tickera - teda tie, pre ktore je TENTO cyklus
@@ -1414,6 +1428,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
             fred_macro, eia_data, marketaux_news, macro_event,
             pre_macro_events=_events_before_next_run(
                 asset, session, datetime.now(timezone.utc)),
+            schedule=_schedule_context(asset, datetime.now(timezone.utc)),
             new_stats_text=new_stats_text,
             coinmarketcal_events=coinmarketcal_events,
             recent_trades_context=recent_trades_context,
@@ -1798,6 +1813,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 confidence_streak, closed_trade, macro_event,
                 pre_macro_events=_events_before_next_run(
                     asset, session, datetime.now(timezone.utc)),
+                schedule=_schedule_context(asset, datetime.now(timezone.utc)),
                 coinmarketcal_events=coinmarketcal_events,
                 watch_retrigger_streak=watch_retrigger_streak,
                 watch_set_context=watch_set_context,

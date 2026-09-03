@@ -1589,6 +1589,7 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                         closed_trade: dict | None = None,
                         macro_event: str | None = None,
                         pre_macro_events: list[dict] | None = None,
+                        schedule: dict | None = None,
                         coinmarketcal_events: list[dict] | None = None,
                         recent_trades_context: list[dict] | None = None,
                         portfolio_performance: dict | None = None,
@@ -1913,10 +1914,42 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
         )
         portfolio_exposure_block = "\n".join(pe_lines) + "\n"
 
+    # 2026-09-03 (z otazky pouzivatela) - KEDY BUDE DALSI PLANOVANY BEH.
+    #
+    # Doteraz bolo v prompte len "tento cyklus bezi kazdych Xh", z coho sa dalo
+    # odvodit nanajvys "o X hodin od teraz". To je pri MIMORIADNOM cykle
+    # zavadzajuce: slotova mriezka je ukotvena, takze po watch triggeri o 19:07
+    # nenasledoval dalsi beh o 21:07, ale uz o 20:30. Claude teda nemal ako
+    # posudit, ako dlho bude "slepy", ked watch uroven nenastavi - a rozhodoval
+    # sa o nej bez tejto informacie.
+    #
+    # Namerane za 10 dni: po cykle BEZ watchu bol median odstupu do dalsieho
+    # behu 73 min, p90 az 446 min a v 15 % pripadov nad 3 hodiny.
+    #
+    # interval_h nizsie je teraz REALNE platny interval (trading/off-hours/
+    # vikend), nie vzdy trade_interval_hours - stary text tvrdil obchodnu
+    # hodnotu aj cez vikend.
+    interval_h = (schedule or {}).get("interval_hours") or interval_h
+    schedule_line = ""
+    if schedule and schedule.get("next_run"):
+        nr = schedule["next_run"]
+        mins = (nr - now).total_seconds() / 60
+        if mins > 0:
+            when = f"o {mins:.0f} min" if mins < 120 else f"o {mins/60:.1f} h"
+            schedule_line = (
+                f"\nNajbližší PLÁNOVANÝ beh: {nr.strftime('%H:%M')} UTC, teda {when}. "
+                f"Ak si nenastavíš watch úroveň (a nepríde makroudalosť), dovtedy sa na trh "
+                f"nepozrieš - watch je jediný spôsob, ako sa dostať k obrazovke skôr. "
+                f"Je to odhad: mriežka sa posúva pri zmene intervalu "
+                f"(trading/off-hours/víkend) a po mimoriadnom behu môže byť ďalší plánovaný "
+                f"odložený.\n"
+            )
+
     header = f"""## Aktuálny dátum a čas
 {now.strftime('%A, %d. %B %Y, %H:%M')} UTC ({now.isoformat()})
 Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/správy za posledných
 ~{interval_h} hodín, staršie ber len ako pozadový kontext (nie ako novú informáciu).
+{schedule_line}
 
 ## Technická analýza {instrument}
 {json.dumps(ta, indent=2, ensure_ascii=False)}
@@ -2266,6 +2299,7 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
             closed_trade: dict | None = None,
             macro_event: str | None = None,
             pre_macro_events: list[dict] | None = None,
+            schedule: dict | None = None,
             coinmarketcal_events: list[dict] | None = None,
             watch_retrigger_streak: dict | None = None,
             watch_set_context: dict | None = None,
@@ -2303,6 +2337,7 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
                                       open_position=None,
                                       closed_trade=closed_trade, macro_event=macro_event,
                                       pre_macro_events=pre_macro_events,
+                                      schedule=schedule,
                                       coinmarketcal_events=coinmarketcal_events,
                                       recent_trades_context=recent_trades_context,
                                       portfolio_performance=portfolio_performance,
@@ -2326,6 +2361,7 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                              marketaux_news: list[dict] | None = None,
                              macro_event: str | None = None,
                              pre_macro_events: list[dict] | None = None,
+                             schedule: dict | None = None,
                              new_stats_text: str | None = None,
                              coinmarketcal_events: list[dict] | None = None,
                              recent_trades_context: list[dict] | None = None,
@@ -2352,6 +2388,7 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                                       confidence_streak=None, open_position=open_position,
                                       macro_event=macro_event,
                                       pre_macro_events=pre_macro_events,
+                                      schedule=schedule,
                                       coinmarketcal_events=coinmarketcal_events,
                                       recent_trades_context=recent_trades_context,
                                       portfolio_performance=portfolio_performance,
