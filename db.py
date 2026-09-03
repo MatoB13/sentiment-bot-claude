@@ -163,6 +163,27 @@ class CycleLog(Base):
     # spatne sa da tento matica pocitat LEN odteraz dopredu, nie retroaktivne.
     # None = zdroj sa pre tento asset vobec nekonfiguruje (napr. marketaux_query
     # chyba) - odlisuje sa od False (nakonfigurovany, ale zlyhal/prazdny).
+    # 2026-09-03 (na ziadost pouzivatela) - CO tento cyklus vyvolalo. Doteraz
+    # sa to dalo len ODHADOVAT z triggered_by_watch/triggered_by_macro_event a
+    # zvysok sa rataľ ako "planovany", co bolo nepresne: health check spusteny
+    # minutovym pollerom vyzeral rovnako ako bezny planovany cyklus (MINIMAX
+    # 3.9. - 14 takych behov sa v dashboarde ukazalo ako "planovane").
+    #
+    # Definicia podla pouzivatela: PLANOVANY je ten, o ktorom rozhodol
+    # planovaci cyklus (slot + interval) - vratane health checku, ktory v nom
+    # zbehne, ked je otvorena pozicia. Vsetko ostatne je mimoriadne.
+    #
+    #   "scheduled"   - run_all_cycles / _is_due (slotova mriezka)
+    #   "watch"       - splnena watch_price uroven (watch_monitor)
+    #   "macro"       - makro udalost (watch_monitor)
+    #   "fast_health" - minutovy poller pri stratovej pozicii (position_monitor)
+    #   "post_close"  - review po zatvoreni pozicie (position_monitor)
+    #
+    # NULL = riadok spred zavedenia stlpca. Historia sa da len ODHADNUT (viz
+    # scratchpad backfill) - u starych riadkov sa fast_health od scheduled
+    # spolahlivo odlisit nedá.
+    trigger_source = Column(String, nullable=True)
+
     marketaux_used = Column(Boolean, nullable=True)
     social_post_count = Column(Integer, nullable=True)
     coinmarketcal_used = Column(Boolean, nullable=True)

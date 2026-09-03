@@ -1068,6 +1068,31 @@ def _carry_forward_position_watch(session, open_trade: Trade) -> dict:
     }
 
 
+def _trigger_source(macro_event=None, watch_triggered=False, fast_poll=False,
+                     closed_trade=None) -> str:
+    """CO tento cyklus vyvolalo - zapisuje sa do CycleLog.trigger_source
+    (2026-09-03, na ziadost pouzivatela; viz db.py pre definiciu hodnot).
+
+    Poradie NIE JE lubovolne: makro/post-close/watch su konkretne mimoriadne
+    udalosti, ktore o behu rozhodli, kym fast_poll je len sposob dispatchu -
+    ak by prisiel mimoriadny cyklus, ktory je ZAROVEN fast-poll health check,
+    zaujimavejsi je ten konkretny dovod.
+
+    Ked nie je nastavene nic, beh vyvolal planovaci cyklus (_is_due) - vratane
+    pripadu, ked v nom kvoli otvorenej pozicii zbehne health check. Taky beh je
+    podla pouzivatelovej definicie stale PLANOVANY: rozhodol o nom slot a
+    interval, nie trigger."""
+    if macro_event:
+        return "macro"
+    if closed_trade:
+        return "post_close"
+    if watch_triggered:
+        return "watch"
+    if fast_poll:
+        return "fast_health"
+    return "scheduled"
+
+
 def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dict, market_session: dict,
                                 btc_proxy: dict | None, fred_macro: dict | None, session,
                                 macro_event: str | None = None, watch_triggered: bool = False,
@@ -1098,6 +1123,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         session.add(CycleLog(
             symbol=symbol, config_snapshot=_config_snapshot(asset),
             outcome="error", reject_reason=f"health_check_market_data_failed: {e}",
+            trigger_source=_trigger_source(macro_event, watch_triggered, fast_poll),
             trade_id=open_trade.id,
             **_carry_forward_position_watch(session, open_trade),
         ))
@@ -1307,6 +1333,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
             symbol=symbol, live_price=live_price, ta=ta, cross_market=cross_market,
             session_data=market_session, config_snapshot=_config_snapshot(asset),
             direction=open_trade.direction, outcome="position_check",
+            trigger_source=_trigger_source(macro_event, watch_triggered, fast_poll),
             reasoning=reasoning,
             health_recommendation="hold",
             trade_id=open_trade.id,
@@ -1399,6 +1426,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
             symbol=symbol, live_price=live_price, ta=ta, cross_market=cross_market,
             session_data=market_session, config_snapshot=_config_snapshot(asset),
             outcome="error", reject_reason=f"health_check_failed: {e}", trade_id=open_trade.id,
+            trigger_source=_trigger_source(macro_event, watch_triggered, fast_poll),
             **_source_usage_fields(asset, marketaux_news, social, coinmarketcal_events),
         ))
         session.commit()
@@ -1410,6 +1438,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         symbol=symbol, live_price=live_price, ta=ta, cross_market=cross_market,
         session_data=market_session, config_snapshot=_config_snapshot(asset),
         direction=open_trade.direction, outcome="position_check",
+        trigger_source=_trigger_source(macro_event, watch_triggered, fast_poll),
         reasoning=health.get("reasoning"),
         # key_assumptions je v POSITION_HEALTH_TOOL volitelne (viz claude_analyst.
         # _validate_health_decision) - ak ho Claude tento cyklus vynechal, radsej
@@ -1603,6 +1632,8 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 symbol=symbol,
                 config_snapshot=_config_snapshot(asset),
                 outcome="skipped_concurrent_cycle",
+                trigger_source=_trigger_source(macro_event, watch_triggered, fast_poll,
+                                               closed_trade),
                 reject_reason="iny beh pre tento symbol uz prebieha",
             ))
             skip_session.commit()
@@ -1658,6 +1689,8 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 symbol=symbol,
                 config_snapshot=_config_snapshot(asset),
                 outcome="error", reject_reason=f"market_data_fetch_failed: {e}",
+                trigger_source=_trigger_source(macro_event, watch_triggered, fast_poll,
+                                               closed_trade),
             ))
             session.commit()
             return
@@ -1779,6 +1812,8 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 session_data=market_session,
                 config_snapshot=_config_snapshot(asset),
                 outcome="error", reject_reason=str(e),
+                trigger_source=_trigger_source(macro_event, watch_triggered, fast_poll,
+                                               closed_trade),
                 **_source_usage_fields(asset, marketaux_news, social, coinmarketcal_events),
             ))
             session.commit()
@@ -1815,6 +1850,8 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             session_data=market_session,
             config_snapshot=_config_snapshot(asset),
             direction=decision.get("direction"), confidence=decision.get("confidence"),
+            trigger_source=_trigger_source(macro_event, watch_triggered, fast_poll,
+                                           closed_trade),
             stop_loss_price=decision.get("stop_loss_price"), take_profit_price=decision.get("take_profit_price"),
             reasoning=decision.get("reasoning"),
             web_search_log=web_search_log,
