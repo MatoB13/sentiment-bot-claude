@@ -1274,11 +1274,33 @@ tickermi): potvrdenie prielomu/breakoutu cez sledovanú watch úroveň na
 PODPRIEMERNOM objeme je SLABŠIE potvrdenie, nie plnohodnotné - najmä ak cena
 je už výrazne natiahnutá (RSI mimo neutrálu) alebo ide o pokračovanie už
 prebiehajúceho silného pohybu bez retestu/konsolidácie. TA obsahuje presne na
-toto `last_candle_volume_vs_avg20_ratio` (posledná sviečka voči priemeru
-predchádzajúcich 20, `null` ak dáta nestačia) - hodnota pod ~1 znamená
-podpriemerný objem na tejto sviečke. V takom prípade zváž NIŽŠIU confidence
-namiesto automatického braní prekonania úrovne ako dostatočného potvrdenia -
-"cena prekonala watch level" samo osebe nie je zárukou kvality vstupu."""
+toto `last_candle_volume_vs_avg20_ratio` - hodnota pod ~1 znamená podpriemerný
+objem. V takom prípade zváž NIŽŠIU confidence namiesto automatického braní
+prekonania úrovne ako dostatočného potvrdenia - "cena prekonala watch level"
+samo osebe nie je zárukou kvality vstupu.
+
+POZOR NA PREBIEHAJÚCU HODINU (2026-09-03, produkčný nález ZEC #175). Posledná
+sviečka v `recent_candles` je VŽDY práve prebiehajúca hodina, takže má
+`volume=null` - jej objem nie je porovnateľný s dokončenými a NESMIE sa čítať
+ako prepad objemu. Predtým tam bolo neúplné číslo a viedlo to k presne opačnému
+záveru, než aká bola realita: sekvencia 8502→7479→9336→2730 vyzerala ako
+"vyčerpanie", lenže tá posledná hodina bola stará 17 minút a nakoniec sa
+uzavrela na 14506 - teda najsilnejšia objemová hodina zo všetkých štyroch.
+Nasledoval SHORT do prielomu, ktorý spravil +10 %.
+
+  - `last_candle_volume_vs_avg20_ratio` sa preto týka poslednej DOKONČENEJ
+    hodiny (voči priemeru 20 pred ňou). Je to spoľahlivý, ale až hodinu starý
+    údaj. `null` = dáta nestačia; nikdy to neinterpretuj ako nulový objem.
+  - `current_candle_volume` je OSOBITNÝ blok o prebiehajúcej hodine:
+    `minutes_elapsed`, `volume_so_far`, a ak už je v hodine dosť ďaleko
+    (`pace_reliable=true`) aj `projected_full_hour_volume` +
+    `projected_vs_avg20_ratio` - lineárny prepočet doterajšieho tempa na celú
+    hodinu. Toto je ODHAD, nie meranie: čím skôr v hodine, tým hrubší, a pri
+    `pace_reliable=false` sa vôbec nepočíta.
+  - Pri posudzovaní objemového potvrdenia PRÁVE prebiehajúceho prielomu použi
+    projekciu (je to jediné, čo o aktuálnej hodine niečo hovorí), ale povedz
+    explicitne, že ide o odhad z N minút. Na potvrdenie už uzavretého pohybu
+    použi `last_candle_volume_vs_avg20_ratio`."""
 
 
 # 2026-09-01 (z otazky pouzivatela, ci sa da watch nastavit aj na objem):

@@ -108,13 +108,31 @@ def compute_indicators(df: pd.DataFrame, include_volume: bool = False) -> dict:
     # fix pre position health check). Pomer objemu POSLEDNEJ sviecky voci
     # priemeru PREDCHADZAJUCICH 20 (nie vratane poslednej samotnej, aby ju
     # neriedila do vlastneho priemeru) - len ked mame spolahlive volume data.
+    #
+    # 2026-09-03 produkcny nalez (ZEC #175, spatna vazba pouzivatela) - ratio sa
+    # pocitalo z POSLEDNEJ sviecky, lenze tou je vzdy PREBIEHAJUCA hodina. Jej
+    # objem je nizsi len preto, ze hodina este bezi, a porovnaval sa s priemerom
+    # DOKONCENYCH hodin. Ukazovatel tak meral, ako daleko sme v hodine, nie
+    # objem: median ratio podla minuty behu bol :00-:09 -> 0.19, :50-:59 -> 0.83,
+    # celkovo pod 1.0 v 79 % z 1180 cyklov.
+    #
+    # Konkretny dopad: ZEC cyklus 14:17 videl objem 2730 pre hodinu 14:00, ktora
+    # sa nakoniec uzavrela na 14506 (videl 19 %) - a bola to NAJSILNEJSIA
+    # objemova hodina, nie vycerpanie. Claude z toho odvodil "klasicka nova
+    # cenova vysoka na klesajucom objeme, teda vycerpanie", otvoril SHORT a
+    # cena spravila +10 % na objeme 54009. SL, -0.60R.
+    #
+    # Teraz sa berie posledna DOKONCENA sviecka voci 20 pred nou - signal tym
+    # zaostava az o hodinu, ale porovnava rovnake s rovnakym.
     last_candle_volume_ratio = None
-    if include_volume and "volume" in df.columns and len(df) >= 2:
-        window = df["volume"].tail(21)
-        last_vol = window.iloc[-1]
+    if include_volume and "volume" in df.columns and len(df) >= 3:
+        window = df["volume"].iloc[-22:-1]          # bez prebiehajucej hodiny
+        last_vol = window.iloc[-1]                  # posledna DOKONCENA
         baseline = window.iloc[:-1].dropna()
         if pd.notna(last_vol) and len(baseline) >= 5 and baseline.mean() > 0:
             last_candle_volume_ratio = round(float(last_vol / baseline.mean()), 2)
+
+    current_candle_volume = _current_candle_volume_note(df, include_volume)
 
     # 6 desatinnych miest namiesto 2 - NAS100/NVDA sa 2 desatinami nepokazi, ale
     # ADA sa obchoduje pod $1 (napr. 0.4523), kde by zaokruhlenie na 2 miesta
@@ -143,14 +161,74 @@ def compute_indicators(df: pd.DataFrame, include_volume: bool = False) -> dict:
         "adx14": round(float(last[adx_col]), 1) if pd.notna(last[adx_col]) else None,
         "trend_strength": _trend_strength_label(last[adx_col] if pd.notna(last[adx_col]) else None),
         "last_candle_volume_vs_avg20_ratio": last_candle_volume_ratio,
+        # Tempo + projekcia PREBIEHAJUCEJ hodiny (2026-09-03) - viz
+        # _current_candle_volume_note. None ked volume nie je k dispozicii.
+        "current_candle_volume": current_candle_volume,
         "recent_candles_note": (
             f"posledných {RECENT_CANDLES_BARS} hodinových sviečok "
             + ("[open,high,low,close,volume]" if include_volume else "[open,high,low,close]")
-            + ", od najstaršej po najnovšiu (posledná = aktuálna)"
+            + ", od najstaršej po najnovšiu (posledná = PREBIEHAJÚCA hodina, "
+              "preto má volume=null - jej objem nájdeš v current_candle_volume)"
         ),
         "recent_candles": _recent_candles(df, RECENT_CANDLES_BARS, include_volume),
     }
     return summary
+
+
+def _current_candle_volume_note(df: pd.DataFrame, include_volume: bool) -> dict | None:
+    """Tempo objemu PREBIEHAJUCEJ hodiny + projekcia na celu hodinu.
+
+    2026-09-03, na ziadost pouzivatela. Objem prebiehajucej sviecky sa z
+    recent_candles posiela ako null (viz _recent_candles) - je nedokonceny a
+    priamo porovnatelny s dokoncenymi nie je. Uplne ho zahodit by ale zahodilo
+    aj informaciu "prave teraz sa obchoduje nezvycajne vela", ktora je pri
+    prerazeni to najdolezitejsie. Preto sa posiela OSOBITNE a explicitne
+    oznacene ako neuplne, aj s prepoctom na cely rozsah hodiny.
+
+    Projekcia je linearna extrapolacia (objem_doteraz * 60 / uplynute_minuty) -
+    v prvych minutach hodiny je velmi hruba, preto sa pod MIN_MINUTES vobec
+    nepocita a `pace_reliable` hovori, ci sa na nu da spolahnut."""
+    MIN_MINUTES = 5
+    if not include_volume or "volume" not in df.columns or df.empty:
+        return None
+    vol = df["volume"].iloc[-1]
+    if pd.isna(vol):
+        return None
+    hour_start = df.index[-1]
+    if hasattr(hour_start, "to_pydatetime"):
+        hour_start = hour_start.to_pydatetime()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    elapsed = (now - hour_start).total_seconds() / 60
+    if not (0 < elapsed <= 60):
+        # Posledny bar nie je prebiehajuca hodina (zastarane data / iny raster) -
+        # radsej nic nez zavadzajuca projekcia.
+        return None
+
+    out = {
+        "hour_start_utc": hour_start.strftime("%H:%M"),
+        "minutes_elapsed": round(elapsed),
+        "volume_so_far": round(float(vol), 2),
+        "pace_reliable": elapsed >= MIN_MINUTES,
+    }
+    if elapsed >= MIN_MINUTES:
+        projected = float(vol) * 60 / elapsed
+        out["projected_full_hour_volume"] = round(projected, 2)
+        baseline = df["volume"].iloc[-21:-1].dropna()
+        if len(baseline) >= 5 and baseline.mean() > 0:
+            out["projected_vs_avg20_ratio"] = round(projected / baseline.mean(), 2)
+    out["note"] = (
+        f"Prebiehajuca hodina {out['hour_start_utc']} je hotova na "
+        f"{out['minutes_elapsed']}/60 min; doterajsi objem {out['volume_so_far']:.0f}"
+        + (f", pri tomto tempe by cela hodina vysla ~"
+           f"{out['projected_full_hour_volume']:.0f}"
+           + (f" (~{out['projected_vs_avg20_ratio']}x priemer 20 hodin)"
+              if "projected_vs_avg20_ratio" in out else "")
+           if out["pace_reliable"] else
+           " - na projekciu je prilis skoro v hodine")
+        + ". Toto cislo NIE JE porovnatelne s dokoncenymi sviečkami - "
+          "last_candle_volume_vs_avg20_ratio vyssie sa tyka poslednej DOKONCENEJ hodiny."
+    )
+    return out
 
 
 def _recent_candles(df: pd.DataFrame, bars: int, include_volume: bool = False) -> list[list]:
@@ -172,11 +250,23 @@ def _recent_candles(df: pd.DataFrame, bars: int, include_volume: bool = False) -
         # volume moze byt NaN (chybajuci yfinance match pre tuto hodinu - viz
         # _merge_volume) - serializujeme ako null (genuinne chybajuce), nie
         # ako 0.0 (co by vyzeralo ako konkretne nameraný nulovy objem).
+        #
+        # 2026-09-03 (ZEC #175) - z ROVNAKEHO dovodu ide ako null aj objem
+        # POSLEDNEJ sviecky: tou je vzdy PREBIEHAJUCA hodina, takze jej cislo
+        # je nizsie len preto, ze hodina este bezi. V rade s dokoncenymi
+        # sviečkami sa to cita ako prepad objemu - Claude z 8502->7479->9336->
+        # 2730 odvodil "vycerpanie" a shortoval hodinu, ktora sa nakoniec
+        # uzavrela na 14506 (najvyssi objem zo vsetkych styroch). Text
+        # "(posledna = aktualna)" v poznamke na to nestacil.
+        #
+        # Informacia sa nestraca - tempo aj projekcia idu osobitne cez
+        # _current_candle_volume_note, kde su explicitne oznacene ako neuplne.
+        last_i = len(recent) - 1
         return [
             [round(float(r.open), 6), round(float(r.high), 6),
              round(float(r.low), 6), round(float(r.close), 6),
-             round(float(r.volume), 2) if pd.notna(r.volume) else None]
-            for r in recent.itertuples()
+             None if i == last_i or pd.isna(r.volume) else round(float(r.volume), 2)]
+            for i, r in enumerate(recent.itertuples())
         ]
     return [
         [round(float(r.open), 6), round(float(r.high), 6),
