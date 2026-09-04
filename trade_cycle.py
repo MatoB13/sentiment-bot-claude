@@ -7,6 +7,7 @@ vlastnu poziciu, vlastny risk (SL/TP%, leverage, margin, min_confidence) a
 vlastne Claude rozhodnutie. Zlyhanie jedneho assetu nesmie zhodit ostatne."""
 import math
 import re
+import traceback
 import unicodedata
 
 from sqlalchemy import or_
@@ -1902,6 +1903,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
         return
 
     print(f"\n--- [{name}] ---")
+    cycle_started_at = datetime.now(timezone.utc)
     session = get_session()
     try:
         # SL/TP override (2026-08-19, viz risk_overrides.py + db.RiskOverride) -
@@ -2434,6 +2436,58 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 trade.open_notified_at = datetime.now(timezone.utc)
                 session.add(trade)
                 session.commit()
+    except Exception:
+        # 2026-09-04 - POISTKA PROTI PLATENEJ SLUCKE (na ziadost pouzivatela).
+        #
+        # PRECO: dovtedy sa vynimka odtialto vyniesla az do dispatch vlakna
+        # (_dispatch_scheduled_cycle / dispatch_triggered_check), ktore ju len
+        # vypisalo do logu. Lenze KEDZE SA NEZAPISAL ZIADEN CycleLog, _is_due
+        # videla stale ten isty stary posledny zaznam a vyhodnotila ticker ako
+        # due v KAZDOM dalsom 5-minutovom tiku. A pretoze pad prichadza AZ PO
+        # zaplatenej Claude analyze, kazde opakovanie stalo plnu cenu.
+        #
+        # Namerane: 4.9. zhodil dvojity kwarg `reviewed_trade_id` zapis CycleLog
+        # a NEAR sa tocil od 06:25 do 14:56 UTC - ~103 plnych cyklov, ~$25, ani
+        # jeden zaznam na dashboarde. Rovnaky vzor uz 3.9. (retrospektiva,
+        # MINIMAX). Spolocny menovatel nie je konkretny bug, ale to, ze VECI,
+        # KTORA SLUCKU ZASTAVI, sa nikdy nedostane do DB.
+        #
+        # Riadok nizsie stoji nula (ziadne Claude volanie) a slucku ukonci hned:
+        # dalsi tik uz vidi cerstvy zaznam a ticker nie je due. Chyba sa tak
+        # prejavi ako JEDEN zlyhany cyklus namiesto stovky - a je aj vidiet na
+        # dashboarde, nielen v logu, ktory nikto necita.
+        #
+        # Zamerne siroky except: hocijaka chyba za tychto okolnosti je drahsia
+        # ako duplicitny error riadok. Povodna vynimka sa NEPOTLACA - re-raise
+        # nizsie ju necha dobehnut do dispatch vlakna, kde sa aj tak zaloguje.
+        try:
+            session.rollback()
+            # Ak uz nejaky CycleLog z TOHTO behu prebehol (napr. pad az pri
+            # Discord notifikacii po uspesnom commite), druhy riadok nepridavame
+            # - slucka uz je zastavena a "error" by len klamal o vysledku.
+            already = (
+                session.query(CycleLog)
+                .filter(CycleLog.symbol == symbol,
+                        CycleLog.created_at >= cycle_started_at)
+                .first()
+            )
+            if already is None:
+                session.add(CycleLog(
+                    symbol=symbol,
+                    config_snapshot=_config_snapshot(asset),
+                    outcome="error",
+                    trigger_source=_trigger_source(macro_event, watch_triggered,
+                                                    closed_trade),
+                    reject_reason=f"cyklus spadol po analyze: "
+                                  f"{traceback.format_exc(limit=3)}"[:2000],
+                ))
+                session.commit()
+                print(f"[{name}] Cyklus spadol - zapisujem nulovy 'error' zaznam, "
+                      "aby sa beh neopakoval kazdych 5 minut.")
+        except Exception as e2:
+            # Ani poistka sa nesmie stat novym zdrojom padu.
+            print(f"[{name}] CHYBA: poistny zapis CycleLog zlyhal: {e2}")
+        raise
     finally:
         session.close()
         lock.release()
