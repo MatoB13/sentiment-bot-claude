@@ -1600,6 +1600,8 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                         macro_event: str | None = None,
                         pre_macro_events: list[dict] | None = None,
                         schedule: dict | None = None,
+                        recent_close: dict | None = None,
+                        close_verdict: dict | None = None,
                         coinmarketcal_events: list[dict] | None = None,
                         recent_trades_context: list[dict] | None = None,
                         portfolio_performance: dict | None = None,
@@ -1779,20 +1781,55 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
             if wsc_created_at.tzinfo is None:
                 wsc_created_at = wsc_created_at.replace(tzinfo=timezone.utc)
             elapsed_min = round((datetime.now(timezone.utc) - wsc_created_at).total_seconds() / 60)
+        # 2026-09-04 produkcny nalez (ADA #186) - doteraz sa vypisovala LEN
+        # uroven c. 1 a k nej watch_rationale. Lenze rationale je JEDNO volne
+        # pole pre oba pary: pri ADA popisovalo uroven "below 0.217" (prielom
+        # nadol => potvrdil by short), ale zobrazilo sa pri urovni
+        # "above 0.22503". Claude tak videl PRIELOM NAHOR oblepeny textom, ktory
+        # argumentoval PRE SHORT - a short aj otvoril, 37 minut po tom, co v
+        # predchadzajucom cykle sam napisal, ze fade short proti ADX 51 nedava
+        # zmysel. Teraz sa vypisu OBE urovne a explicitne sa oznaci, ktora
+        # padla, aby sa odovodnenie nedalo priradit k nespravnej strane.
+        levels = []
+        crossed = []
+        live_now = (ta or {}).get("last_price")
+        for px, dr, tag in ((wsc.get("watch_price"), wsc.get("watch_direction"), "1"),
+                            (wsc.get("watch_price_2"), wsc.get("watch_direction_2"), "2")):
+            if px is None or not dr:
+                continue
+            hit = ""
+            if live_now is not None:
+                if (dr == "above" and live_now >= px) or (dr == "below" and live_now <= px):
+                    hit = "  <-- TÁTO ÚROVEŇ PADLA"
+                    crossed.append(f"{dr} {px}")
+            levels.append(f"  ({tag}) {dr} {px}{hit}")
         rationale_line = (
-            f"s odôvodnením čakania: \"{wsc['watch_rationale']}\""
+            f"Tvoje vtedajšie odôvodnenie (POZOR - je spoločné pre obe úrovne, over si, "
+            f"ktorej sa naozaj týka): \"{wsc['watch_rationale']}\""
             if wsc.get("watch_rationale") else "(bez zaznamenaného odôvodnenia)"
+        )
+        crossed_line = (
+            f"Padla úroveň: {', '.join(crossed)}.\n" if crossed
+            else "Ktorá úroveň padla, urči z aktuálnej ceny vyššie.\n"
         )
         watch_set_context_block = (
             f"\n## Toto rozhodnutie bolo vyvolané TVOJOU VLASTNOU watch podmienkou"
             f"{f' (pred {elapsed_min} min)' if elapsed_min is not None else ''}\n"
             f"V predchádzajúcom cykle si pri cene {wsc.get('live_price')} zvolil "
-            f"direction='{wsc.get('direction')}' (confidence={wsc.get('confidence')}) a nastavil watch "
-            f"{wsc.get('watch_direction')} {wsc.get('watch_price')} {rationale_line}.\n"
-            f"Cena teraz túto úroveň dosiahla/prekročila. Ak TERAZ voliš iný smer/confidence než vtedy, "
-            f"v reasoningu VÝSLOVNE napíš, čo konkrétne sa oproti tomuto dôvodu čakania zmenilo (nová "
-            f"cenová akcia, potvrdenie/vyvrátenie signálu a pod.) - nezopakuj len novú analýzu bez "
-            f"odkazu na predchádzajúce rozhodnutie.\n"
+            f"direction='{wsc.get('direction')}' (confidence={wsc.get('confidence')}) "
+            f"a nastavil tieto sledované úrovne:\n"
+            + "\n".join(levels) + "\n"
+            + crossed_line
+            + f"{rationale_line}\n"
+            f"Ak TERAZ voliš iný smer/confidence než vtedy, v reasoningu VÝSLOVNE napíš, čo konkrétne "
+            f"sa oproti tomuto dôvodu čakania zmenilo (nová cenová akcia, potvrdenie/vyvrátenie "
+            f"signálu a pod.) - nezopakuj len novú analýzu bez odkazu na predchádzajúce rozhodnutie.\n"
+            f"OSOBITNE POZOR, ak chceš ísť PROTI smeru, ktorý táto úroveň mala potvrdiť (napr. úroveň "
+            f"bola nastavená ako potvrdenie prielomu nahor, cena ju prekonala, a ty by si teraz "
+            f"shortoval): to je legitímne LEN vtedy, ak vieš pomenovať konkrétny dôvod, prečo prielom "
+            f"nie je platný - a ten dôvod musí byť NIEČO NOVÉ, nie posunutie tej istej úrovne vyššie. "
+            f"Ak by si len prehlásil rovnaký signál za \"zatiaľ nepotvrdený\" a postavil sa proti nemu, "
+            f"správnejšia odpoveď je direction=\"none\" a nová watch úroveň.\n"
         )
 
     marketaux_block = ""
@@ -2020,6 +2057,38 @@ príležitosť pred udalosťou nebude.
 
 """
 
+    # 2026-09-04 produkcny nalez (ADA #177) - ODLOZENY VERDIKT.
+    # Post-close reflexia sa pisala v medianu 2.2 min po zatvoreni (91 % do
+    # 5 min), teda v okne, kde sa este nic nestihlo stat - a skoro vzdy vysla
+    # ako "dobre timeovane". ADA long zatvoreny o 02:16 dostal o 02:18 verdikt
+    # "dobre timeovane", pricom o dve hodiny cena zasiahla TP. Reflexia ide do
+    # rolling retrospektivy, takze sa bot ucil z nepravdiveho zaveru.
+    close_verdict_block = ""
+    if close_verdict:
+        cv = close_verdict
+        pnl = cv.get("pnl_usd")
+        pnl_txt = (f"{'+' if pnl and pnl >= 0 else ''}${pnl:.2f}"
+                   if pnl is not None else "?")
+        close_verdict_block = f"""
+## Spätné zhodnotenie staršieho zatvorenia (obchod #{cv['trade_id']})
+Toto NIE JE o aktuálnom rozhodnutí - je to samostatná otázka s odstupom.
+
+Pred {cv['hours_ago']:.1f} h si zatvoril {cv['direction'].upper()} pozíciu:
+vstup {cv['entry_price']}, výstup {cv['exit_price']}, dôvod {cv['close_reason']}, PnL {pnl_txt}.
+Pôvodné SL {cv.get('stop_loss_price')}, TP {cv.get('take_profit_price')}.
+
+ČO SA S CENOU STALO OD VTEDY (to si vtedy vedieť nemohol):
+- najpriaznivejšia cena pre tú pozíciu: {cv['best_since']}  (to je {cv['missed_pct']}% od tvojho výstupu)
+- najnepriaznivejšia: {cv['worst_since']}
+- teraz: {cv['price_now']}
+
+Cez `closed_trade_reflection` napíš verdikt: bolo zatvorenie v tomto svetle správne, predčasné,
+alebo naopak neskoré? Ak by pozícia pri držaní dosiahla TP alebo naopak spadla na SL, povedz to
+priamo. Toto je jediné miesto, kde sa dá načasovanie výstupu posúdiť poctivo - reflexia písaná
+pár minút po zatvorení to vedieť nemôže, tak sa jej nedrž.
+
+"""
+
     macro_event_block = ""
     if macro_event:
         macro_event_block = f"""## Práve zverejnená makro udalosť: {macro_event}
@@ -2096,7 +2165,7 @@ vyvíjať V PROSPECH tejto pozície alebo PROTI nej.
         # POZOR: {recent_trades_block} sa NEPRIDAVA znova - uz je sucastou {header}
         # vyssie (spolocne pre oba vetvy tejto funkcie). Predchadzajuca verzia ho
         # sem pridavala druhykrat (duplicitne, zbytocne tokeny) - opravene 2026-08-27.
-        return f"{header}\n{pre_macro_block}{macro_event_block}{position_block}\n"
+        return f"{header}\n{pre_macro_block}{close_verdict_block}{macro_event_block}{position_block}\n"
 
     closed_trade_block = ""
     if closed_trade:
@@ -2123,10 +2192,13 @@ vyvíjať V PROSPECH tejto pozície alebo PROTI nej.
                 "position health checku, kde si odporučil consider_closing s dostatočne vysokou istotou "
                 "(close_confidence), že to systém automaticky vykonal (nie len ako opinion pre "
                 "používateľa - viz config.AI_EARLY_CLOSE_CONFIDENCE_THRESHOLD). Cez closed_trade_reflection "
-                "VÝSLOVNE zhodnoť TOTO KONKRÉTNE rozhodnutie: bola tvoja vtedajšia téza (že sa pôvodný "
-                "dôvod pozície vyvrátil) v spätnom pohľade správna? Pohla sa cena odvtedy v smere, ktorý "
-                "by potvrdil, že zatvorenie bolo správne, alebo naopak pozícia pokračovala priaznivo a "
-                "zatvorenie bolo predčasné/zbytočne opatrné? DÔLEŽITÉ: tvoje direction/confidence "
+                "zaznamenaj, na čom tvoja téza stála a ČO KONKRÉTNE by ju potvrdilo alebo vyvrátilo "
+                "(napr. \"ak cena do 4h prekoná X, zatvorenie bolo predčasné\"). "
+                "NETVRĎ, či bolo zatvorenie dobre načasované - od zatvorenia ubehlo pár minút a "
+                "cena sa ešte nestihla nikam pohnúť, takže taký verdikt by bol bezcenný. "
+                "(2026-09-04: reflexie písané 2 minúty po zatvorení skoro vždy vyšli ako "
+                "\"dobre timeované\" a šli do retrospektívy ako fakt - preto sa verdikt teraz "
+                "pýta znova s odstupom niekoľkých hodín.) DÔLEŽITÉ: tvoje direction/confidence "
                 "rozhodnutie nižšie sa v TOMTO behu NEVYKONÁ - žiadna nová pozícia sa z neho priamo "
                 "neotvorí, aj keby confidence prešla prahom. Je to zámerné (aby okamžitý re-entry po "
                 "stop-oute nebol poznačený túžbou 'dohnať stratu') - bot môže znova vstúpiť pri "
@@ -2272,6 +2344,34 @@ Držaná: {ct['hours_held']:.1f}h | PnL: {sign}${ct['pnl_usd']:.2f}{range_line}
 {sltp_eval_block}
 """
 
+    # 2026-09-04 produkcny nalez (ADA #177 -> #186) - KONFRONTACIA s vlastnym
+    # cerstvym zatvorenim. Bot zatvoril long a o 39 minut otvoril short za
+    # vyssiu cenu, do trendu, ktory sam oznacil za silny uptrend, bez novej
+    # informacie. Nie je to blok (otocenie moze byt spravne), ale Claude to musi
+    # mat pred ocami a vyjadrit sa k tomu.
+    recent_close_block = ""
+    if recent_close and recent_close.get("direction") in ("long", "short"):
+        rc = recent_close
+        opp = "short" if rc["direction"] == "long" else "long"
+        pnl = rc.get("pnl_usd")
+        pnl_txt = (f"{'zisk' if pnl and pnl >= 0 else 'strata'} ${abs(pnl):.2f}"
+                   if pnl is not None else "bez zaznamenaneho PnL")
+        recent_close_block = f"""
+## Na tomto tickeri si PRED {rc['hours_ago']:.1f} h zatvoril pozíciu
+Smer {rc['direction'].upper()}, vstup {rc['entry_price']}, výstup {rc['exit_price']},
+dôvod: {rc['close_reason']}, {pnl_txt}.
+
+Ak teraz navrhuješ **{opp}** (teda OPAČNÝ smer), musíš v reasoningu výslovne odpovedať:
+čo konkrétne NOVÉ sa od vtedy stalo? Otočenie smeru je legitímne, ale len na základe novej
+informácie alebo novej cenovej akcie - nie na základe rovnakých dát, ktoré si videl pred
+chvíľou. Zvlášť to platí, ak by nový vstup bol pre teba HORŠÍ ako cena, za ktorú si práve
+vystúpil (short vyššie / long nižšie než výstup) - to je typický vzor "zmenil som názor,
+lebo sa cena pohla", ktorý je stratový.
+
+Ak rovnaký smer ako predtým: povedz, prečo je vstup teraz lepší než keď si pozíciu zatváral.
+Ak nemáš na ani jedno dobrú odpoveď, direction="none" a watch úroveň sú správna voľba.
+"""
+
     # 2026-09-04 (navrh pouzivatela, po merani z 3.-4.9.) - PRAH SA UZ NEUVADZA.
     #
     # Doteraz tu stalo "Minimalna confidence na otvorenie je X". Namerane na 859
@@ -2302,7 +2402,7 @@ presvedčila výraznejšie.
 """
 
     return f"""{header}
-{pre_macro_block}{macro_event_block}{closed_trade_block}## Cielove SL/TP vzdialenosti
+{pre_macro_block}{close_verdict_block}{macro_event_block}{recent_close_block}{closed_trade_block}## Cielove SL/TP vzdialenosti
 Stop-loss cca {asset['sl_pct']}% od aktuálnej ceny, take-profit cca {asset['tp_pct']}%
 (pri LONG: stop_loss_price = last_price * (1 - {asset['sl_pct']}/100), take_profit_price =
 last_price * (1 + {asset['tp_pct']}/100); pri SHORT opačne). Môžeš sa mierne odchýliť podľa
@@ -2329,6 +2429,8 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
             macro_event: str | None = None,
             pre_macro_events: list[dict] | None = None,
             schedule: dict | None = None,
+            recent_close: dict | None = None,
+            close_verdict: dict | None = None,
             coinmarketcal_events: list[dict] | None = None,
             watch_retrigger_streak: dict | None = None,
             watch_set_context: dict | None = None,
@@ -2367,6 +2469,8 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
                                       closed_trade=closed_trade, macro_event=macro_event,
                                       pre_macro_events=pre_macro_events,
                                       schedule=schedule,
+                                      recent_close=recent_close,
+                                      close_verdict=close_verdict,
                                       coinmarketcal_events=coinmarketcal_events,
                                       recent_trades_context=recent_trades_context,
                                       portfolio_performance=portfolio_performance,
@@ -2391,6 +2495,8 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                              macro_event: str | None = None,
                              pre_macro_events: list[dict] | None = None,
                              schedule: dict | None = None,
+                             recent_close: dict | None = None,
+                             close_verdict: dict | None = None,
                              new_stats_text: str | None = None,
                              coinmarketcal_events: list[dict] | None = None,
                              recent_trades_context: list[dict] | None = None,
@@ -2418,6 +2524,8 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                                       macro_event=macro_event,
                                       pre_macro_events=pre_macro_events,
                                       schedule=schedule,
+                                      recent_close=recent_close,
+                                      close_verdict=close_verdict,
                                       coinmarketcal_events=coinmarketcal_events,
                                       recent_trades_context=recent_trades_context,
                                       portfolio_performance=portfolio_performance,

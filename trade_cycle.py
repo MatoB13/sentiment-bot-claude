@@ -598,7 +598,136 @@ def _get_watch_set_context(symbol: str, session) -> dict | None:
         "created_at": log.created_at, "live_price": log.live_price,
         "direction": log.direction, "confidence": log.confidence,
         "watch_price": log.watch_price, "watch_direction": log.watch_direction,
+        # 2026-09-04 (ADA #186) - DRUHY par sa doteraz neposielal, takze prompt
+        # ukazal len uroven c. 1, ale watch_rationale je JEDNO volne pole, ktore
+        # casto popisuje ten DRUHY (alebo oba). Pri ADA to dopadlo tak, ze sa
+        # zobrazila uroven "above 0.22503" s odovodnenim, ktore v skutocnosti
+        # popisovalo "below 0.217" a argumentovalo PRE SHORT. Claude teda videl
+        # prielom nahor oblepeny textom obhajujucim short - a short otvoril.
+        "watch_price_2": log.watch_price_2, "watch_direction_2": log.watch_direction_2,
         "watch_rationale": log.watch_rationale,
+    }
+
+
+# 2026-09-04 produkcny nalez (ADA #177 -> #186) - po zatvoreni longu o 02:16 na
+# 0.2226 otvoril bot o 02:55 SHORT na 0.2254, teda o 39 minut a za VYSSIU cenu,
+# do trendu, ktory sam v tom istom cykle opisal ako ADX 51 / h4+daily uptrend.
+# O dve hodiny skor pritom napisal, ze "fade short proti silnemu ADX=51 trendu
+# nema zmysel". Ziadna nova informacia medzitym nepribudla (web_search v oboch
+# cykloch: bez novych sprav).
+#
+# Post-close review to nezachytil, lebo ten je pri ai_early_close evaluation_only
+# (novu poziciu z neho otvorit nejde) - lenze OTOCENIE prislo az v samostatnom
+# watch cykle o 37 minut neskor, kde uz ziadna taka poistka nie je.
+#
+# Toto NIE JE blok: otocenie moze byt legitimne. Je to konfrontacia - Claude
+# dostane vlastne cerstve rozhodnutie ciernym na bielom a musi sa k nemu
+# vyjadrit, nie ho ticho ignorovat.
+_RECENT_CLOSE_CONFRONT_HOURS = 6
+
+
+def _recent_close_context(symbol: str, session, now: datetime) -> dict | None:
+    """Posledna pozicia na tomto tickeri zatvorena za poslednych
+    _RECENT_CLOSE_CONFRONT_HOURS hodin - podklad pre konfrontacny blok
+    v prompte (viz claude_analyst recent_close_block)."""
+    t = (
+        session.query(Trade)
+        .filter(Trade.symbol == symbol, Trade.status != "open",
+                Trade.closed_at.isnot(None))
+        .order_by(Trade.closed_at.desc())
+        .first()
+    )
+    if t is None or t.closed_at is None:
+        return None
+    closed_at = t.closed_at if t.closed_at.tzinfo else t.closed_at.replace(tzinfo=timezone.utc)
+    hours = (now - closed_at).total_seconds() / 3600
+    if hours > _RECENT_CLOSE_CONFRONT_HOURS or hours < 0:
+        return None
+    return {
+        "trade_id": t.id,
+        "direction": (t.direction or "").lower(),
+        "exit_price": t.close_fill_price,
+        "entry_price": t.entry_fill_price or t.entry_price,
+        "hours_ago": hours,
+        "close_reason": t.close_reason,
+        "pnl_usd": t.pnl_usd,
+    }
+
+
+# 2026-09-04 produkcny nalez (ADA #177) - ODLOZENY VERDIKT O ZATVORENI.
+#
+# Post-close reflexia sa doteraz pisala v priemere 2.2 minuty po zatvoreni
+# (91 % do 5 minut, merane na 161 reflexiach). V takom okne sa este nic
+# nestihlo stat, takze skoro vzdy vysla ako "dobre timeovane" - a kedze ide do
+# rolling retrospektivy, bot sa z nej dalej ucil.
+#
+# Konkretne: ADA long zatvoreny o 02:16 na 0.2226, reflexia o 02:18 tvrdila
+# "dobre timeovane - cena o par minut neskor stoji prakticky identicky".
+# O dve hodiny cena zasiahla TP (0.22611), takze zatvorenie stalo -0.28R.
+#
+# Verdikt sa preto pyta ZNOVA, s odstupom, v niektorom neskorsom BEZNOM cykle
+# toho istehho tickera - ziadne extra platene volanie navyse.
+_CLOSE_VERDICT_MIN_HOURS = 4
+_CLOSE_VERDICT_MAX_HOURS = 36
+
+
+def _pending_close_verdict(symbol: str, session, now: datetime) -> dict | None:
+    """Obchod, ktory sa zatvoril dost davno na to, aby sa dalo posudit
+    casovanie vystupu - a este k nemu taky odlozeny verdikt nevznikol."""
+    cutoff_new = now - timedelta(hours=_CLOSE_VERDICT_MIN_HOURS)
+    cutoff_old = now - timedelta(hours=_CLOSE_VERDICT_MAX_HOURS)
+    t = (
+        session.query(Trade)
+        .filter(Trade.symbol == symbol, Trade.status != "open",
+                Trade.closed_at.isnot(None),
+                Trade.closed_at <= cutoff_new.replace(tzinfo=None),
+                Trade.closed_at >= cutoff_old.replace(tzinfo=None))
+        .order_by(Trade.closed_at.desc())
+        .first()
+    )
+    if t is None or not t.close_fill_price:
+        return None
+    closed_at = t.closed_at if t.closed_at.tzinfo else t.closed_at.replace(tzinfo=timezone.utc)
+
+    # uz verdikt existuje? (review napisany aspon _CLOSE_VERDICT_MIN_HOURS po zatvoreni)
+    later = (
+        session.query(CycleLog.id)
+        .filter(CycleLog.reviewed_trade_id == t.id,
+                CycleLog.created_at >= (closed_at + timedelta(
+                    hours=_CLOSE_VERDICT_MIN_HOURS)).replace(tzinfo=None))
+        .first()
+    )
+    if later:
+        return None
+
+    bars = (
+        session.query(PriceBar)
+        .filter(PriceBar.symbol == symbol,
+                PriceBar.hour_start >= closed_at.replace(tzinfo=None))
+        .order_by(PriceBar.hour_start.asc())
+        .all()
+    )
+    if len(bars) < 2:
+        return None
+    exit_px = float(t.close_fill_price)
+    is_long = (t.direction or "").lower() == "long"
+    best = max(b.high for b in bars) if is_long else min(b.low for b in bars)
+    worst = min(b.low for b in bars) if is_long else max(b.high for b in bars)
+    move = ((best - exit_px) / exit_px if is_long else (exit_px - best) / exit_px) * 100
+    return {
+        "trade_id": t.id,
+        "direction": (t.direction or "").lower(),
+        "entry_price": t.entry_fill_price or t.entry_price,
+        "exit_price": exit_px,
+        "close_reason": t.close_reason,
+        "pnl_usd": t.pnl_usd,
+        "hours_ago": (now - closed_at).total_seconds() / 3600,
+        "best_since": round(float(best), 8),
+        "worst_since": round(float(worst), 8),
+        "missed_pct": round(move, 2),
+        "price_now": float(bars[-1].close),
+        "stop_loss_price": t.stop_loss_price,
+        "take_profit_price": t.take_profit_price,
     }
 
 
@@ -673,10 +802,15 @@ def _get_recent_closed_trades_context(symbol: str, session) -> list[dict] | None
         .filter(CycleLog.trade_id.in_(trade_ids), CycleLog.outcome == "opened")
         .all()
     }
+    # 2026-09-04 - zoradene VZOSTUPNE, takze pri viacerych zaznamoch k tomu
+    # istemu obchodu zostane v dicte ten NAJNOVSI. Od tohto dna moze k obchodu
+    # existovat aj ODLOZENY verdikt (viz _pending_close_verdict) a ten ma
+    # prebit okamzitu reflexiu spisanu 2 minuty po zatvoreni.
     reviews = {
         log.reviewed_trade_id: log
         for log in session.query(CycleLog)
         .filter(CycleLog.reviewed_trade_id.in_(trade_ids))
+        .order_by(CycleLog.created_at.asc())
         .all()
     }
 
@@ -1826,6 +1960,15 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             session.rollback()
             retrospective_reflection, new_stats_text, pending_stats = None, None, None
 
+        # Odlozeny verdikt o starsom zatvoreni (2026-09-04) - volitelny, pyta sa
+        # v ramci TOHTO uz aj tak beziaceho cyklu, ziadne volanie navyse.
+        pending_verdict = None
+        try:
+            pending_verdict = _pending_close_verdict(symbol, session,
+                                                      datetime.now(timezone.utc))
+        except Exception as e:
+            print(f"[{name}] Vypocet odlozeneho verdiktu zlyhal (pokracujem bez neho): {e}")
+
         # Doplnkove datove zdroje (2026-07-31) - volitelne, nikdy neblokuju cyklus.
         eia_data = None
         if asset.get("needs_eia_data"):
@@ -1861,6 +2004,9 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 pre_macro_events=_events_before_next_run(
                     asset, session, datetime.now(timezone.utc)),
                 schedule=_schedule_context(asset, datetime.now(timezone.utc)),
+                recent_close=_recent_close_context(symbol, session,
+                                                    datetime.now(timezone.utc)),
+                close_verdict=pending_verdict,
                 coinmarketcal_events=coinmarketcal_events,
                 watch_retrigger_streak=watch_retrigger_streak,
                 watch_set_context=watch_set_context,
@@ -1929,6 +2075,13 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             data_issue=decision.get("data_issue"),
             reviewed_trade_id=closed_trade["trade_id"] if closed_trade else None,
             closed_trade_reflection=decision.get("closed_trade_reflection"),
+            # 2026-09-04 - ked cyklus niesol odlozeny verdikt, naviaze sa
+            # reflexia na TEN obchod (nie na ten z post-close review). V
+            # _get_recent_trades_context vyhrava najnovsi zaznam, takze tento
+            # neskorsi, lepsie informovany verdikt prebije okamzitu reflexiu.
+            **({"reviewed_trade_id": pending_verdict["trade_id"]}
+               if (pending_verdict and decision.get("closed_trade_reflection")
+                   and not closed_trade) else {}),
             sl_tp_calibration_verdict=decision.get("sl_tp_calibration_verdict"),
             triggered_by_macro_event=macro_event,
             triggered_by_watch=True if watch_triggered else None,
