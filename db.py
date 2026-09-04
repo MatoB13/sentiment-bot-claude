@@ -21,6 +21,11 @@ class Trade(Base):
     entry_price = Column(Float)
     stop_loss_price = Column(Float)
     take_profit_price = Column(Float)
+    # 2026-09-04 - TP je odteraz Claudov (viz risk_manager.resolve_sl_tp_distances).
+    # Sem sa uklada TP podla STAREHO vzorca (SL x pomer tp_pct/sl_pct tickera),
+    # aby sa po ~30 obchodoch dalo zmerat, ci Claudov TP porazil pomer tickera.
+    # NULL pre obchody spred tejto zmeny (tam bol take_profit_price = mechanicky).
+    take_profit_price_mechanical = Column(Float, nullable=True)
     leverage = Column(Integer)
     size = Column(Float)              # pozicna velkost v base-asset jednotkach (napr. NAS100 kontrakty)
     notional_usd = Column(Float)

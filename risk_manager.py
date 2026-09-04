@@ -26,10 +26,62 @@ SAFETY_CAP_MULTIPLE = 5.0
 # priliz tesny SL, nikdy nezuzi sirsi, takze ziadny dopad na bezne dobre
 # kalibrovane obchody.
 SAFETY_FLOOR_MULTIPLE = 0.5
+# 2026-09-04 (na ziadost pouzivatela) - TP je odteraz CLAUDOV (do tohto dna sa
+# jeho take_profit_price ignoroval a TP sa dopocital ako SL vzdialenost x pomer
+# tp_pct/sl_pct tickera - viz komentar v resolve_sl_tp_distances). Podlaha na
+# pomer TP/SL: bez nej by najhorsi pripad (SL na 5x kalibracie, TP na 0.5x) dal
+# pomer 0.15 - presne julovy problem, kvoli ktoremu sa TP vtedy odpojil.
+MIN_REWARD_RISK_RATIO = 1.0
 
 
 class RejectedTrade(Exception):
     pass
+
+
+def resolve_sl_tp_distances(live_price: float, sl_price: float | None, tp_price: float | None,
+                             sl_pct: float, tp_pct: float) -> tuple[float, float, float]:
+    """Vrati (sl_distance, tp_distance, mechanical_tp_distance) - VZDIALENOSTI
+    od live ceny, uz orezane. Zdielane medzi validate_and_size (realny obchod)
+    a retrospective._hypothetical_sl_tp (co by sa bolo stalo), aby obe pocitali
+    to iste.
+
+    SL: Claudova vzdialenost, orezana do SAFETY_FLOOR_MULTIPLE..SAFETY_CAP_MULTIPLE
+    nasobku kalibrovaneho sl_pct. Za 185 obchodov (audit 4.9.) sa Claude drzal
+    kalibracie (median 1.03x, max 3.25x) - strop 5x ani raz nezasiahol, podlaha
+    0.5x tiez nie. Sirsie SL mu pomahali (1.2-2x: +0.21 R avg, >2x: +3.4 R avg),
+    preto sa strop NEZUZOVAL.
+
+    TP (2026-09-04): Claudova vzdialenost, rovnake pasmo voci kalibrovanemu
+    tp_pct. Od 24.7. do tohto dna sa Claudov TP IGNOROVAL a TP bol vzdy
+    sl_distance * (tp_pct / sl_pct) - vtedy navrhoval pre NAS100 shorty SL
+    316-348 bodov a TP 29-59 (pomer 0.1). Dnes je jeho pomer median 1.48,
+    p10 1.12, takze dostava TP spat - s dvoma poistkami: podlaha 0.5x
+    kalibracie (inak by sa zopakoval UNITREE #140 - nohy tesnejsie nez spread,
+    stovky oprav denne) a MIN_REWARD_RISK_RATIO na pomer TP/SL.
+
+    mechanical_tp_distance = stary vzorec, uklada sa k obchodu, aby sa po
+    ~30 obchodoch dalo zmerat, ci Claudov TP porazil pomer tickera. Chybajuci/
+    neplatny tp_price = pouzije sa mechanicky (fail-safe, nie zamietnutie)."""
+    sl_distance = abs(live_price - float(sl_price))
+    default_sl_distance = live_price * (sl_pct / 100)
+    sl_distance = min(max(sl_distance, SAFETY_FLOOR_MULTIPLE * default_sl_distance),
+                       SAFETY_CAP_MULTIPLE * default_sl_distance)
+
+    mechanical_tp_distance = sl_distance * (tp_pct / sl_pct)
+
+    try:
+        tp_distance = abs(live_price - float(tp_price))
+    except (TypeError, ValueError):
+        tp_distance = None
+    if not tp_distance or tp_distance <= 0:
+        tp_distance = mechanical_tp_distance
+    default_tp_distance = live_price * (tp_pct / 100)
+    tp_distance = min(max(tp_distance, SAFETY_FLOOR_MULTIPLE * default_tp_distance),
+                       SAFETY_CAP_MULTIPLE * default_tp_distance)
+    if tp_distance < MIN_REWARD_RISK_RATIO * sl_distance:
+        tp_distance = MIN_REWARD_RISK_RATIO * sl_distance
+
+    return sl_distance, tp_distance, mechanical_tp_distance
 
 
 def _leverage_cap_and_mmr(margin_usd: float, margin_tiers: list[dict]) -> tuple[int, float]:
@@ -93,20 +145,11 @@ def validate_and_size(decision: dict, has_open_position: bool,
     pri rovnakej marzi), tesnejsi SL vyssiu paku, vzdy orezane na skutocny
     burzou povoleny strop.
 
-    SL: Claude navrhuje absolutnu cenu, z ktorej pouzijeme len VZDIALENOST
-    (abs(live_price - stop_loss_price)), orezanu do SAFETY_FLOOR_MULTIPLE..
-    SAFETY_CAP_MULTIPLE nasobku cieloveho sl_pct (nikdy zamietnutie, len orezanie).
-
-    TP: NEPOUZIVA Claude-ov navrhnuty take_profit_price priamo - namiesto toho sa
-    DOPOCITA z (uz orezanej) SL vzdialenosti a cieloveho pomeru tp_pct/sl_pct, takze
-    risk:reward pomer je VZDY presne zachovany. Dovod (overene backtestom
-    2026-07-24 na historickych cycle_logs): Claude systematicky navrhoval SL
-    vzdialenost oveľa sirsiu nez TP (napr. SL 316-348 bodov vs TP len 29-59 bodov
-    pre NAS100 shorty - risk:reward 0.09-0.17 namiesto cieloveho 1.5), co pri
-    realnom cenovom vyvoji viedlo k systematickym stratam aj pri dobrom win-rate
-    (male vyhry, obrovske prehry). SL od Claude sa NEIGNORUJE (jeho odhad kam
-    siaha invalidacia setupu je uzitocny), len sa TP prestane spoliehat na
-    Claude-ovo (nespolahlive skalibrovane) absolutne cislo.
+    SL aj TP: Claude navrhuje absolutne ceny, z ktorych pouzijeme len VZDIALENOSTI
+    od live ceny, orezane do SAFETY_FLOOR_MULTIPLE..SAFETY_CAP_MULTIPLE nasobku
+    kalibrovaneho sl_pct/tp_pct + podlaha MIN_REWARD_RISK_RATIO na pomer TP/SL
+    (nikdy zamietnutie, len orezanie) - viz resolve_sl_tp_distances. Do
+    2026-09-04 sa Claudov TP ignoroval (historia v jej docstringu).
 
     Smerova konzistencia: ak by SL/TP vyszli oproti smeru obratene (napr. Claude
     dal stop_loss_price nad live_price pri LONG), prepocet z ORIENTOVANEJ
@@ -132,25 +175,23 @@ def validate_and_size(decision: dict, has_open_position: bool,
     if not live_price:
         raise RejectedTrade("Chybajuca live cena - nemozem vypocitat SL/TP.")
 
-    sl_distance = abs(live_price - decision["stop_loss_price"])
-    default_sl_distance = live_price * (sl_pct / 100)
-    sl_distance = min(max(sl_distance, SAFETY_FLOOR_MULTIPLE * default_sl_distance),
-                       SAFETY_CAP_MULTIPLE * default_sl_distance)
-
-    # TP dopocitane z (orezanej) SL vzdialenosti a cieloveho pomeru - nie z
-    # Claude-ovho navrhnuteho take_profit_price (viz vysvetlenie vyssie).
-    tp_distance = sl_distance * (tp_pct / sl_pct)
+    sl_distance, tp_distance, mechanical_tp_distance = resolve_sl_tp_distances(
+        live_price, decision["stop_loss_price"], decision.get("take_profit_price"), sl_pct, tp_pct,
+    )
 
     if decision["direction"] == "long":
         sl = live_price - sl_distance
         tp = live_price + tp_distance
+        tp_mech = live_price + mechanical_tp_distance
     else:  # short
         sl = live_price + sl_distance
         tp = live_price - tp_distance
+        tp_mech = live_price - mechanical_tp_distance
 
     tick = float(market_meta["order_tick_price"])
     sl = _round_to_tick(sl, tick)
     tp = _round_to_tick(tp, tick)
+    tp_mech = _round_to_tick(tp_mech, tick)
 
     # Ak by zaokruhlenie na tick_size (napr. pri velmi malej, floor-om vynutenej
     # vzdialenosti) skolabovalo SL/TP naspat presne na live_price, posunieme o
@@ -223,6 +264,8 @@ def validate_and_size(decision: dict, has_open_position: bool,
         "margin_usd": round(margin_usd, 2),
         "stop_loss_price": sl,
         "take_profit_price": tp,
+        # Stary vzorec (SL x pomer tickera) - len na porovnanie, viz Trade.take_profit_price_mechanical.
+        "take_profit_price_mechanical": tp_mech,
         "entry_price": live_price,
         "confidence": decision["confidence"],
         "reasoning": decision["reasoning"],

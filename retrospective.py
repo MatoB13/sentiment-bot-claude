@@ -33,17 +33,13 @@ def _fetch_price_history(yf_symbol: str, fallback: str | None, start: datetime, 
 
 
 def _hypothetical_sl_tp(live_price: float, direction: str, decision_sl: float,
-                         sl_pct: float, tp_pct: float) -> tuple[float, float]:
-    """Zrkadli AKTUALNU risk_manager logiku (SL od Claude orezany 0.1x-5x, TP
-    dopocitany z pomeru) - viz risk_manager.validate_and_size. Bez tick-
-    zaokruhlenia (nepotrebne presne pre retrospektivny odhad)."""
-    sl_distance = abs(live_price - decision_sl)
-    default_sl_distance = live_price * (sl_pct / 100)
-    sl_distance = min(
-        max(sl_distance, risk_manager.SAFETY_FLOOR_MULTIPLE * default_sl_distance),
-        risk_manager.SAFETY_CAP_MULTIPLE * default_sl_distance,
-    )
-    tp_distance = sl_distance * (tp_pct / sl_pct)
+                         sl_pct: float, tp_pct: float,
+                         decision_tp: float | None = None) -> tuple[float, float]:
+    """Zrkadli AKTUALNU risk_manager logiku cez TU ISTU funkciu
+    (risk_manager.resolve_sl_tp_distances - od 2026-09-04 aj Claudov TP), bez
+    tick-zaokruhlenia (nepotrebne presne pre retrospektivny odhad)."""
+    sl_distance, tp_distance, _ = risk_manager.resolve_sl_tp_distances(
+        live_price, decision_sl, decision_tp, sl_pct, tp_pct)
     if direction == "long":
         return live_price - sl_distance, live_price + tp_distance
     return live_price + sl_distance, live_price - tp_distance
@@ -225,7 +221,8 @@ def compute_daily_stats(asset: dict, for_date: date, session) -> dict:
             continue
 
         df = ensure_price_df()
-        sl, tp = _hypothetical_sl_tp(log.live_price, log.direction, log.stop_loss_price, sl_pct, tp_pct)
+        sl, tp = _hypothetical_sl_tp(log.live_price, log.direction, log.stop_loss_price, sl_pct, tp_pct,
+                                     decision_tp=log.take_profit_price)
         entry_time = log.created_at
         deadline = entry_time + timedelta(hours=position_max_hours)
 
