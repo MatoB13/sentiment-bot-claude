@@ -242,22 +242,6 @@ HEALTH_CHECK_COOLDOWN_BYPASS_WORSENING_FRACTION = _float(
 # takych pripadoch kaslem na cooldown".
 HEALTH_CHECK_COOLDOWN_BYPASS_SL_PROXIMITY_FRACTION = _float(
     "HEALTH_CHECK_COOLDOWN_BYPASS_SL_PROXIMITY_FRACTION", 0.5)
-# 2026-08-31 - MINIMALNY odstup medzi dvoma eskalaciami spustenymi cez
-# SL-proximity vynimku vyssie. KRITICKE od chvile, kedy sa mechanicka kontrola
-# presunula z cyklu (1-2h) na minutovy poller (viz position_monitor.
-# _fast_health_triggers): povodna semantika "cooldown sa ignoruje CELY, kazdy
-# nasledujuci cyklus znova prebehne" znamenala pri hodinovom cykle 1 platene
-# volanie za hodinu, ale pri minutovom polleri by to bolo 60 - pozicia visiaca
-# pol dna tesne nad SL by vygenerovala stovky platenych eskalacii. Zmysel
-# vynimky (nenechat poziciu bez pohladu, kym sa bliži k SL) zostava zachovany,
-# len je ohraniceny v case namiesto "pri kazdom ticku".
-HEALTH_CHECK_SL_PROXIMITY_MIN_INTERVAL_MINUTES = _float(
-    "HEALTH_CHECK_SL_PROXIMITY_MIN_INTERVAL_MINUTES", 15)
-# Ako casto smie minutovy poller spustit mechanicku eskalaciu z BEZNEHO
-# (nie SL-proximity) dovodu - napr. prekrocenie HEALTH_CHECK_LOSS_TRIGGER_FRACTION.
-# Nad tym stale plati HEALTH_CHECK_ESCALATION_COOLDOWN_HOURS.
-HEALTH_CHECK_FAST_POLL_MIN_INTERVAL_MINUTES = _float(
-    "HEALTH_CHECK_FAST_POLL_MIN_INTERVAL_MINUTES", 30)
 # 2026-08-21 (na ziadost pouzivatela, po NAS100 SL incidente - Claude odporucil
 # consider_closing s close_confidence=50 hodinu pred SL, nikdy sa nezasiahlo) -
 # ked position health check vrati recommendation="consider_closing" A

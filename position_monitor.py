@@ -47,6 +47,18 @@ _TRIGGER_REVIEW_REASONS = {"take_profit", "force_closed_by_bot", "manual_kill_sw
 # usudil, ze povodna teza je vyvratena.
 _EVALUATION_ONLY_CLOSE_REASONS = {"stop_loss", "liquidation", "ai_early_close"}
 
+# 2026-09-04 (bod 5 auditu, schvalene pouzivatelom): minutovy HEALTH-CHECK dispatch
+# (_fast_health_triggers, 31.8.-4.9.) bol ODSTRANENY. Zmerane: 118 dispatchov,
+# 0 obchodov; 5 AI early closes z jeho kontrol dali -3.01 R vs -2.96 R pri drzani
+# (nula); pri 12 SL zasahoch od 31.8. vobec nevystrelil v 8 (pohyb 60 % -> 100 %
+# SL bol rychlejsi nez minuta) a v zvysnych 4 mal median 37 min - Claudov cyklus
+# (1-3 min) preteky s lezaucou SL objednavkou nevyhra. Dva incidenty so slucku
+# (MINIMAX 3.9., BTC/NEAR 4.9.). Ochrana pozicie v extreme je SL noha na burze,
+# jej reheal nizsie (_check_and_reheal_bracket_legs - ZOSTAVA), cushion 1.5x a
+# SL-proximity vynimka v PLANOVANOM health checku (trade_cycle). Stlpec
+# trades.last_fast_health_at ostava v DB nepouzity (poor-man's migration nevie
+# DROP COLUMN), hodnota trigger_source='fast_health' zostava v historii.
+
 # Discord notifikacia o zatvoreni (2026-08-15, na ziadost pouzivatela) - TP/SL/
 # likvidacia/timeout, ale ZAMERNE NIE manual_kill_switch (to uz pouzivatel
 # vyvolal sam, netreba mu to pripominat). Nezavisle od _TRIGGER_REVIEW_REASONS
@@ -331,78 +343,6 @@ def _apply_exact_close(trade: Trade, fallback_close_reason: str) -> None:
               f"skusim znova pri buducom behu.")
 
 
-def _fast_health_triggers(trade: Trade, session) -> str | None:
-    """Mechanicka kontrola otvorenej pozicie, ktora bezi KAZDU MINUTU (2026-08-31,
-    na ziadost pouzivatela) - vrati dovod na eskalaciu, alebo None.
-
-    PRECO TO VZNIKLO: health check dovtedy bezal na tom istom _is_due intervale
-    ako otvaraci cyklus. Pri prechode na 2h baseline by to znamenalo, ze Claude
-    sa na otvorenu poziciu pozrie o polovicu menej casto - a reakcia na
-    zhorsujucu sa poziciu by trvala az 2 hodiny. Teraz sa cenovy trigger
-    vyhodnocuje kazdu minutu, nezavisle od obchodneho intervalu.
-
-    CENA JE NULOVA: cita sa uz existujuci PriceBar (price_poller ho aktualizuje
-    kazdu minutu), ziadne dalsie API volanie. TA-trend trigger tu ZAMERNE nie je
-    - ten potrebuje cely market snapshot (indikatory, funding, Binance HTTP,
-    higher-timeframe resample) a zostava v planovanom cykle.
-
-    CASOVE BRANENIE JE KRITICKE: povodna SL-proximity vynimka mala semantiku
-    "cooldown sa ignoruje CELY, kazdy nasledujuci cyklus znova prebehne". Pri
-    hodinovom cykle to bolo 1 platene volanie za hodinu, pri minutovom polleri
-    by to bolo 60. Preto HEALTH_CHECK_SL_PROXIMITY_MIN_INTERVAL_MINUTES."""
-    if not trade.entry_price or not trade.symbol:
-        return None
-    sl_pct = None
-    asset = assets.by_symbol(trade.symbol)
-    if asset:
-        sl_pct = asset.get("sl_pct")
-    if not sl_pct or sl_pct <= 0:
-        return None
-
-    bar = (
-        session.query(PriceBar)
-        .filter(PriceBar.symbol == trade.symbol)
-        .order_by(PriceBar.hour_start.desc())
-        .first()
-    )
-    if bar is None or not bar.close:
-        return None
-
-    is_long = (trade.direction or "").lower() == "long"
-    pnl_pct = ((bar.close - trade.entry_price) / trade.entry_price if is_long
-               else (trade.entry_price - bar.close) / trade.entry_price) * 100
-    if pnl_pct >= 0:
-        return None
-
-    now = datetime.now(timezone.utc)
-    # 2026-09-04 - brana sa pocita z NESKORSIEHO z dvoch casov: poslednej
-    # eskalacie a posledneho POHLADU minutoveho polleru. Predtym len z eskalacie,
-    # takze ked mechanicka kontrola eskalovat odmietla, nic sa neposunulo a
-    # poller dispatchol znova o minutu (61 % dispatchov bolo do 2 min od seba).
-    candidates = []
-    for ts in (trade.last_health_escalation_at,
-               getattr(trade, "last_fast_health_at", None)):
-        if ts is None:
-            continue
-        candidates.append(ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc))
-    last_esc = max(candidates) if candidates else None
-    mins_since = ((now - last_esc).total_seconds() / 60) if last_esc else None
-
-    sl_proximity = -pnl_pct / sl_pct
-    if sl_proximity >= config.HEALTH_CHECK_COOLDOWN_BYPASS_SL_PROXIMITY_FRACTION:
-        if mins_since is None or mins_since >= config.HEALTH_CHECK_SL_PROXIMITY_MIN_INTERVAL_MINUTES:
-            return (f"Nerealizovaná strata {pnl_pct:.2f}% je na {sl_proximity*100:.0f}% "
-                    f"SL vzdialenosti ({sl_pct}%) - minútová kontrola")
-        return None
-
-    if -pnl_pct >= sl_pct * config.HEALTH_CHECK_LOSS_TRIGGER_FRACTION:
-        if mins_since is None or mins_since >= config.HEALTH_CHECK_FAST_POLL_MIN_INTERVAL_MINUTES:
-            return (f"Nerealizovaná strata {pnl_pct:.2f}% dosiahla "
-                    f"{config.HEALTH_CHECK_LOSS_TRIGGER_FRACTION*100:.0f}% SL vzdialenosti "
-                    f"({sl_pct}%) - minútová kontrola")
-    return None
-
-
 def _build_closed_trade_context(trade: Trade) -> dict:
     """Plain dict (nie ORM objekt) so vsetkym, co claude_analyst._build_user_prompt
     potrebuje na popis prave zatvorenej pozicie - extrahovane HNED, kym je
@@ -669,31 +609,6 @@ def _backfill_missing_close_notifications(session, pending_notifications: list) 
         print(f"[position_monitor] Trade {trade.id} [{trade.symbol}]: notifikacia o zatvoreni "
               "sa nikdy neodoslala uspesne - skusam znova.")
         pending_notifications.append((trade.id, trade.symbol, _build_closed_trade_context(trade)))
-
-
-def _fire_fast_health_checks(pending_health: list) -> None:
-    """Spusti health check pre pozicie, ktore prekrocili cenovy trigger pri
-    minutovej kontrole (viz _fast_health_triggers). Bezi AZ PO session.close().
-
-    Ide cez ten isty dispatch_triggered_check ako watch/macro triggery, takze
-    dedi jeho per-symbol in-flight poistku - pozicia teda nemoze mat dva
-    suběžné health checky ani ked poller tikne skor, nez sa predchadzajuci
-    dokonci. run_cycle_for_asset si sam vsimne otvorenu poziciu a sam smeruje
-    na _run_position_health_check (skip_due_check=True obide interval)."""
-    for symbol, reason in pending_health:
-        asset = assets.by_symbol(symbol)
-        if asset is None:
-            continue
-        print(f"[position_monitor] [{asset['name']}] Rychla health kontrola: {reason}")
-        try:
-            # fast_poll=True (2026-09-03, MINIMAX incident): trade_cycle vdaka
-            # tomu vie, ze tuto kontrolu vyvolal MINUTOVY poller, a nenecha
-            # nespracovanu retrospektivu eskalovat na plne Claude volanie - jej
-            # eskalacia totiz neposuva last_health_escalation_at, cize by nemala
-            # co zabrzdit nas vlastny dalsi tik o minutu (viz tam).
-            trade_cycle.dispatch_triggered_check(asset, fast_poll=True)
-        except Exception as e:
-            print(f"[position_monitor] [{asset['name']}] dispatch health checku zlyhal: {e}")
 
 
 def _fire_post_close_reviews(pending_reviews: list) -> None:
@@ -1003,7 +918,6 @@ def check_open_trades():
     pending_notifications: list = []
     pending_open_notifications: list = []
     pending_recompute: set = set()
-    pending_health: list = []
     try:
         _backfill_missing_exact_data(session, pending_reviews, pending_notifications)
         # 2026-08-31 - analogicky self-heal, ale pre review, ktory sa spustil
@@ -1121,33 +1035,10 @@ def check_open_trades():
                 continue
 
         session.commit()
-        # 2026-08-31 - mechanicka kontrola otvorenych pozicii KAZDU MINUTU
-        # (predtym bezala len na _is_due intervale otvaracieho cyklu, teda
-        # po prechode na 2h baseline by reakcia trvala az 2 hodiny).
-        # Zbiera sa tu, dispatchuje az po session.close() - rovnako ako
-        # post-close review, aby beh na pozadi nedrzal tuto session.
-        for trade in open_trades:
-            try:
-                if trade.status != "open":
-                    continue
-                reason = _fast_health_triggers(trade, session)
-                if reason:
-                    pending_health.append((trade.symbol, reason))
-                    # Zapisujeme HNED (este v zivej session, pred samotnym
-                    # dispatchom na pozadi) - aby sa brana posunula aj vtedy, ked
-                    # z kontroly ziadna eskalacia nevzide, a aj vtedy, ked beh
-                    # zahodi in-flight poistka. Inak by poller skusal znova o
-                    # minutu, presne ako doteraz.
-                    trade.last_fast_health_at = datetime.now(timezone.utc)
-                    session.add(trade)
-            except Exception as e:
-                print(f"[position_monitor] Trade {trade.id}: rychla health kontrola "
-                      f"zlyhala (neblokujuce): {e}")
     finally:
         session.close()
 
     # AZ PO session.close() - viz _fire_post_close_reviews docstring.
-    _fire_fast_health_checks(pending_health)
     _fire_post_close_reviews(pending_reviews)
     _fire_close_notifications(pending_notifications)
     _fire_open_notifications(pending_open_notifications)
