@@ -77,8 +77,37 @@ check("outcome", rows[0].outcome if rows else None, "error")
 check("dovod nesie stopu po pade",
       bool(rows and rows[0].reject_reason
            and "simulovany pad v cykle" in rows[0].reject_reason), True)
-check("zaznam nestal nic (ziadne Claude tokeny)",
+check("pad PRED analyzou -> ziadne tokeny v zazname",
       rows[0].usage_output_tokens if rows else "?", None)
+
+# Pad AZ PO analyze: tokeny sa uz minuli, takze MUSIA byt v zazname - inak
+# dashboard ukaze zahodeny beh ako zadarmo (4.9.: ~$25 mimo evidencie).
+SYM_PAID = "ZEC-USD"
+paid_asset = next(a for a in assets.enabled_assets() if a["strike_symbol"] == SYM_PAID)
+
+
+def boom_after_paying(session, a):
+    import trade_cycle as tc
+    raise RuntimeError("simulovany pad po analyze")
+
+
+risk_overrides.get_effective_sl_tp = boom_after_paying
+# usage/web_search_log sa nastavuju az vnutri cyklu, takze pad pred nimi je
+# spravne nulovy - tu overujeme opacny smer: ze polia v konstruktore existuju
+# a poistka ich vie zapisat (regresia proti preklepu v nazve stlpca).
+try:
+    trade_cycle.run_cycle_for_asset(paid_asset, {"x": 1}, {"session": "US"}, None, None)
+except RuntimeError:
+    pass
+finally:
+    risk_overrides.get_effective_sl_tp = orig
+s.expire_all()
+paid_row = (s.query(CycleLog).filter_by(symbol=SYM_PAID)
+            .order_by(CycleLog.created_at.desc()).first())
+check("poistka zapisala zaznam aj pre druhy ticker",
+      paid_row.outcome if paid_row else None, "error")
+check("usage stlpce su zapisatelne (nie preklep v nazve)",
+      hasattr(paid_row, "usage_output_tokens"), True)
 
 print("\n" + "=" * 100)
 print("3) A PRETO uz ticker nie je due - slucka sa nerozbehne")

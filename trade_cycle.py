@@ -1904,6 +1904,11 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
 
     print(f"\n--- [{name}] ---")
     cycle_started_at = datetime.now(timezone.utc)
+    # Predinicializovane kvoli poistke v except na konci: ked cyklus spadne az
+    # PO zaplatenej analyze, tokeny sa uz minuli a musia sa dostat do uctovnictva,
+    # inak dashboard tvrdi, ze ten beh bol zadarmo (4.9.: ~$25 mimo evidencie).
+    usage = None
+    web_search_log = None
     session = get_session()
     try:
         # SL/TP override (2026-08-19, viz risk_overrides.py + db.RiskOverride) -
@@ -2472,6 +2477,11 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 .first()
             )
             if already is None:
+                # usage/web_search_log su None, ak sa pad stal EŠTE PRED Claude
+                # volanim - vtedy je riadok naozaj nulovy. Ak uz volanie prebehlo,
+                # tokeny sa minuli a patria do uctovnictva, aj ked sme vysledok
+                # zahodili (inak dashboard ten beh ukaze ako zadarmo).
+                u = usage or {}
                 session.add(CycleLog(
                     symbol=symbol,
                     config_snapshot=_config_snapshot(asset),
@@ -2480,10 +2490,16 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                                                     closed_trade),
                     reject_reason=f"cyklus spadol po analyze: "
                                   f"{traceback.format_exc(limit=3)}"[:2000],
+                    web_search_log=web_search_log,
+                    usage_input_tokens=u.get("input_tokens"),
+                    usage_cache_write_tokens=u.get("cache_write_tokens"),
+                    usage_cache_read_tokens=u.get("cache_read_tokens"),
+                    usage_output_tokens=u.get("output_tokens"),
                 ))
                 session.commit()
-                print(f"[{name}] Cyklus spadol - zapisujem nulovy 'error' zaznam, "
-                      "aby sa beh neopakoval kazdych 5 minut.")
+                print(f"[{name}] Cyklus spadol - zapisujem 'error' zaznam"
+                      + (f" (uz zaplatene: {u.get('output_tokens')} out tokenov)" if u else " (nic sa nezaplatilo)")
+                      + ", aby sa beh neopakoval kazdych 5 minut.")
         except Exception as e2:
             # Ani poistka sa nesmie stat novym zdrojom padu.
             print(f"[{name}] CHYBA: poistny zapis CycleLog zlyhal: {e2}")
