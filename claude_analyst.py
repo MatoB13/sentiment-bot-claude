@@ -2552,6 +2552,23 @@ def _strip_citation_tags(decision: dict) -> dict:
     return decision
 
 
+def _cache_write_1h(usage: dict) -> int:
+    """Kolko z cache_creation_input_tokens bolo zapisanych s 1-HODINOVYM TTL.
+
+    Uctuje sa 2x zakladnou input sadzbou, kym 5-minutovy zapis len 1.25x - takze
+    bez tohto rozpadu dashboard kazdy cyklus podhodnocoval (viz db.CycleLog.
+    usage_cache_write_1h_tokens). System prompt cachujeme s ttl="1h", user spravu
+    s defaultnym 5-minutovym.
+
+    API vracia rozpad v usage.cache_creation; ked ho neposle (starsia verzia
+    alebo ziadny cache zapis), vratime 0 - teda spravanie ako doteraz, nikdy nie
+    nadhodnotenie."""
+    creation = usage.get("cache_creation")
+    if not isinstance(creation, dict):
+        return 0
+    return int(creation.get("ephemeral_1h_input_tokens") or 0)
+
+
 def _post_messages(payload: dict, label: str):
     """POST /v1/messages s retry - zdielane medzi _call_claude (plny cyklus) a
     _call_triage (lacny sken).
@@ -2612,6 +2629,9 @@ def _call_claude(asset: dict, system_blocks: list[dict], user_prompt: str,
     web_search_log: list[dict] = []
     total_usage = {"input_tokens": 0, "cache_creation_input_tokens": 0,
                    "cache_read_input_tokens": 0, "output_tokens": 0}
+    # 1-hodinova cast cache write (viz _cache_write_1h nizsie) sa scitava zvlast,
+    # lebo sa uctuje 2x zakladnou sadzbou namiesto 1.25x.
+    total_cache_write_1h = 0
 
     # Volitelny per-asset effort test (viz config.ADA_EFFORT/assets.py) - "" (default)
     # = output_config sa neposle vobec (API default "high"). Pri xhigh/max sa thinking
@@ -2657,8 +2677,10 @@ def _call_claude(asset: dict, system_blocks: list[dict], user_prompt: str,
         usage = data.get("usage", {})
         for key in total_usage:
             total_usage[key] += usage.get(key) or 0
+        total_cache_write_1h += _cache_write_1h(usage)
         print(f"[claude_analyst] [{asset['name']}] usage: input={usage.get('input_tokens')} "
               f"cache_write={usage.get('cache_creation_input_tokens')} "
+              f"(z toho 1h={_cache_write_1h(usage)}) "
               f"cache_read={usage.get('cache_read_input_tokens')} output={usage.get('output_tokens')} "
               f"effort={effort or 'default'} stop_reason={data.get('stop_reason')}")
 
@@ -2684,6 +2706,7 @@ def _call_claude(asset: dict, system_blocks: list[dict], user_prompt: str,
         usage_record = {
             "input_tokens": total_usage["input_tokens"],
             "cache_write_tokens": total_usage["cache_creation_input_tokens"],
+            "cache_write_1h_tokens": total_cache_write_1h,
             "cache_read_tokens": total_usage["cache_read_input_tokens"],
             "output_tokens": total_usage["output_tokens"],
             "effort": effort or None,
@@ -2934,6 +2957,7 @@ def _call_triage(asset: dict, user_prompt: str) -> tuple[dict, dict]:
     usage_record = {
         "input_tokens": usage.get("input_tokens") or 0,
         "cache_write_tokens": usage.get("cache_creation_input_tokens") or 0,
+        "cache_write_1h_tokens": _cache_write_1h(usage),
         "cache_read_tokens": usage.get("cache_read_input_tokens") or 0,
         "output_tokens": usage.get("output_tokens") or 0,
         "model": config.TRIAGE_MODEL,

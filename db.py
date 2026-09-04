@@ -309,6 +309,19 @@ class CycleLog(Base):
     usage_cache_write_tokens = Column(Integer, nullable=True)
     usage_cache_read_tokens = Column(Integer, nullable=True)
     usage_output_tokens = Column(Integer, nullable=True)
+    # 2026-09-04 - z usage_cache_write_tokens vydelena 1-HODINOVA cast.
+    #
+    # PRECO: cache write sa uctuje INAK podla TTL - 5-minutovy 1.25x zakladnu
+    # input sadzbu, 1-hodinovy 2x. System prompt cachujeme s ttl="1h" (viz
+    # claude_analyst._system_prompt_blocks), user sprava default 5 min. Dashboard
+    # dovtedy uctoval vsetko jednotne 1.25x, takze kazdy cyklus podhodnocoval
+    # asi o $0.008 (~4 % tokenoveho uctu). API rozpad vracia v
+    # usage.cache_creation.ephemeral_1h_input_tokens - dovtedy sme ho zahadzovali
+    # a spatne sa dopocitat neda.
+    #
+    # usage_cache_write_tokens ostava CELKOM (5m + 1h), aby stare riadky nemenili
+    # vyznam; tento stlpec je jeho PODMNOZINA.
+    usage_cache_write_1h_tokens = Column(Integer, nullable=True)
     effort = Column(String, nullable=True)  # "" (default)/"high"/"xhigh"/"max" - viz assets.py
 
 
