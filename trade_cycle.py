@@ -401,6 +401,8 @@ def _config_snapshot(asset: dict) -> dict:
         "health_check_loss_trigger_fraction": config.HEALTH_CHECK_LOSS_TRIGGER_FRACTION,
         # 2026-09-04 - brana na plytke prerazenie watch urovne (viz config).
         "watch_break_min_atr": config.WATCH_BREAK_MIN_ATR,
+        "watch_dead_band_min_24h_pct": config.WATCH_DEAD_BAND_MIN_24H_PCT,
+        "watch_dead_band_max_24h_pct": config.WATCH_DEAD_BAND_MAX_24H_PCT,
         # 2026-09-04 - rezim dvojfazoveho cyklu (off/shadow/active, viz config).
         "triage_mode": config.TRIAGE_MODE,
         "triage_force_full_hours": config.TRIAGE_FORCE_FULL_HOURS,
@@ -668,6 +670,34 @@ def _watch_break_too_shallow(decision: dict, break_ctx: dict | None) -> str | No
         return (f"watch_break_too_shallow: prerazenie {break_ctx['direction']} "
                 f"{break_ctx['level']} - {where} (min {config.WATCH_BREAK_MIN_ATR:.2f} ATR)")
     return None
+
+
+def _watch_in_dead_band(decision: dict, watch_triggered: bool, ta: dict | None) -> str | None:
+    """Mechanicka brana na watch vstup v MRTVOM PASME dennej zmeny - vrati dovod
+    zamietnutia, alebo None. Cisla a ich opora v datach: viz
+    config.WATCH_DEAD_BAND_MIN_24H_PCT.
+
+    Plati LEN pre watch-triggered cykly, ktore chcu otvorit poziciu. Planovane
+    cykly brana NEriesi - tie v tom istom pasme stratove nie su (namerane:
+    planovane vstupy maju priemer +5 az +6 $ naprieč vsetkymi pasmami).
+
+    Chybajuca alebo nulova 24h zmena = brana sa preskoci (fail-open so
+    zaznamom), rovnako ako pri chybajucom ATR v _watch_break_too_shallow."""
+    if not watch_triggered or decision.get("direction") not in ("long", "short"):
+        return None
+    lo, hi = config.WATCH_DEAD_BAND_MIN_24H_PCT, config.WATCH_DEAD_BAND_MAX_24H_PCT
+    if lo <= 0 or hi <= lo:
+        return None                      # brana vypnuta cez ENV
+    change = (ta or {}).get("change_24h_pct")
+    try:
+        move = abs(float(change))
+    except (TypeError, ValueError):
+        print("[trade_cycle] Watch brana (mrtve pasmo): change_24h_pct chyba - pustam.")
+        return None
+    if not lo <= move < hi:
+        return None
+    return (f"watch_dead_band: denna zmena {move:.1f} % je v pasme {lo:.0f}-{hi:.0f} %, "
+            f"kde watch vstupy dlhodobo prehravaju (1 ziskovy z 23)")
 
 
 def _auto_watch_after_shallow_break(break_ctx: dict, atr14: float) -> dict:
@@ -2278,6 +2308,20 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
         # cycle_log vyssie, takze pripadny novy watch od Claudea prezije aj
         # zamietnutie. Viz config.WATCH_BREAK_MIN_ATR.
         if watch_triggered:
+            # 2026-09-04 - MRTVE PASMO dennej zmeny (viz config.WATCH_DEAD_BAND_*).
+            # Kontroluje sa PRED plytkym prerazenim, lebo je to hrubsi filter:
+            # tam ide o hlbku konkretneho prerazenia, tu o cely rezim dna.
+            # Claudove watch urovne z tohto rozhodnutia zostavaju v cycle_log,
+            # takze ak sa pohyb zrychli a vyjde z pasma, dalsi trigger uz prejde.
+            dead = _watch_in_dead_band(decision, watch_triggered, ta)
+            if dead:
+                print(f"[{name}] Obchod zamietnuty (mrtve pasmo): {dead}")
+                cycle_log.outcome = "rejected"
+                cycle_log.reject_reason = dead
+                session.add(cycle_log)
+                session.commit()
+                return
+
             shallow = _watch_break_too_shallow(decision, (watch_set_context or {}).get("break"))
             if shallow:
                 print(f"[{name}] Obchod zamietnuty (watch brana): {shallow}")

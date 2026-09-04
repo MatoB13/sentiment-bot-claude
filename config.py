@@ -201,6 +201,39 @@ WATCH_CONFIDENCE_MARGIN = _float("WATCH_CONFIDENCE_MARGIN", 5)
 # nenastavil - inak by bol ticker po zamietnuti slepy az do planovaneho behu.
 WATCH_BREAK_MIN_ATR = _float("WATCH_BREAK_MIN_ATR", 0.30)
 
+# 2026-09-04 - MRTVE PASMO watch vstupov (na ziadost pouzivatela, po meranii).
+#
+# NAMERANE na 101 uzavretych watch obchodoch, delene podla |change_24h_pct| V
+# CASE VSTUPU:
+#
+#     0.0-2.0 %   n=34  win 44 %   -181 $   priemer  -5 $   median  -9 $
+#     2.0-3.2 %   n=14  win 36 %   -212 $   priemer -15 $   median -12 $
+#     3.2-5.8 %   n=23  win  4 %  -1217 $   priemer -53 $   median -30 $   <-- TOTO
+#     5.8-8.0 %   n=12  win 50 %    +21 $   priemer  +2 $   median  -3 $
+#     8.0 %+      n=18  win 56 %   +548 $   priemer +30 $   median +24 $
+#
+# V pasme 3.2-5.8 % je JEDEN ziskovy obchod z 23. Drzi to aj po vylucení ZEC a
+# ADA (18 obchodov, 6 % uspesnost, median -23 $), takze to nie je o dvoch
+# tickeroch - je to siroky jav. Typologicky "chase po slusnom, ale nie
+# vynimocnom pohybe": uz je neskoro na vstup, ale este nejde o dislokaciu.
+#
+# PRECO PRAVE |24h zmena| a nie nieco rychlejsie: skusane boli aj |4h zmena| v
+# %, |4h zmena| v ATR a |24h zmena| v ATR - ZIADNA z nich nerozlisuje (vsetky
+# pasma vysli medzi -3 a -16 $). Rozhoduje teda DENNY kontext (ci je ticker v
+# dislokacii), nie kratkodobe momentum pri vstupe.
+#
+# CO SA ZAMERNE NEROBI: brana NEPUSTA vstupy len pri velkom pohybe. Pasmo 8 %+
+# vyzera ziskovo, ale po vylucení ZEC/ADA v nom zostava 7 obchodov so ZAPORNYM
+# medianom - na tvrde pravidlo prilis malo. Blokuje sa teda LEN dokazane zle
+# pasmo; crashe, narasty aj pokojny trh prechadzaju ako doteraz.
+#
+# POZOR: prahy su vybrate z tych istych dat, na ktorych su merane (in-sample),
+# preto okruhle 3/6 namiesto presnych 3.2/5.83. Brana 0.30 ATR vyssie navyse
+# bezi od 4.9. a mohla cast tychto vstupov odrezat uz sama - po ~2 tyzdnoch
+# treba premerat znova. Nastavenie oboch na 0 branu vypne.
+WATCH_DEAD_BAND_MIN_24H_PCT = _float("WATCH_DEAD_BAND_MIN_24H_PCT", 3.0)
+WATCH_DEAD_BAND_MAX_24H_PCT = _float("WATCH_DEAD_BAND_MAX_24H_PCT", 6.0)
+
 # Pridane 2026-08-15 - position health check (uz otvorena pozicia) je teraz
 # defaultne MECHANICKY (bez Claude volania, zdarma) - viz trade_cycle.
 # _mechanical_health_escalation. Plny Claude cyklus (s web_search, per-asset
