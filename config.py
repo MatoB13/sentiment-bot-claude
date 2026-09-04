@@ -174,6 +174,32 @@ WATCH_TRIGGER_MAX_PER_HOUR = _int("WATCH_TRIGGER_MAX_PER_HOUR", 5)
 # jednoduchy relativny offset od min_confidence, ktory zostava spravny aj ak
 # sa {TICKER}_MIN_CONFIDENCE niekedy zmeni.
 WATCH_CONFIDENCE_MARGIN = _float("WATCH_CONFIDENCE_MARGIN", 5)
+# 2026-09-04 (audit, schvalene pouzivatelom) - MINIMALNA HLBKA PRERAZENIA pre
+# vstup V SMERE prerazenej watch urovne, v nasobkoch hodinoveho ATR14.
+#
+# Watch trigger vystreli na prvom minutovom ticku za urovnou - a zo 541 triggerov
+# bolo 40 % knotov (cena sa do close hodiny vratila spat). Claude v momente
+# triggeru knot od pohybu nerozozna: otvoril z knotu rovnako casto (18 %) ako z
+# pohybu, ktory drzal. Vysledok na 94 watch obchodoch: cena drzala -> 45 % win,
+# +2.6 R; knot -> 18 % win, -21.5 R. Cela strata watch mechanizmu su knoty.
+#
+# Trigger (pohlad) zostava minutovy - je to jediny rychly detektor, ze sa nieco
+# deje. Brana je LEN na vstup v smere prerazenia (trade_cycle._watch_break_too_shallow):
+# ak je cena v case rozhodnutia menej nez tolkoto ATR za urovnou (alebo uz spat
+# dnu), obchod sa zamietne s reject_reason=watch_break_too_shallow. Skutocny
+# pohyb (cislo, hack, tweet) prejde 0.3 ATR za minutu, takze pren to nepridava
+# ziadnu latenciu; pomaly drift a knot to nedaju.
+#
+# Prah nie je z dat urcitelny presnejsie nez "niekde 0.25-0.35": zablokovana
+# mnozina je -18 az -22 R pri kazdom prahu 0.2-0.5, ponechana ~0 +-3 R (s
+# produkcnym Wilder atr14: 0.25 -> +2.3 R / 35 obchodov, 0.30 -> -0.4 / 28,
+# 0.35 -> +3.2 / 23). Claude cislo NEPOZNA (viz claude_analyst watch blok) -
+# inak by podla neho posuval samotne watch urovne.
+#
+# Po zamietnuti system SAM nastavi watch na uroven +- tolkoto ATR v smere
+# prerazenia (trade_cycle._auto_watch_after_shallow_break), ak Claude ziadny
+# nenastavil - inak by bol ticker po zamietnuti slepy az do planovaneho behu.
+WATCH_BREAK_MIN_ATR = _float("WATCH_BREAK_MIN_ATR", 0.30)
 
 # Pridane 2026-08-15 - position health check (uz otvorena pozicia) je teraz
 # defaultne MECHANICKY (bez Claude volania, zdarma) - viz trade_cycle.

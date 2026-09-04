@@ -1812,6 +1812,26 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
             f"Padla úroveň: {', '.join(crossed)}.\n" if crossed
             else "Ktorá úroveň padla, urči z aktuálnej ceny vyššie.\n"
         )
+        # 2026-09-04 (audit) - HLBKA PRERAZENIA ako fakt. Doteraz Claude videl
+        # len "uroven padla" a knot od pohybu nerozoznal (otvoril z knotu rovnako
+        # casto ako z pohybu, ktory drzal - 18 % vs 45 % win). Cislo prahu sa tu
+        # ZAMERNE neuvadza, inak by podla neho posuval samotne watch urovne - viz
+        # config.WATCH_BREAK_MIN_ATR a trade_cycle._watch_break_too_shallow.
+        break_line = ""
+        brk = wsc.get("break")
+        if brk and brk.get("depth_atr") is not None:
+            depth = brk["depth_atr"]
+            if depth >= 0:
+                where = (f"Hĺbka prerazenia: cena je {depth:.2f} ATR(14h) za úrovňou "
+                         f"{brk['direction']} {brk['level']}.")
+            else:
+                where = (f"POZOR: cena sa už vrátila SPÄŤ cez úroveň {brk['direction']} "
+                         f"{brk['level']} ({abs(depth):.2f} ATR dovnútra) - úroveň padla len knôtom.")
+            break_line = (
+                f"{where} Vstup V SMERE prerazenia systém mechanicky zamietne, ak je prerazenie "
+                f"plytké (typický knôt, pár desatín ATR alebo návrat dnu) - vtedy je správna "
+                f"odpoveď none + watch úroveň ďalej od ceny, nie vstup.\n"
+            )
         watch_set_context_block = (
             f"\n## Toto rozhodnutie bolo vyvolané TVOJOU VLASTNOU watch podmienkou"
             f"{f' (pred {elapsed_min} min)' if elapsed_min is not None else ''}\n"
@@ -1820,6 +1840,7 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
             f"a nastavil tieto sledované úrovne:\n"
             + "\n".join(levels) + "\n"
             + crossed_line
+            + break_line
             + f"{rationale_line}\n"
             f"Ak TERAZ voliš iný smer/confidence než vtedy, v reasoningu VÝSLOVNE napíš, čo konkrétne "
             f"sa oproti tomuto dôvodu čakania zmenilo (nová cenová akcia, potvrdenie/vyvrátenie "

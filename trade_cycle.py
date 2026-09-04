@@ -397,6 +397,8 @@ def _config_snapshot(asset: dict) -> dict:
         "position_max_hours": config.POSITION_MAX_HOURS,
         "macro_event_max_triggers_per_hour": config.MACRO_EVENT_MAX_TRIGGERS_PER_HOUR,
         "health_check_loss_trigger_fraction": config.HEALTH_CHECK_LOSS_TRIGGER_FRACTION,
+        # 2026-09-04 - brana na plytke prerazenie watch urovne (viz config).
+        "watch_break_min_atr": config.WATCH_BREAK_MIN_ATR,
         "min_confidence": asset["min_confidence"],
         "margin_usd": asset["margin_usd"],
         # POZOR (2026-08-08): "leverage" uz NIE JE skutocne pouzita paka -
@@ -606,6 +608,85 @@ def _get_watch_set_context(symbol: str, session) -> dict | None:
         # prielom nahor oblepeny textom obhajujucim short - a short otvoril.
         "watch_price_2": log.watch_price_2, "watch_direction_2": log.watch_direction_2,
         "watch_rationale": log.watch_rationale,
+    }
+
+
+def _watch_break_context(watch_set_context: dict | None, live_price: float | None,
+                          atr14: float | None) -> dict | None:
+    """Ktora watch uroven bola prerazena a AKO HLBOKO (v nasobkoch ATR14) je cena
+    za nou v case rozhodnutia. 2026-09-04 (audit) - viz config.WATCH_BREAK_MIN_ATR.
+
+    Z dvoch urovni sa berie ta, za ktorou je cena najdalej (pri obojstrannom
+    watchi je prerazena len jedna). `beyond_price` < 0 znamena, ze cena je uz
+    SPAT DNU - uroven padla len knotom a prerazenie sa medzitym zrusilo.
+    `depth_atr` je None, ak ATR chyba (novy ticker) - brana sa vtedy nepouzije
+    (fail-open, rovnako ako ine doplnkove kontroly)."""
+    if not watch_set_context or live_price is None:
+        return None
+    crossed = []
+    for wp, wd in ((watch_set_context.get("watch_price"), watch_set_context.get("watch_direction")),
+                   (watch_set_context.get("watch_price_2"), watch_set_context.get("watch_direction_2"))):
+        if wp is None or wd not in ("above", "below"):
+            continue
+        beyond = (live_price - wp) if wd == "above" else (wp - live_price)
+        crossed.append((beyond, float(wp), wd))
+    if not crossed:
+        return None
+    beyond, level, direction = max(crossed)
+    depth_atr = (beyond / atr14) if atr14 else None
+    return {
+        "level": level,
+        "direction": direction,
+        "beyond_price": beyond,
+        "depth_atr": round(depth_atr, 3) if depth_atr is not None else None,
+    }
+
+
+def _watch_break_too_shallow(decision: dict, break_ctx: dict | None) -> str | None:
+    """Mechanicka brana na vstup V SMERE prerazenej watch urovne - vrati dovod
+    zamietnutia, alebo None. Viz config.WATCH_BREAK_MIN_ATR pre cisla.
+
+    Plati LEN pre "chase" vstup (above -> long, below -> short). Vstup PROTI
+    prerazeniu (n=12, tiez stratovy, ale mala vzorka) a vstupy z inych nez watch
+    cyklov brana nerieši. Chybajuce ATR = brana sa preskoci (fail-open, ale
+    zaloguje sa)."""
+    if not break_ctx or decision.get("direction") not in ("long", "short"):
+        return None
+    chase = ((break_ctx["direction"] == "above" and decision["direction"] == "long")
+             or (break_ctx["direction"] == "below" and decision["direction"] == "short"))
+    if not chase:
+        return None
+    depth = break_ctx.get("depth_atr")
+    if depth is None:
+        print("[trade_cycle] Watch brana: ATR chyba, hlbku prerazenia neviem posudit - pustam.")
+        return None
+    if depth < config.WATCH_BREAK_MIN_ATR:
+        where = ("cena je uz spat dnu" if depth < 0
+                 else f"len {depth:.2f} ATR za urovnou")
+        return (f"watch_break_too_shallow: prerazenie {break_ctx['direction']} "
+                f"{break_ctx['level']} - {where} (min {config.WATCH_BREAK_MIN_ATR:.2f} ATR)")
+    return None
+
+
+def _auto_watch_after_shallow_break(break_ctx: dict, atr14: float) -> dict:
+    """Watch, ktory system doplni SAM po zamietnuti pre plytke prerazenie (2026-09-04,
+    schvalene pouzivatelom) - inak by bol ticker po zamietnuti slepy az do
+    planovaneho behu (2-4 h), hoci prave prehlbenie prerazenia o par minut je
+    pohyb, ktory chceme chytit. Uroven = prerazena uroven posunuta o
+    WATCH_BREAK_MIN_ATR * ATR v smere prerazenia; kedze zamietnutie znamena, ze
+    cena je este pred touto urovnou, nikdy nie je splneny hned. Rationale uvidi
+    Claude v dalsom watch cykle ako vlastne odovodnenie cakania."""
+    sign = 1 if break_ctx["direction"] == "above" else -1
+    price = break_ctx["level"] + sign * config.WATCH_BREAK_MIN_ATR * atr14
+    depth = break_ctx.get("depth_atr")
+    return {
+        "watch_price": round(price, 8),
+        "watch_direction": break_ctx["direction"],
+        "watch_rationale": (
+            f"auto: prerazenie {break_ctx['direction']} {break_ctx['level']} bolo plytké "
+            f"({depth:.2f} ATR{' - cena sa vrátila dnu' if depth is not None and depth < 0 else ''}), "
+            f"čakám na hlbšie potvrdenie"
+        ),
     }
 
 
@@ -1948,6 +2029,16 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 watch_set_context = _get_watch_set_context(symbol, session)
             except Exception as e:
                 print(f"[{name}] Vypocet watch set contextu zlyhal (pokracujem bez neho): {e}")
+            # 2026-09-04 (audit) - hlbka prerazenia z ceny NA ZACIATKU cyklu (rovnaka
+            # cena, na ktorej bol prah kalibrovany). Claude ju dostane ako fakt do
+            # promptu, brana _watch_break_too_shallow nizsie ju pouzije mechanicky.
+            if watch_set_context:
+                watch_set_context["break"] = _watch_break_context(
+                    watch_set_context, live_price, (ta or {}).get("atr14"))
+                if watch_set_context["break"]:
+                    b = watch_set_context["break"]
+                    print(f"[{name}] Watch prerazenie: {b['direction']} {b['level']}, "
+                          f"hlbka {b['depth_atr']} ATR")
 
         try:
             retrospective_reflection, new_stats_text, pending_stats = _get_retrospective_context(asset, session)
@@ -2108,6 +2199,34 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             print(f"[{name}] Post-close vyhodnotenie ulozene (SL/likvidacia) - "
                   "ziadny novy obchod sa z tohto behu neotvara.")
             return
+
+        # 2026-09-04 (audit, schvalene) - vstup v smere plytko prerazenej watch
+        # urovne sa zamietne mechanicky. Watch polia z tohto rozhodnutia uz su v
+        # cycle_log vyssie, takze pripadny novy watch od Claudea prezije aj
+        # zamietnutie. Viz config.WATCH_BREAK_MIN_ATR.
+        if watch_triggered:
+            shallow = _watch_break_too_shallow(decision, (watch_set_context or {}).get("break"))
+            if shallow:
+                print(f"[{name}] Obchod zamietnuty (watch brana): {shallow}")
+                cycle_log.outcome = "rejected"
+                cycle_log.reject_reason = shallow
+                # Auto-watch na hlbsie potvrdenie - LEN ak Claude sam ziadny
+                # nenastavil a ak nebol dosiahnuty retrigger limit (ten by sme
+                # inak obisli). Viz _auto_watch_after_shallow_break.
+                limit_hit = bool(watch_retrigger_streak
+                                 and watch_retrigger_streak["count"] >= _WATCH_RETRIGGER_HARD_LIMIT)
+                atr14 = (ta or {}).get("atr14")
+                if (cycle_log.watch_price is None and cycle_log.watch_price_2 is None
+                        and atr14 and not limit_hit):
+                    auto = _auto_watch_after_shallow_break(watch_set_context["break"], atr14)
+                    cycle_log.watch_price = auto["watch_price"]
+                    cycle_log.watch_direction = auto["watch_direction"]
+                    cycle_log.watch_rationale = auto["watch_rationale"]
+                    print(f"[{name}] Auto-watch na hlbsie potvrdenie: "
+                          f"{auto['watch_direction']} {auto['watch_price']}")
+                session.add(cycle_log)
+                session.commit()
+                return
 
         try:
             sized = risk_manager.validate_and_size(
