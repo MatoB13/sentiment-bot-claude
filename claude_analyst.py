@@ -153,24 +153,16 @@ DECISION_TOOL = {
             "watch_price": {
                 "type": "number",
                 "description": (
-                    "Volitelne - vypln v JEDNOM z TROCH nezavislych pripadov: "
-                    "(1) direction=none A skutocny blokujuci dovod je konkretna CENOVA "
-                    "uroven (retest/breakout), ktoru by cenovy pohyb sam vedel potvrdit. "
-                    "NEVYPLNAJ v tomto pripade, ak je blokujuci dovod CASOVA UDALOST "
-                    "(FOMC/CPI/NFP/PMI/earnings) - ziadny cenovy pohyb pred udalostou "
-                    "neistotu nevyriesi, takze by to sposobilo zbytocne opakovane "
-                    "mimoriadne cykly pri beznom trhovom sume. "
-                    "(2) direction=long/short A vyplnas aj confidence_threshold_note "
-                    "nizsie - sem daj presne tu istu cenu, ktoru si tam popisal. "
-                    "(3) toto je vyhodnotenie PRAVE zatvorenej pozicie na SL/likvidaciu (viz sekcia "
-                    "'Prave zatvorena pozicia' nizsie) A ocakavas, ze sa trh RYCHLO POHNE dalej "
-                    "smerom, ktory by opodstatnoval skory re-entry - sem daj cenu, KTOREJ REALNE "
-                    "PREKROCENIE by tento predpoklad potvrdilo (nie proste aktualnu cenu). V tomto "
-                    "pripade je to JEDINY sposob, ako moze TENTO konkretny cyklus viest k novej pozicii "
-                    "(tvoje direction/confidence z neho sa inak nikdy nevykona) - preto tu davaj naozaj "
-                    "konkretnu, zmysluplnu uroven, nie mechanicke vyplnanie pri kazdom SL. Ak si nie si "
-                    "isty alebo je situacia skor 'pockaj na dalsi bezny cyklus', toto pole vynechaj. "
-                    "Vynechaj cely field, ak nie je relevantny ziaden z troch pripadov."
+                    "Volitelne (vzdy s watch_direction + watch_rationale). Cenova uroven, pri ktorej "
+                    "ta lacny poller mimoriadne zavola znova - situaciu tam vyhodnotis od zaciatku, "
+                    "tento navrh sa nevykona. Tri pripady: (1) direction=none a blokujuci dovod je "
+                    "CENOVA uroven (retest/breakout) - NIE casova udalost (FOMC/CPI/earnings), tam "
+                    "cenovy pohyb neistotu nevyriesi a zobudi ta len sum; (2) direction=long/short so "
+                    "strednym presvedcenim - rovnaka cena ako v confidence_threshold_note; "
+                    "(3) vyhodnotenie prave zatvorenej pozicie na SL/likvidaciu, ked cakas RYCHLE "
+                    "pokracovanie - uroven, ktorej REALNE prekrocenie by opodstatnilo skory re-entry "
+                    "(jediny sposob, ako z toho cyklu vznikne pozicia; nie mechanicky pri kazdom SL). "
+                    "Inak pole vynechaj."
                 ),
             },
             "watch_direction": {
@@ -1178,27 +1170,12 @@ Pravidlá:
   (napr. konkrétny očakávaný event a jeho dátum, prevládajúci naratív, aktívny katalyzátor).
   Toto dostane budúci cyklus na overenie, či ešte platí - ber to ako odkaz "čo si myslím, že
   je teraz pravda" pre svoje budúce ja.
-- watch_price/watch_direction (VOLITEĽNÉ): nastav v JEDNOM z DVOCH nezávislých prípadov.
-  (1) direction="none" A skutočný blokujúci dôvod je konkrétna CENOVÁ úroveň (napr. čakáš na retest
-  supportu/resistance, potvrdenie breakoutu) - teda niečo, čo by CENOVÝ POHYB samotný vedel
-  vyriešiť. NENASTAVUJ v tomto prípade, ak je skutočný blokujúci dôvod ČASOVÁ UDALOSŤ (napr. čakáš
-  na FOMC/CPI/PPI/NFP/PMI report, earnings, alebo iný naplánovaný event) - v tom prípade žiadny
-  cenový pohyb pred touto udalosťou tvoju neistotu nevyrieši, takže watch na cenu by bol zavádzajúci
-  (spustil by sa pri bežnom trhovom šume/drifte, nie pri skutočnom potvrdení, a viedol by k
-  zbytočným opakovaným mimoriadnym cyklom bez toho, aby sa čokoľvek reálne zmenilo). V takom prípade
-  oba polia vynechaj úplne - počkaj na ďalší pravidelný cyklus alebo priamo na výsledok danej
-  udalosti.
-  (2) direction="long"/"short" A vypĺňaš aj confidence_threshold_note nižšie (viz jeho popis) - sem
-  daj presne tú istú cenu, ktorú si tam opísal.
-  Toto spustí lacný poller sledujúci live cenu, ktorý ťa mimoriadne zavolá znova AK sa podmienka
-  splní, namiesto čakania na ďalší pravidelný cyklus.
-  VŽDY, keď tieto polia nastavíš, MUSÍ `reasoning` (v prípade (1)) alebo `confidence_threshold_note`
-  (v prípade (2)) explicitne a konkrétne uviesť, čo presne sledovaná podmienka znamená a čo by jej
-  potvrdenie spustilo - napr. "sledujem breakdown pod 0.1614, čo by potvrdilo pokračovanie
-  downtrendu a otvorilo priestor pre short" alebo "čakám na retest 0.166 zospodu ako potvrdenie
-  support-held pred long vstupom". Nestačí len skonštatovať, že rozsah/hladina "zostáva v platnosti"
-  - vysvetli VZŤAH medzi watch_price/watch_direction a tým, čo by si pri jeho splnení urobil,
-  zakaždým, nie len príležitostne.
+- watch_price/watch_direction (VOLITEĽNÉ) - presné pravidlá sú v popise polí v nástroji. Kľúčové:
+  nastavuj len na CENOVÚ úroveň, ktorú by cenový pohyb sám vedel potvrdiť (retest, breakout), NIKDY
+  keď je blokujúci dôvod časová udalosť (report/earnings) - tam ťa zobudí len šum. Vždy, keď watch
+  nastavíš, MUSÍ `watch_rationale` konkrétne povedať, čo splnenie úrovne znamená a čo by si potom
+  urobil (napr. "breakdown pod 0.1614 = pokračovanie downtrendu, zvážil by som short") - nie len
+  "úroveň platí". Obojstranný watch (watch_price_2) len pri genuinne obojstranne neistom setupe.
 - confidence_threshold_note: ak zvolíš direction="long"/"short", ale tvoje presvedčenie je len
   STREDNÉ (setup vidíš, nie je presvedčivý), napíš, PRI AKEJ CENE by tvoje presvedčenie z ČISTO
   TECHNICKÉHO hľadiska (potvrdený breakout, úspešný retest, prekonanie konkrétnej úrovne) výrazne
@@ -1207,40 +1184,15 @@ Pravidlá:
   cenový pohyb. Je ÚPLNE V PORIADKU napísať, že takú cenu nevieš odhadnúť (blokujúci dôvod je
   udalosť, nie úroveň) - vtedy watch nechaj prázdny. Pri silnom aj zjavne slabom presvedčení pole
   vynechaj.
-- watch_price_2/watch_direction_2 (VOLITEĽNÉ, vždy spolu, len ak direction="none"): DRUHÁ (opačná)
-  sledovaná úroveň - použi LEN pre genuinne obojstranne neistý/range-bound setup, kde by ROVNAKO
-  relevantne potvrdil AJ breakout hore AJ breakdown dole (napr. "nad X by potvrdilo long, pod Y by
-  potvrdilo short" - obe strany reálne zvažuješ, nie len jednu s formálnou druhou možnosťou).
-  NEPOUŽÍVAJ na dve úrovne v TOM ISTOM smere - na to stačí jeden watch_price. Nech `reasoning`
-  vysvetlí OBE strany rovnako konkrétne ako pri jednostrannom watch vyššie.
-- data_issue (VOLITEĽNÉ): ak ti vstupné dáta pre tento cyklus prídu podozrivé alebo nekonzistentné
-  (napr. zastaraná/nulová cena, chýbajúci alebo evidentne chybný TA údaj v `recent_candles`,
-  protichodný cross-market snapshot, zjavne poškodené/neúplné dáta z FRED/EIA/Marketaux blokov),
-  vyplň toto pole stručným popisom problému - NEZÁVISLE od svojho obchodného rozhodnutia (aj pri
-  direction="none"). Toto sa zobrazí priamo v histórii signálov, aby si takýto problém všimol aj
-  človek kontrolujúci logy, a nezanikol v strohom `reasoning` orientovanom na obchodné rozhodnutie.
-  Ak s dátami nič nesedí, toto pole vynechaj - nepoužívaj ho na bežné neistoty trhu.
-- daily_reflection (VOLITEĽNÉ) a summary_reflection (VOLITEĽNÉ): raz denne (pri prvom cykle po
-  polnoci) dostaneš v user správe sekciu "Nové štatistiky za včerajšok" - skutočné výsledky
-  včerajších obchodov, HYPOTETICKÉ výsledky signálov so smerom, ktoré sa neotvorili, AJ
-  hypotetické výsledky pri 'none' cykloch (čo by sa bolo stalo, keby si predsa len otvoril
-  LONG/SHORT namiesto 'none', na základe reálneho neskoršieho cenového vývoja). Tieto dve polia
-  majú ROZDIELNU úlohu:
-  - daily_reflection: IZOLOVANÁ poznámka LEN k včerajšku (2-4 vety) - slúži ako historický záznam,
-    do budúcich promptov sa už priamo neprenáša.
-  - summary_reflection: AKTUALIZOVANÁ VERZIA priebežného zhrnutia, ktoré sa NAOZAJ prenáša do
-    VŠETKÝCH tvojich budúcich cyklov (nahrádza predchádzajúcu verziu pod "Priebežné zhrnutie
-    doterajších skúseností" nižšie). Dostaneš existujúcu verziu (ak už existuje) - zapracuj do nej
-    včerajšie nové dáta: potvrď vzory, ktoré sa opakujú cez viac dní (dôležitejšie než jednorazový
-    výsledok jedného dňa), uprav závery, ktoré nové dáta vyvracajú, zahoď nepodstatné detaily. Drž
-    to STRUČNÉ (cieľovo 5-8 viet) - je to trvalá prevádzková poznámka, nie narastajúci denník.
-  V oboch prípadoch zhodnoť dve veci: (1) či tvoje confidence čísla sedeli s výsledkami (vyšší
-  odhad = častejší úspech?) a v čom bol odhad systematicky vedľa - NIE aká má byť hranica na
-  otvorenie, žiadnu nepoznáš; (2) či
-  boli tvoje 'none' rozhodnutia opodstatnené, alebo si bol niekedy zbytočne opatrný a v spätnom
-  pohľade malo byť LONG/SHORT. POZOR: jeden deň je veľmi malá vzorka - nerob z toho drastické
-  závery, len opatrný postreh (ale ak sa vzor opakuje cez viac dní v summary_reflection, ber to
-  vážnejšie). Ak túto sekciu v user správe nedostaneš, obe polia vynechaj.
+- data_issue (VOLITEĽNÉ): len na zjavne pokazené vstupy (nulová/zastaraná cena, nezmyselné TA
+  čísla), nezávisle od rozhodnutia - nie na bežnú neistotu trhu.
+- daily_reflection / summary_reflection (VOLITEĽNÉ): raz denne dostaneš "Nové štatistiky za včerajšok".
+  daily_reflection = izolovaná poznámka k včerajšku (neprenáša sa ďalej); summary_reflection =
+  AKTUALIZOVANÁ verzia priebežného zhrnutia, ktoré sa prenáša do VŠETKÝCH ďalších cyklov - zapracuj
+  včerajšok, potvrď vzory opakujúce sa cez viac dní, zahoď nepodstatné; 5-8 viet. Zhodnoť: (1) či
+  tvoje confidence čísla sedeli s výsledkami (vyšší odhad = častejší úspech?) - NIE aká má byť
+  hranica na otvorenie, žiadnu nepoznáš; (2) či boli 'none' rozhodnutia opodstatnené. Jeden deň je
+  malá vzorka - len opatrný postreh. Bez tej sekcie obe polia vynechaj.
 - Pri tomto istom DENNOM cykle ("Nové štatistiky za včerajšok" sekcia) navyše cieleným web_search
   dotazom preveruj, či nie sú známe konkrétne dátumy VÝZNAMNÝCH nadchádzajúcich udalostí v horizonte
   približne najbližších 30-60 dní (napr. ďalší termín FOMC/CPI/NFP, OPEC+ stretnutie, dôležité
@@ -1253,51 +1205,17 @@ Pravidlá:
 
 
 _VOLUME_NOTE = """
-Sviečky obsahujú aj piaty údaj - `volume` (skutočne obchodovaný objem
-{instrument} za danú hodinu). Sleduj DIVERGENCIU medzi objemom a cenovým pohybom: ak
-neobvykle vysoký objem (výrazne nad bežným objemom posledných sviečok)
-nespôsobí zodpovedajúci pohyb ceny, alebo cena sa dokonca otočí opačným smerom,
-môže to znamenať, že veľký hráč absorboval danú stranu (predaj/nákup) -
-potenciálny signál vyčerpania/otočky (klasická "climax volume" téza z
-Wyckoff/Volume Spread Analysis). Toto je len JEDEN vstup do tvojho úsudku popri
-ostatných signáloch, nie mechanické pravidlo - vyžaduje kontext (je objem
-naozaj neobvyklý, alebo len bežná variabilita). POZOR: `volume: null` znamená
-CHÝBAJÚCI údaj pre danú hodinu (napr. dátový feed ešte nestihol dobehnúť) - NIE
-skutočne nameraný nulový objem. Takéto sviečky z objemovej analýzy jednoducho
-vynechaj, neinterpretuj `null` ako "nikto neobchodoval".
-
-OPAČNÝ prípad, rovnako dôležitý (2026-08-26 produkčný nález z prierezu naprieč
-tickermi): potvrdenie prielomu/breakoutu cez sledovanú watch úroveň na
-PODPRIEMERNOM objeme je SLABŠIE potvrdenie, nie plnohodnotné - najmä ak cena
-je už výrazne natiahnutá (RSI mimo neutrálu) alebo ide o pokračovanie už
-prebiehajúceho silného pohybu bez retestu/konsolidácie. TA obsahuje presne na
-toto `last_candle_volume_vs_avg20_ratio` - hodnota pod ~1 znamená podpriemerný
-objem. V takom prípade zváž NIŽŠIU confidence namiesto automatického braní
-prekonania úrovne ako dostatočného potvrdenia - "cena prekonala watch level"
-samo osebe nie je zárukou kvality vstupu.
-
-POZOR NA PREBIEHAJÚCU HODINU (2026-09-03, produkčný nález ZEC #175). Posledná
-sviečka v `recent_candles` je VŽDY práve prebiehajúca hodina, takže má
-`volume=null` - jej objem nie je porovnateľný s dokončenými a NESMIE sa čítať
-ako prepad objemu. Predtým tam bolo neúplné číslo a viedlo to k presne opačnému
-záveru, než aká bola realita: sekvencia 8502→7479→9336→2730 vyzerala ako
-"vyčerpanie", lenže tá posledná hodina bola stará 17 minút a nakoniec sa
-uzavrela na 14506 - teda najsilnejšia objemová hodina zo všetkých štyroch.
-Nasledoval SHORT do prielomu, ktorý spravil +10 %.
-
-  - `last_candle_volume_vs_avg20_ratio` sa preto týka poslednej DOKONČENEJ
-    hodiny (voči priemeru 20 pred ňou). Je to spoľahlivý, ale až hodinu starý
-    údaj. `null` = dáta nestačia; nikdy to neinterpretuj ako nulový objem.
-  - `current_candle_volume` je OSOBITNÝ blok o prebiehajúcej hodine:
-    `minutes_elapsed`, `volume_so_far`, a ak už je v hodine dosť ďaleko
-    (`pace_reliable=true`) aj `projected_full_hour_volume` +
-    `projected_vs_avg20_ratio` - lineárny prepočet doterajšieho tempa na celú
-    hodinu. Toto je ODHAD, nie meranie: čím skôr v hodine, tým hrubší, a pri
-    `pace_reliable=false` sa vôbec nepočíta.
-  - Pri posudzovaní objemového potvrdenia PRÁVE prebiehajúceho prielomu použi
-    projekciu (je to jediné, čo o aktuálnej hodine niečo hovorí), ale povedz
-    explicitne, že ide o odhad z N minút. Na potvrdenie už uzavretého pohybu
-    použi `last_candle_volume_vs_avg20_ratio`."""
+Sviečky majú piaty údaj `volume`. Posledná sviečka je VŽDY prebiehajúca hodina, preto má
+`volume=null` - jej tempo a projekciu nájdeš v `current_candle_volume` (`volume_so_far`,
+`projected_full_hour_volume`, `projected_vs_avg20_ratio`; pri `pace_reliable=false` je príliš skoro
+v hodine na projekciu). `null` inde = chýbajúci údaj, NIE nulový objem - takú sviečku z objemovej
+úvahy vynechaj. `last_candle_volume_vs_avg20_ratio` = posledná DOKONČENÁ hodina voči priemeru 20
+pred ňou (spoľahlivé, ale až hodinu staré).
+Ako s tým pracovať: (a) prerazenie / watch úroveň potvrdená na PODPRIEMERNOM objeme (ratio pod ~1)
+je slabé potvrdenie, najmä ak je cena natiahnutá alebo ide o pokračovanie bez retestu - zváž nižšiu
+confidence; (b) neobvykle vysoký objem bez zodpovedajúceho pohybu ceny (alebo s obratom) môže
+znamenať absorpciu/vyčerpanie - jeden vstup do úsudku, nie pravidlo; (c) na prebiehajúci prielom
+použi projekciu a povedz, že je to odhad z N minút."""
 
 
 # 2026-09-01 (z otazky pouzivatela, ci sa da watch nastavit aj na objem):
@@ -1305,195 +1223,59 @@ Nasledoval SHORT do prielomu, ktorý spravil +10 %.
 # ale bid/ask VELKOSTI a index_price v tej istej odpovedi ano. Doteraz sa
 # z nich bral len spread. Tieto tri polia su surove fakty, nie odporucanie -
 # zamerne sa nehovori "pri zapornej nerovnovahe shortuj", lebo to overene nie je.
-_MICROSTRUCTURE_NOTE = """
-MIKROŠTRUKTÚRA TRHU (`book_imbalance`, `book_depth_usd`, `premium_pct`) - doplnok k `spread_pct`
-vyššie, z tej istej odpovede burzy:
-- `book_imbalance` je -1 až +1: +1 = celý objem na najlepšej cene stojí na strane BID
-  (kupujúci tlačia), -1 = všetko na ASK (predávajúci). Je to LEN najlepšia úroveň knihy,
-  nie celá hĺbka - vie sa zmeniť v sekundách a jedna veľká objednávka ju prevráti.
-  Ber to ako slabý, krátkodobý kontext, nie ako smerový signál.
-- `book_depth_usd` je dolárový objem na najlepšej cene. Pri tenkom trhu (nízka hodnota)
-  je sklz pri vstupe aj výstupe reálne riziko a stojí za nižšiu confidence.
-- `premium_pct` je rozdiel medzi mark cenou perpetuálu a indexovou cenou podkladu.
-  Trvalo kladná prémia znamená, že sa za dlhú pozíciu platí navyše (súvisí s funding),
-  výrazný skok naznačuje jednostranné pozicionovanie.
-- Žiadne z týchto čísel NEMÁ overenú prediktívnu hodnotu na našej histórii - zbierame ich
-  od 1. 9. 2026 práve preto, aby sa to dalo posúdiť. Neopieraj o ne rozhodnutie samo o sebe;
-  použi ich nanajvýš ako doplnkový dôvod pre už inak podloženú tézu, alebo ako varovanie
-  pred zlou likviditou.
-"""
-
-_FUNDING_NOTE = """
-TA obsahuje aj `funding` (ak už máme aspoň jeden zaznamenaný údaj) - AKTUÁLNU trhovú
-funding rate {instrument} zo Strike (`current_rate_pct_per_hour`) a jej krátky nedávny
-priemer (`avg_rate_pct_per_hour_recent`, z `hours_available` posledných hodín). DÔLEŽITÉ:
-Strike pripisuje/strháva funding KAŽDÚ HODINU (nie každých 8h ako je bežné na iných
-burzách) - za max. 24h držania pozície sa teda táto sadzba môže uplatniť až ~24-krát, čo
-pri opakovanom držaní blízko plnej doby (napr. force-close timeoutom) dokáže spraviť
-citeľný rozdiel v celkovom výsledku, porovnateľný s bežným cenovým pohybom. Znamienko:
-KLADNÁ sadzba = LONG pozície PLATIA, SHORT pozície DOSTÁVAJÚ; ZÁPORNÁ sadzba = SHORT
-pozície PLATIA, LONG pozície DOSTÁVAJÚ. Zváž túto (pravdepodobnú, nie garantovanú -
-sadzba sa môže počas držania zmeniť) kumulovanú sumu ako DOPLNKOVÝ, nie hlavný faktor pri
-confidence: perzistentný silný protivietor pre navrhovaný smer je mierny mínus, priaznivý
-vietor v chrbát mierny plus - cenový/technický signál a fundamenty z web_search zostávajú
-rozhodujúce. Ak `hours_available` je nízke (napr. pod 6), ber `avg_rate_pct_per_hour_recent`
-len orientačne."""
 
 
-_TREND_LABEL_NOTE = """
-`trend` je ŠTRUKTURÁLNY signál (poradie EMA20/EMA50/EMA200 voči cene), NIE priama miera
-momentum - RSI/MACD, ktoré dostávaš samostatne, sú na aktuálne momentum spoľahlivejšie.
-EMA sú spomalené priemery, takže po prudkom pohybe zostanú "zoradené" v pôvodnom smere ešte
-dlho aj potom, čo cena reálne stagnuje/RSI sa vráti do neutrálu - preto majú hodnoty tento
-význam: `strong_uptrend`/`strong_downtrend` = EMA plne zoradené A RSI mimo neutrálneho pásma
-40-60 (štruktúra aj momentum sa zhodujú - toto ber ako skutočne najsilnejší signál).
-`uptrend_stalling`/`downtrend_stalling` = EMA štruktúra rovnaká, ale RSI je v neutráli 40-60 -
-pôvodný pohyb štrukturálne pretrváva, ale momentum vyprchalo, ber to opatrnejšie než "strong_*",
-nie ako čerstvé potvrdenie. `mild_uptrend`/`mild_downtrend` = cena len nad/pod EMA200, EMA
-nie sú plne zoradené - najslabší z týchto signálov. `insufficient_data` = ešte nemáme dosť
-histórie na EMA200."""
 
 
-_TREND_STRENGTH_NOTE = """
-`adx14`/`trend_strength` (2026-08-27, prierez cez CELÉ portfólio, nie len jeden ticker) - `trend`
-vyššie je čisto ŠTRUKTURÁLNY (poradie EMA), nevie odlíšiť skutočný trend od trhu, ktorý je len
-náhodou nad/pod EMA200 bez reálnej hybnej sily. ADX (Wilder, štandardná technická konvencia,
-0-100, smer-nezávislý) toto dopĺňa: `trend_strength="weak_no_trend"` (ADX<20) = trh je typicky v
-konsolidácii/range, žiadny spoľahlivý trend na "surfovanie"; `"developing"` (20-25) = trend sa až
-rozbieha, neber ho ako potvrdený; `"trending"` (>=25) = skutočne potvrdený trend. KONKRÉTNY NÁLEZ,
-ktorý toto motivoval: portfólio malo 69% win rate počas potvrdeného silného BTC rally (ADX ~70),
-ale len 26% (OBOMA smermi rovnako zle) počas nasledujúceho plochého obdobia (ADX kleslo na
-20-35) - rovnaký štýl smerových vstupov, ktorý funguje pri silnom trende, sa v range trhu
-jednoducho seká na obe strany. Pri `weak_no_trend`/`developing` preto vyžaduj SILNEJŠIE
-potvrdenie (viac než len "cena prekonala úroveň" alebo "EMA štruktúra sedí") pred otvorením
-smerovej pozície, alebo zváž nižšiu confidence - toto je DOPLNKOVÝ mechanický fakt vedľa
-ostatných signálov, nie samostatné pravidlo "pri ADX<20 nikdy neotváraj"."""
 
 
-_HTF_NOTE = """
-`h4_context`/`daily_context` (2026-08-29) - VŠETKY ostatné indikátory (`trend`/`adx14`/RSI/MACD/BB)
-sú počítané LEN z hodinových sviečok. Tieto dva doplnkové bloky (ak sú prítomné - `null`/chýbajúce
-znamená, že ticker ešte nemá dosť vlastnej histórie na daný timeframe, najmä pri čerstvo pridaných
-tickeroch) dávajú TEN ISTÝ typ štruktúrovaného kontextu (`trend` "uptrend"/"downtrend"/"mixed" podľa
-EMA usporiadania, `rsi14`, `adx14`, `trend_strength`), len prepočítaný na 4-hodinových a denných
-sviečkach - odlišujú "hodinový range v rámci silného DENNÉHO trendu" (nižšie riziko - len krátkodobá
-konsolidácia) od "hodinový range v rámci DENNÉHO range" (vyššie riziko - žiadny nadradený trend,
-ktorý by pohyb podporil). KĽÚČOVÉ: keď sa hodinový a vyšší-timeframe `trend`/`trend_strength`
-ZHODUJÚ, ber to ako silnejšie potvrdenie; keď sa ROZCHÁDZAJÚ (napr. hodinový silný uptrend, ale
-`daily_context.trend="downtrend"`), ber hodinový signál opatrnejšie - môže ísť len o krátkodobý
-odraz proti prevažujúcemu smeru, nie o skutočný obrat.
-
-`momentum_state` (2026-08-31, ZEC #153 nález) - `trend_strength="trending"` hovorí LEN o SILE
-trendu (ADX), nič o tom, či je už NATIAHNUTÝ. `momentum_state="overbought"` (RSI>=70) alebo
-`"oversold"` (RSI<=30) na `h4_context`/`daily_context` znamená, že vyšší timeframe je v extréme -
-KONKRÉTNY NÁLEZ: ZEC malo `daily_context` RSI=73.7 označené len ako "trending" (bez varovania),
-čo presvedčilo Claude ignorovať volume-potvrdený (4x priemer) hodinový breakdown ako "len pokles v
-rámci trendu" - cena pokračovala dole aj po zatvorení pozície, teda breakdown bol reálny, nie šum.
-PRETO: keď je vyšší timeframe `overbought`/`oversold` A hodinový signál ukazuje pohyb OPAČNÝM
-smerom (najmä ak je volume-potvrdený), toto NIE JE dôvod dať vyššiemu timeframe prednosť - naopak,
-kombinácia "natiahnutý vyšší timeframe + hodinový obrat" je klasický vzor vyčerpania/obratu, ber ju
-ako PODPORU hodinového signálu, nie ako protiváhu. Vyšší timeframe má prednosť pri rozpore LEN keď
-sám nie je v extréme (`momentum_state="neutral"`) - inak posúď to ako analytik, nie mechanicky."""
 
 
-_SPREAD_NOTE = """
-`spread_pct` (2026-08-29, ak je prítomný) - aktuálny bid-ask spread na Strike ako % z live ceny,
-priamy fakt o likvidite/execution riziku PRÁVE TERAZ (nie historický priemer). Široký spread
-(orientačne nad ~0.3-0.5%, líši sa podľa tickera - porovnaj so svojím doterajším vnímaním normálnej
-šírky pre {instrument}) znamená vyššie riziko sklzu pri vstupe/výstupe, obzvlášť relevantné pri
-tenších/syntetických trackeroch (MiniMax/Unitree/Zhipu AI/SKHYNIX) - zváž to ako mierny dodatočný
-dôvod na opatrnosť (nižšia confidence), nie samostatný dôvod na zamietnutie."""
 
 
-_LONG_SHORT_NOTE = """
-`long_short_ratio` (2026-08-31, ak je prítomný - LEN pre tickery s vlastným futures trhom na
-Binance) - `long_pct`/`short_pct` = podiel VŠETKÝCH Binance futures účtov aktuálne v dlhej/krátkej
-pozícii na {instrument} (NIE váhované veľkosťou pozície, len počet účtov), `long_short_ratio` = ich
-pomer. Toto je fakt o POZICIONOVANÍ DAVU, iný rozmer než technická analýza - keď je extrémne
-jednostranný (orientačne ratio nad ~2.5 = prevažne long, pod ~0.4 = prevažne short), znamená to
-zvýšené riziko SQUEEZE v OPAČNOM smere davu: veľa pozícií na jednej strane = veľa likvidácií
-čakajúcich tesne za cenou, ktoré sa pri pohybe proti davu môžu kaskádovo spustiť a pohyb zosilniť.
-Toto je KONTRARIÁNSKY signál (extrémny long = riziko prudkého poklesu, extrémny short = riziko
-prudkého rastu), nie potvrdenie smeru - zváž ho ako doplnkový kontext k confidence, nie mechanické
-pravidlo "vždy stavaj proti davu". Blízko 1.0 (vyvážené) = neutrálny fakt, nič extra."""
+
+
+
+_TA_GLOSSARY_NOTE = """
+Význam TA polí (hodinové, ak nie je uvedené inak):
+- `trend` = ŠTRUKTÚRA (poradie EMA20/50/200 voči cene), nie momentum. `strong_up/downtrend` = EMA
+  zoradené A RSI mimo 40-60 (štruktúra aj momentum sa zhodujú - najsilnejší signál); `*_stalling` =
+  EMA zoradené, ale RSI v neutráli - pohyb štrukturálne trvá, momentum vyprchalo, neber ako čerstvé
+  potvrdenie; `mild_*` = len nad/pod EMA200 - najslabšie; `insufficient_data` = málo histórie.
+- `adx14`/`trend_strength`: `weak_no_trend` (<20) = konsolidácia, žiadny trend na surfovanie;
+  `developing` (20-25); `trending` (>=25) = potvrdený. Portfólio malo 69 % win rate pri potvrdenom
+  trende a 26 % (oboma smermi) v plochom období - pri `weak_no_trend`/`developing` vyžaduj silnejšie
+  potvrdenie než "cena prekonala úroveň", alebo nižšiu confidence.
+- `h4_context`/`daily_context`: to isté na 4h a denných sviečkach (`trend`, `rsi14`, `adx14`,
+  `trend_strength`, `momentum_state`). Zhoda s hodinovým = silnejšie potvrdenie; rozpor = hodinový
+  signál ber opatrnejšie - S VÝNIMKOU: keď je vyšší timeframe `overbought`/`oversold` a hodinový
+  ukazuje obrat opačným smerom (najmä na objeme), je to vzor vyčerpania - PODPORA hodinového
+  signálu, nie protiváha. Vyšší timeframe má prednosť len keď sám nie je v extréme.
+- `spread_pct`: aktuálny bid/ask spread v % - široký (tenké/syntetické tickery) = riziko sklzu,
+  mierny dôvod na opatrnosť.
+- `funding`: aktuálna Strike funding rate (% za HODINU; kladná = long platí, short dostáva). Drobný
+  doplnok - za 36 dní spolu -7 $.
+- `long_short_ratio` (len tickery s Binance futures): podiel účtov long vs short, nie objem. Extrém
+  (ratio nad ~2.5 alebo pod ~0.4) = riziko squeeze proti davu; blízko 1 = nič."""
 
 
 _RANGE_NOTE = """
-POZOR NA VYKLAD `in_range=false`: pasmo vyzaduje STYRI NEZAVISLE podmienky naraz a staci,
-aby padla JEDNA. `failed_conditions` hovori, ktora to bola:
-- `touches_top` / `touches_bottom` - okraj nema dost dotykov (menej nez 3), pasmo este nie je
-  ustanovene alebo sa cena drzi len pri jednej strane
-- `width_stability` - sirka druhej polovice okna sa voci prvej vyrazne zmenila (mimo 0.6-1.4),
-  teda pasmo sa prave rozsiruje alebo zuzuje
-- `min_width` - pasmo je uzsie nez 2x hodinova sigma (`min_width_required_pct`), takze by ho
-  spread a poplatky zjedli
-NIE JE ZIADNY ROZPOR, ked su dotyky v poriadku a `in_range` je aj tak false - vtedy padla ina
-podmienka. NEHLAS to ako `data_issue`; `data_issue` je na zjavne pokazene vstupy (nulova alebo
-zastarana cena, nezmyselne TA cisla), nie na tento uplne bezny stav.
-
-`price_range` (2026-08-31) - je inštrument práve teraz vnútri USTANOVENÉHO cenového pásma?
-
-Čo toto pole JE a čo NIE JE: je to mechanické meranie z vlastných hodinových dát - pásmo sa uzná
-len ak sa cena viackrát dotkla oboch okrajov, jeho šírka je stabilná a je dosť široké. NIE je to
-detekcia trhového režimu - NEVIEME povedať, či trh práve trenduje alebo sa vracia do stredu.
-Štyri kandidátske miery na to boli otestované a zlyhali, takže z tohto poľa NEVYVODZUJ nič o tom,
-čo trh urobí ďalej.
-
-Polia: `in_range` (true/false), `range_high`, `range_low`, `position_in_range` (0.0 = dno pásma,
-1.0 = vrchol), `at_edge` ("vrchol"/"dno"/null), `range_width_pct`, `touches_top`/`touches_bottom`,
-`width_stability`, `efficiency_ratio` (doplnkový kontext - na rozhodnutie o smere ho NEPOUŽÍVAJ,
-ako detektor režimu bol otestovaný a zlyhal).
-
-AKO S TÝM PRACOVAŤ:
-
-1) `in_range` = false -> toto pole ti nehovorí NIČ. Rozhodni sa podľa ostatných signálov presne
-   ako doteraz. (Zámerne tu nič neodporúčam: overilo sa len to, že V PÁSME vstup v smere pohybu
-   nefunguje, NIE že mimo pásma funguje.)
-
-2) `in_range` = true A `at_edge` je "vrchol" alebo "dno" -> tu je vstup V SMERE pohybu
-   preukázateľne zlá voľba. Backtest (vstupy na okraji pásma, naše ATR SL/TP, max držanie 24h,
-   započítané reálne poplatky a spread, bez lookaheadu, celkovo 12 146 príležitostí):
-
-                          do 22.8.    od 22.8.     spolu
-      v smere pohybu      -157.6 R     -65.9 R   -223.5 R
-      proti pohybu        -169.7 R     +69.2 R   -100.5 R
-
-   Vstup PROTI pohybu (na vrchole SHORT, na dne LONG) je teda v horšom prípade zhruba rovnako
-   zlý a v lepšom výrazne lepší. Preto na okraji pásma uprednostni vstup proti pohybu.
-
-   Dôležité, aby si tomu rozumel správne: NIE je to preto, že by sme vedeli, že sa cena vráti
-   do stredu. Je to preto, že alternatíva je rovnako zlá - takže tým nič neriskuješ.
-
-   AK SA NAPRIEK TOMU ROZHODNEŠ VSTÚPIŤ V SMERE POHYBU (long na vrchole, short na dne),
-   MUSÍŠ to v `reasoning` výslovne obhájiť: napíš, že ideš proti tomuto backtestu, a uveď
-   KONKRÉTNY dôvod, prečo je táto situácia iná (napr. čerstvý katalyzátor z web_search, ktorý
-   pásmo ruší, alebo potvrdené prerazenie na nadpriemernom objeme). "Silný trend", "momentum"
-   ani "ADX je vysoký" taký dôvod NIE SÚ - presne tie sprevádzali stratové vstupy vo vzorke.
-   Ak taký konkrétny dôvod nemáš, zvoľ "none" alebo vstup proti pohybu. Neobhájený vstup
-   v smere na okraji je horší než žiadny obchod.
-
-3) `in_range` = true, ale `at_edge` = null (si v strede pásma) -> priamy vstup teraz nemá oporu
-   v dátach ani jedným smerom. Namiesto neho NASTAV watch_price na okraj pásma (`range_high`
-   alebo `range_low`) a do `watch_rationale` napíš, že pri dosiahnutí okraja zvážiš vstup proti
-   pohybu. Presne na toto watch mechanizmus slúži.
-
-4) Vstup v smere pohybu na okraji pásma (stávka na prerazenie) je stále možný, ale má byť
-   VÝNIMOČNÝ - len ak máš konkrétny dôvod mimo samotnej ceny (silná správa, makro udalosť, objem
-   výrazne nad priemerom) a v `reasoning` ho výslovne pomenuj. Samotné "cena rastie a blíži sa
-   k hornej hranici" nestačí - to je práve ten vzor, ktorý v dátach prehráva.
-
-5) KEĎ POSUDZUJEŠ UŽ OTVORENÚ POZÍCIU (position health check), `price_range` je aktuálny -
-   pozri sa naň aj vtedy. Špeciálne: ak si do pozície vstúpil ako fade na okraji pásma a cena
-   medzitým došla k PROTIĽAHLÉMU mantinelu, ten je prirodzeným cieľom obchodu - a náš TP môže
-   byť ešte ďalej, takže hrozí, že sa cena od mantinela odrazí späť a zisk sa vráti. Je to
-   legitímny dôvod zvážiť `consider_closing`.
-
-   Ber to však s mierou - odmerané na 1 551 fade vstupoch: protiľahlý mantinel je bližšie než
-   náš TP len v 12-17 % prípadov (TP býva v priemere na 3.0-3.6 %, mantinel na 7.0-7.3 %)
-   a cena ho v tých prípadoch reálne dosiahne len v 10-26 %. Čiže je to reálna, ale ZRIEDKAVÁ
-   situácia - nehľadaj ju nasilu a nezatváraj len preto, že pásmo existuje.
-
-Ak `price_range` v dátach chýba (málo barov), rozhoduj sa ako doteraz."""
+`price_range` (ak je prítomný) - mechanické meranie z vlastných hodinových dát: pásmo sa uzná, len
+ak sa cena viackrát dotkla oboch okrajov, šírka je stabilná a dosť široká. NIE je to detekcia
+režimu - nehovorí, či trh trenduje alebo sa vracia do stredu.
+Polia: `in_range`, `range_high`, `range_low`, `position_in_range` (0 = dno, 1 = vrchol), `at_edge`
+("vrchol"/"dno"/null), `range_width_pct`.
+- `in_range=false` -> pole ti nehovorí nič, rozhoduj podľa ostatného.
+- `in_range=true` a `at_edge` vrchol/dno -> vstup V SMERE pohybu tu v backteste (12 146
+  príležitostí, s poplatkami) systematicky prehráva; vstup PROTI pohybu (na vrchole short, na dne
+  long) je v horšom prípade rovnako zlý, v lepšom výrazne lepší. Ak chceš ísť v smere pohybu, MUSÍŠ
+  v reasoning uviesť konkrétny dôvod mimo samotnej ceny (čerstvý katalyzátor, prerazenie na
+  nadpriemernom objeme) - "silný trend" ani "vysoký ADX" taký dôvod NIE SÚ, presne tie sprevádzali
+  stratové vstupy.
+- `in_range=true`, `at_edge=null` (stred) -> priamy vstup nemá oporu; nastav watch na okraj pásma a
+  do watch_rationale napíš, že tam zvážiš vstup proti pohybu.
+- Pri otvorenej pozícii: ak si vstúpil ako fade a cena došla k protiľahlému okraju, je to legitímny
+  (zriedkavý) dôvod zvážiť consider_closing."""
 
 
 _PER_ASSET_SYSTEM_APPENDIX_TEMPLATE = """Si skúsený intradenný analytik pre {label}.
@@ -1503,13 +1285,7 @@ alignment{btc_proxy_note} a prípadne social-media sentiment. Máš k dispozíci
 použi ho na vyhľadanie čerstvých {news_focus}, ktoré by mohli hýbať cenou v najbližších 24
 hodinách. Vyhľadávaj len ak to dáva zmysel (max. niekoľko vyhľadávaní).
 {volume_note}
-{funding_note}
-{trend_label_note}
-{trend_strength_note}
-{htf_note}
-{spread_note}
-{microstructure_note}
-{long_short_note}
+{ta_glossary_note}
 {range_note}
 
 Ako syntetizovať viacero signálov pre {instrument} (nepočítaj váhy mechanicky, posúď to ako
@@ -1526,9 +1302,7 @@ def _system_prompt_blocks(asset: dict) -> list[dict]:
     btc_proxy_note = ", krypto-makro proxy (BTC)" if asset.get("needs_btc_proxy") else ""
     include_volume = asset.get("include_volume", False)
     candle_format = "[open,high,low,close,volume]" if include_volume else "[open,high,low,close]"
-    volume_note = _VOLUME_NOTE.format(instrument=asset["name"]) if include_volume else ""
-    funding_note = _FUNDING_NOTE.format(instrument=asset["name"])
-    microstructure_note = _MICROSTRUCTURE_NOTE
+    volume_note = _VOLUME_NOTE if include_volume else ""
     per_asset_text = _PER_ASSET_SYSTEM_APPENDIX_TEMPLATE.format(
         label=text["label"],
         instrument=asset["name"],
@@ -1538,13 +1312,7 @@ def _system_prompt_blocks(asset: dict) -> list[dict]:
         candle_bars=market_data.RECENT_CANDLES_BARS,
         candle_format=candle_format,
         volume_note=volume_note,
-        funding_note=funding_note,
-        microstructure_note=microstructure_note,
-        trend_label_note=_TREND_LABEL_NOTE,
-        trend_strength_note=_TREND_STRENGTH_NOTE,
-        htf_note=_HTF_NOTE,
-        spread_note=_SPREAD_NOTE.format(instrument=asset["name"]),
-        long_short_note=_LONG_SHORT_NOTE.format(instrument=asset["name"]),
+        ta_glossary_note=_TA_GLOSSARY_NOTE,
         range_note=_RANGE_NOTE,
     )
     return [
@@ -1568,6 +1336,26 @@ _CLOSE_REASON_PROMPT_LABELS = {
     # zatvorit), len vseobecnu SL-timing otazku.
     "ai_early_close": "TY SÁM si túto pozíciu predčasne zatvoril (vysoká istota consider_closing)",
 }
+
+
+# 2026-09-04 (audit, balik B) - do promptu idu z TA len polia, ktore maju v
+# systemovom prompte vysvetlenie. Mikrostruktura (book_imbalance/book_depth_usd/
+# premium_pct - poznamka sama hovorila "bez overenej hodnoty") a diagnosticke
+# polia price_range (failed_conditions a spol. - vyvolavali falosne data_issue)
+# zostavaju v CycleLog.ta pre spatnu analyzu, Claude ich uz nevidi.
+_TA_PROMPT_DROP = {"book_imbalance", "book_depth_usd", "premium_pct"}
+_PRICE_RANGE_PROMPT_KEEP = {"in_range", "range_high", "range_low", "position_in_range",
+                            "at_edge", "range_width_pct"}
+
+
+def _ta_for_prompt(ta: dict | None) -> dict | None:
+    if not ta:
+        return ta
+    out = {k: v for k, v in ta.items() if k not in _TA_PROMPT_DROP}
+    pr = out.get("price_range")
+    if isinstance(pr, dict):
+        out["price_range"] = {k: v for k, v in pr.items() if k in _PRICE_RANGE_PROMPT_KEEP}
+    return out
 
 
 def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
@@ -2006,7 +1794,7 @@ Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/sp
 {schedule_line}
 
 ## Technická analýza {instrument}
-{json.dumps(ta, indent=2, ensure_ascii=False)}
+{json.dumps(_ta_for_prompt(ta), indent=2, ensure_ascii=False)}
 
 ## Cross-market kontext (S&P500, Russell 2000, SOX, VIX, DXY, US10Y/US13W výnosy, ropa, zlato)
 {json.dumps(cross_market, indent=2, ensure_ascii=False)}
