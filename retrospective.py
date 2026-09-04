@@ -7,10 +7,11 @@ LEN kvoli confidence, a co by sa BOLO stalo, keby sa pri 'none' cykloch predsa
 len otvoril hypoteticky LONG/SHORT (pomocou skutocneho neskorsieho cenoveho
 vyvoja - rovnaka metodika ako manualny backtest z 2026-07-24).
 
-Cielom je zistit, ci je confidence kalibracia primerana, prilis prisna (vela
-zamietnutych/none signalov by bolo ziskovych), alebo primerane opatrna - a dat
-Claude-ovi podklad na strucnu sebareflexiu (viz claude_analyst.py), ktora sa
-potom prenasa do vsetkych dalsich cyklov toho dna.
+Cielom je zistit, ci je confidence kalibracia primerana - a dat Claude-ovi
+podklad na strucnu dennu poznamku (daily_reflection, viz claude_analyst.py),
+ktora ide LEN do dashboardu. Od 2026-09-04 (bod 4 auditu) sa z toho uz
+NEGENERUJE ziadne priebezne zhrnutie do dalsich promptov - tam idu spocitane
+fakty z performance_facts.py.
 """
 from datetime import date, datetime, timedelta, timezone
 
@@ -125,7 +126,7 @@ def compute_daily_stats(asset: dict, for_date: date, session) -> dict:
         # spat - kvalitativne poucenie z konkretneho zatvoreneho obchodu tak
         # bolo stratene, kym ho Claude nahodou znova nezachytil z holych cisel
         # nizsie. Teraz sa zbieraju tu, aby mal Claude sancu ich REALNE
-        # zapracovat do summary_reflection (viz format_stats_for_prompt).
+        # zapracovat do daily_reflection (viz format_stats_for_prompt).
         "trade_reflections": [],
     }
     if not logs:
@@ -310,7 +311,7 @@ def format_stats_for_prompt(stats: dict) -> str:
         if len(rc) < 10:
             lines.append(
                 f"  (POZOR: n={len(rc)} je mala vzorka za JEDEN den - nestavaj na tom trvaly "
-                f"zaver o svojej kalibracii v summary_reflection, ani ak vyjde 100% hit rate. "
+                f"zaver o svojej kalibracii v daily_reflection, ani ak vyjde 100% hit rate. "
                 f"Over si to voci viacdnovemu vzoru (co uz mas v priebeznom zhrnuti), nie voci "
                 f"tomuto jednemu dnu."
             )
@@ -352,9 +353,8 @@ def format_stats_for_prompt(stats: dict) -> str:
     if reflections:
         lines.append(
             f"- Kvalitativne hodnotenia zatvorenych obchodov za tento den ({len(reflections)}) - "
-            "TOTO JE JEDINY MOMENT, kedy tieto konkretne postrehy este uvidis: uz sa nikdy znova "
-            "nezobrazia. Ak niektory obsahuje TRVALO uzitocne poucenie (nie jednorazovu nahodnu "
-            "okolnost), aktivne ho zapracuj do summary_reflection nizsie - inak sa strati navzdy:"
+            "na doplnenie k cislam vyssie (posledne 4 obchody s reflexiou dostavas aj v beznom "
+            "prompte):"
         )
         for r in reflections:
             parts = []

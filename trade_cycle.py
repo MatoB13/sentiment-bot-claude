@@ -23,6 +23,7 @@ import fred_client
 import macro_calendar
 import market_data
 import marketaux_client
+import performance_facts
 import retrospective
 import risk_manager
 import risk_overrides
@@ -520,16 +521,13 @@ def _save_pending_retrospective(name: str, symbol: str, pending_stats: dict, dec
     # volani, takze "pokus" naozaj znamena, ze model dostal data a odpovedal;
     # pri zlyhanom volani (vynimka vyssie v cykle) sa sem vobec nedostaneme a
     # den zostane nespracovany na dalsi pokus.
-    summary = decision.get("summary_reflection")
+    # 2026-09-04 (bod 4 auditu): summary_reflection uz neexistuje - rolling
+    # retrospektiva je zamrznuta (text zostava v DB pre dashboard), riadok sa
+    # pouziva uz len ako "vcerajsok spracovany" brana (based_through_date).
     try:
-        _upsert_rolling(session, symbol, summary, for_date)
+        _upsert_rolling(session, symbol, None, for_date)
         session.commit()
-        if summary:
-            print(f"[{name}] Aktualizovane priebezne zhrnutie (based_through={for_date}).")
-        else:
-            print(f"[{name}] Claude nevratil summary_reflection - priebezne zhrnutie zostava "
-                  f"nezmenene, ale {for_date} sa oznacuje za spracovany (jeden pokus denne, "
-                  f"inak by sa cyklus opakoval donekonecna).")
+        print(f"[{name}] Vcerajsok {for_date} oznaceny za spracovany.")
     except Exception as e:
         print(f"[{name}] Ulozenie priebezneho zhrnutia zlyhalo, pokracujem: {e}")
         session.rollback()
@@ -935,39 +933,6 @@ def _entry_type_label(epr: dict | None) -> str | None:
     return "v strede pásma"
 
 
-# 2026-08-27 (prierez cez CELE portfolio, nie len jeden ticker) - portfolio malo
-# 69% win rate pocas potvrdeneho silneho BTC rally (18.-21.8), ale len 26%
-# (OBOMA smermi rovnako zle) pocas nasledujuceho plocheho/range-bound obdobia
-# (22.-27.8) - _get_recent_closed_trades_context vyssie ukazuje KAZDEMU tickeru
-# LEN jeho vlastnu malu vzorku, takze ziaden jednotlivy cyklus nevidel fakt, ze
-# CELE portfolio naraz prehrava. 48h okno a min. 5 obchodov - kratsie/menej by
-# bolo prilis nahodny signal na to, aby stal za zmienku (rovnaky duch ako
-# "n je mala vzorka" upozornenia v retrospective.py).
-_PORTFOLIO_PERFORMANCE_LOOKBACK_HOURS = 48
-_PORTFOLIO_PERFORMANCE_MIN_TRADES = 5
-
-
-def _get_portfolio_recent_performance(session) -> dict | None:
-    """Cross-tickerova (NIE per-symbol) uspesnost za poslednych
-    _PORTFOLIO_PERFORMANCE_LOOKBACK_HOURS hodin, naprieč VSETKYMI symbolmi.
-    None ak je vzorka prilis mala na zmysluplny signal."""
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=_PORTFOLIO_PERFORMANCE_LOOKBACK_HOURS)
-    trades = (
-        session.query(Trade)
-        .filter(Trade.closed_at.isnot(None), Trade.closed_at >= cutoff, Trade.pnl_usd.isnot(None))
-        .all()
-    )
-    if len(trades) < _PORTFOLIO_PERFORMANCE_MIN_TRADES:
-        return None
-    wins = sum(1 for t in trades if t.pnl_usd >= 0)
-    return {
-        "n": len(trades),
-        "win_rate_pct": wins / len(trades) * 100,
-        "net_pnl_usd": sum(t.pnl_usd for t in trades),
-        "lookback_hours": _PORTFOLIO_PERFORMANCE_LOOKBACK_HOURS,
-    }
-
-
 # 2026-08-29 (na ziadost pouzivatela) - risk_manager.validate_and_size doteraz
 # bral do uvahy LEN, ci je uz otvorena pozicia na TOMTO ISTOM symbole
 # (has_open_position) - o ostatnych SUCASNE otvorenych poziciach (a ich
@@ -1046,17 +1011,14 @@ def _get_portfolio_exposure_context(symbol: str, session) -> list[dict] | None:
     return out
 
 
-def _get_retrospective_context(asset: dict, session) -> tuple[str | None, str | None, dict | None]:
-    """Vrati (retrospective_reflection, new_stats_text, pending_stats) pre tento asset.
-
-    retrospective_reflection: aktualne RollingRetrospective.summary - priebezne
-    aktualizovane zhrnutie CEZ VIAC DNI (nie len posledny den) - prenasa sa do
-    KAZDEHO cyklu, kym ho Claude neaktualizuje pri dalsom prvom cykle dna.
+def _get_retrospective_context(asset: dict, session) -> tuple[str | None, dict | None]:
+    """Vrati (new_stats_text, pending_stats) pre tento asset. (Do 2026-09-04
+    vracala aj RollingRetrospective.summary - nahradene performance_facts.)
 
     new_stats_text/pending_stats: ak vcerajsok (UTC) este NEBOL zapracovany do
     RollingRetrospective (based_through_date != vcera), cerstvo vypocitane
     (zdarma) statistiky - Claude ich v TOMTO cykle zreflektuje (daily_reflection
-    + summary_reflection na submit_trade_decision) a run_cycle_for_asset ulozi
+    na submit_trade_decision) a run_cycle_for_asset ulozi
     vysledok - prve do DailyRetrospective (audit zaznam), druhe do
     RollingRetrospective (pending_stats = surove cisla na ulozenie do oboch).
     Ak vcera nebehal ziaden cyklus vobec, rovno oznaci vcerajsok ako spracovany
@@ -1066,10 +1028,9 @@ def _get_retrospective_context(asset: dict, session) -> tuple[str | None, str | 
     yesterday_str = yesterday.isoformat()
 
     rolling = session.query(RollingRetrospective).filter(RollingRetrospective.symbol == symbol).first()
-    retrospective_reflection = rolling.summary if rolling else None
 
     if rolling is not None and rolling.based_through_date == yesterday_str:
-        return retrospective_reflection, None, None
+        return None, None
 
     stats = retrospective.compute_daily_stats(asset, yesterday, session)
     if stats["total_signals"] == 0 and stats.get("none_count", 0) == 0:
@@ -1086,9 +1047,9 @@ def _get_retrospective_context(asset: dict, session) -> tuple[str | None, str | 
             ))
         _upsert_rolling(session, symbol, None, yesterday_str)
         session.commit()
-        return retrospective_reflection, None, None
+        return None, None
 
-    return retrospective_reflection, retrospective.format_stats_for_prompt(stats), stats
+    return retrospective.format_stats_for_prompt(stats), stats
 
 
 # 2026-08-19 produkcny nalez: rozne cykly casto pomenuju TU ISTU realnu
@@ -1569,11 +1530,11 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         # Nepocita sa do last_health_escalation_at cooldownu nizsie - ten je
         # urceny pre opakovane danger-eskalacie, nie pre tento nezavisly
         # denny trigger.
-        retrospective_reflection, new_stats_text, pending_stats = _get_retrospective_context(asset, session)
+        new_stats_text, pending_stats = _get_retrospective_context(asset, session)
     except Exception as e:
         print(f"[{name}] Vypocet retrospektivy zlyhal (pokracujem bez nej): {e}")
         session.rollback()
-        retrospective_reflection, new_stats_text, pending_stats = None, None, None
+        new_stats_text, pending_stats = None, None
 
     # 2026-09-03 (MINIMAX incident) - POISTKA k oprave v _save_pending_retrospective.
     # Nespracovana retrospektiva smie eskalovat na plne Claude volanie LEN vo
@@ -1672,10 +1633,10 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         recent_trades_context = None
 
     try:
-        portfolio_performance = _get_portfolio_recent_performance(session)
+        performance_facts_text = performance_facts.get_text(session, symbol, name)
     except Exception as e:
-        print(f"[{name}] Vypocet portfolio-wide vykonnosti zlyhal (pokracujem bez neho): {e}")
-        portfolio_performance = None
+        print(f"[{name}] Vypocet faktov o vykonnosti zlyhal (pokracujem bez nich): {e}")
+        performance_facts_text = None
 
     try:
         portfolio_exposure = _get_portfolio_exposure_context(symbol, session)
@@ -1686,7 +1647,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
     try:
         health, web_search_log, usage = claude_analyst.analyze_position_health(
             asset, open_position, ta, cross_market, market_session, social, btc_proxy,
-            prev_assumptions, prev_cycle_time, retrospective_reflection,
+            prev_assumptions, prev_cycle_time, performance_facts_text,
             fred_macro, eia_data, marketaux_news, macro_event,
             pre_macro_events=_events_before_next_run(
                 asset, session, datetime.now(timezone.utc)),
@@ -1694,7 +1655,6 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
             new_stats_text=new_stats_text,
             coinmarketcal_events=coinmarketcal_events,
             recent_trades_context=recent_trades_context,
-            portfolio_performance=portfolio_performance,
             portfolio_exposure=portfolio_exposure,
         )
     except Exception as e:
@@ -1994,10 +1954,10 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             recent_trades_context = None
 
         try:
-            portfolio_performance = _get_portfolio_recent_performance(session)
+            performance_facts_text = performance_facts.get_text(session, symbol, name)
         except Exception as e:
-            print(f"[{name}] Vypocet portfolio-wide vykonnosti zlyhal (pokracujem bez neho): {e}")
-            portfolio_performance = None
+            print(f"[{name}] Vypocet faktov o vykonnosti zlyhal (pokracujem bez nich): {e}")
+            performance_facts_text = None
 
         try:
             portfolio_exposure = _get_portfolio_exposure_context(symbol, session)
@@ -2041,7 +2001,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                           f"hlbka {b['depth_atr']} ATR")
 
         try:
-            retrospective_reflection, new_stats_text, pending_stats = _get_retrospective_context(asset, session)
+            new_stats_text, pending_stats = _get_retrospective_context(asset, session)
         except Exception as e:
             # Retrospektiva je cisto doplnkova (uciaci feature) - jej zlyhanie
             # (napr. yfinance vypadok pri prepocitavani vcerajsich stats) NESMIE
@@ -2049,7 +2009,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             # sa znova na dalsom cykle, kedze DailyRetrospective sa neulozila).
             print(f"[{name}] Vypocet retrospektivy zlyhal, pokracujem bez nej: {e}")
             session.rollback()
-            retrospective_reflection, new_stats_text, pending_stats = None, None, None
+            new_stats_text, pending_stats = None, None
 
         # Odlozeny verdikt o starsom zatvoreni (2026-09-04) - volitelny, pyta sa
         # v ramci TOHTO uz aj tak beziaceho cyklu, ziadne volanie navyse.
@@ -2089,7 +2049,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             decision, web_search_log, usage = claude_analyst.analyze(
                 asset, ta, cross_market, market_session, social, btc_proxy,
                 prev_assumptions, prev_cycle_time,
-                retrospective_reflection, new_stats_text,
+                performance_facts_text, new_stats_text,
                 fred_macro, eia_data, marketaux_news,
                 confidence_streak, closed_trade, macro_event,
                 pre_macro_events=_events_before_next_run(
@@ -2102,7 +2062,6 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 watch_retrigger_streak=watch_retrigger_streak,
                 watch_set_context=watch_set_context,
                 recent_trades_context=recent_trades_context,
-                portfolio_performance=portfolio_performance,
                 portfolio_exposure=portfolio_exposure,
             )
         except Exception as e:

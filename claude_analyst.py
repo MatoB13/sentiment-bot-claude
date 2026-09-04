@@ -231,8 +231,8 @@ DECISION_TOOL = {
                 "description": (
                     "VYPLN LEN ak user sprava obsahuje sekciu 'Nove statistiky za vcerajsok' "
                     "(deje sa raz denne, pri prvom cykle po polnoci). IZOLOVANA poznamka LEN k "
-                    "VCERAJSKU (nie priebezne zhrnutie - to je samostatne pole "
-                    "summary_reflection nizsie). Strucne (2-4 vety) zhodnot dve veci: (1) ci "
+                    "VCERAJSKU - do buducich promptov sa neprenasa, sluzi pouzivatelovi v "
+                    "dashboarde. Strucne (2-4 vety) zhodnot dve veci: (1) ci "
                     "sedeli tvoje vcerajsie confidence cisla s vysledkami - vysli setupy s vyssim "
                     "cislom castejsie nez tie s nizsim? Ak nie, v com bol odhad systematicky vedla "
                     "(prilis isty pri chase vstupoch, prilis neisty pri potvrdenom trende...). "
@@ -240,25 +240,6 @@ DECISION_TOOL = {
                     "tvoje 'none' rozhodnutia boli opodstatnene, alebo ci si bol niekedy zbytocne "
                     "opatrny a v spatnom pohlade malo byt LONG/SHORT. Ak nemas take udaje k "
                     "dispozicii v tomto cykle, toto pole VYNECHAJ."
-                ),
-            },
-            "summary_reflection": {
-                "type": "string",
-                "description": (
-                    "VYPLN LEN ak user sprava obsahuje sekciu 'Nove statistiky za vcerajsok' "
-                    "(rovnaky trigger ako daily_reflection, raz denne). Na rozdiel od "
-                    "daily_reflection (izolovana poznamka LEN k vcerajsku) je toto "
-                    "AKTUALIZOVANE PRIEBEZNE ZHRNUTIE, ktore sa realne prenasa do VSETKYCH "
-                    "tvojich buducich cyklov (nahradza predchadzajucu verziu, nie je to denny "
-                    "dennik). Dostanes v sekcii 'Priebezne zhrnutie doterajsich skusenosti' "
-                    "existujucu verziu (ak uz existuje) - tvoja uloha je NAPISAT JEJ AKTUALIZOVANU "
-                    "VERZIU zapracovanim vcerajsich novych udajov: potvrd vzory, ktore sa opakuju "
-                    "cez viac dni (tie su dolezitejsie nez jednorazovy vysledok jedneho dna), "
-                    "over/uprav zavery, ktore nove data vyvracaju, a zahod uz nepodstatne detaily. "
-                    "DOLEZITE: drz to STRUCNE (cielovo 5-8 viet, max ~150 slov) - je to trvala "
-                    "prevadzkova poznamka sebe samemu, nie narastajuci log. Ak zhrnutie este "
-                    "neexistuje, napis prve len z vcerajsich udajov. Ak nemas udaje k dispozicii "
-                    "v tomto cykle, toto pole VYNECHAJ."
                 ),
             },
             "closed_trade_reflection": {
@@ -450,8 +431,8 @@ POSITION_HEALTH_TOOL = {
                 "description": (
                     "VYPLN LEN ak user sprava obsahuje sekciu 'Nove statistiky za vcerajsok' "
                     "(deje sa raz denne, pri prvom cykle po polnoci - aj ked je pozicia otvorena). "
-                    "IZOLOVANA poznamka LEN k VCERAJSKU (nie priebezne zhrnutie - to je samostatne "
-                    "pole summary_reflection nizsie). Strucne (2-4 vety) zhodnot dve veci: (1) ci "
+                    "IZOLOVANA poznamka LEN k VCERAJSKU - do buducich promptov sa neprenasa, sluzi "
+                    "pouzivatelovi v dashboarde. Strucne (2-4 vety) zhodnot dve veci: (1) ci "
                     "sedeli tvoje vcerajsie confidence cisla s vysledkami - vysli setupy s vyssim "
                     "cislom castejsie nez tie s nizsim? Ak nie, v com bol odhad systematicky vedla "
                     "(prilis isty pri chase vstupoch, prilis neisty pri potvrdenom trende...). "
@@ -459,25 +440,6 @@ POSITION_HEALTH_TOOL = {
                     "tvoje 'none' rozhodnutia boli opodstatnene, alebo ci si bol niekedy zbytocne "
                     "opatrny a v spatnom pohlade malo byt LONG/SHORT. Ak nemas take udaje k "
                     "dispozicii v tomto cykle, toto pole VYNECHAJ."
-                ),
-            },
-            "summary_reflection": {
-                "type": "string",
-                "description": (
-                    "VYPLN LEN ak user sprava obsahuje sekciu 'Nove statistiky za vcerajsok' "
-                    "(rovnaky trigger ako daily_reflection, raz denne). Na rozdiel od "
-                    "daily_reflection (izolovana poznamka LEN k vcerajsku) je toto "
-                    "AKTUALIZOVANE PRIEBEZNE ZHRNUTIE, ktore sa realne prenasa do VSETKYCH "
-                    "tvojich buducich cyklov (nahradza predchadzajucu verziu, nie je to denny "
-                    "dennik). Dostanes v sekcii 'Priebezne zhrnutie doterajsich skusenosti' "
-                    "existujucu verziu (ak uz existuje) - tvoja uloha je NAPISAT JEJ AKTUALIZOVANU "
-                    "VERZIU zapracovanim vcerajsich novych udajov: potvrd vzory, ktore sa opakuju "
-                    "cez viac dni (tie su dolezitejsie nez jednorazovy vysledok jedneho dna), "
-                    "over/uprav zavery, ktore nove data vyvracaju, a zahod uz nepodstatne detaily. "
-                    "DOLEZITE: drz to STRUCNE (cielovo 5-8 viet, max ~150 slov) - je to trvala "
-                    "prevadzkova poznamka sebe samemu, nie narastajuci log. Ak zhrnutie este "
-                    "neexistuje, napis prve len z vcerajsich udajov. Ak nemas udaje k dispozicii "
-                    "v tomto cykle, toto pole VYNECHAJ."
                 ),
             },
         },
@@ -1186,13 +1148,12 @@ Pravidlá:
   vynechaj.
 - data_issue (VOLITEĽNÉ): len na zjavne pokazené vstupy (nulová/zastaraná cena, nezmyselné TA
   čísla), nezávisle od rozhodnutia - nie na bežnú neistotu trhu.
-- daily_reflection / summary_reflection (VOLITEĽNÉ): raz denne dostaneš "Nové štatistiky za včerajšok".
-  daily_reflection = izolovaná poznámka k včerajšku (neprenáša sa ďalej); summary_reflection =
-  AKTUALIZOVANÁ verzia priebežného zhrnutia, ktoré sa prenáša do VŠETKÝCH ďalších cyklov - zapracuj
-  včerajšok, potvrď vzory opakujúce sa cez viac dní, zahoď nepodstatné; 5-8 viet. Zhodnoť: (1) či
-  tvoje confidence čísla sedeli s výsledkami (vyšší odhad = častejší úspech?) - NIE aká má byť
-  hranica na otvorenie, žiadnu nepoznáš; (2) či boli 'none' rozhodnutia opodstatnené. Jeden deň je
-  malá vzorka - len opatrný postreh. Bez tej sekcie obe polia vynechaj.
+- daily_reflection (VOLITEĽNÉ): raz denne dostaneš "Nové štatistiky za včerajšok" - napíš k nim
+  izolovanú poznámku (2-4 vety, ide len do dashboardu, nie do ďalších promptov): (1) či tvoje
+  confidence čísla sedeli s výsledkami (vyšší odhad = častejší úspech?) - NIE aká má byť hranica
+  na otvorenie, žiadnu nepoznáš; (2) či boli 'none' rozhodnutia opodstatnené. Jeden deň je malá
+  vzorka. Bez tej sekcie pole vynechaj. Tvoju dlhodobú výkonnosť dostávaš ako SPOČÍTANÉ fakty v
+  user správe - to je opis toho, čo sa naozaj dialo, nie pravidlo, ktoré máš aplikovať.
 - Pri tomto istom DENNOM cykle ("Nové štatistiky za včerajšok" sekcia) navyše cieleným web_search
   dotazom preveruj, či nie sú známe konkrétne dátumy VÝZNAMNÝCH nadchádzajúcich udalostí v horizonte
   približne najbližších 30-60 dní (napr. ďalší termín FOMC/CPI/NFP, OPEC+ stretnutie, dôležité
@@ -1362,7 +1323,7 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                         social: list[dict], btc_proxy: dict | None,
                         prev_assumptions: str | None,
                         prev_cycle_time: datetime | None = None,
-                        retrospective_reflection: str | None = None,
+                        performance_facts: str | None = None,
                         new_stats_text: str | None = None,
                         fred_macro: dict | None = None,
                         eia_data: dict | None = None,
@@ -1379,7 +1340,6 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                         close_verdict: dict | None = None,
                         coinmarketcal_events: list[dict] | None = None,
                         recent_trades_context: list[dict] | None = None,
-                        portfolio_performance: dict | None = None,
                         portfolio_exposure: list[dict] | None = None) -> str:
     instrument = asset["name"]
     social_block = "\n".join(
@@ -1419,15 +1379,14 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
             f"{json.dumps(btc_proxy, indent=2, ensure_ascii=False)}\n"
         )
 
+    # 2026-09-04 (bod 4 auditu) - namiesto rolling retrospektivy (Claudov volny
+    # text o sebe samom) spocitane fakty, viz performance_facts.py.
     retro_block = ""
-    if retrospective_reflection:
-        retro_block += (
-            f"\n## Priebežné zhrnutie doterajších skúseností (aktualizuj cez summary_reflection)\n"
-            f"{retrospective_reflection}\n"
-        )
+    if performance_facts:
+        retro_block += "\n" + performance_facts
     if new_stats_text:
         retro_block += (
-            f"\n## Nové štatistiky za včerajšok (vygeneruj daily_reflection a summary_reflection)\n"
+            f"\n## Nové štatistiky za včerajšok (vygeneruj daily_reflection)\n"
             f"{new_stats_text}\n"
         )
 
@@ -1714,26 +1673,6 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
         )
         recent_trades_block = "\n".join(rt_lines) + "\n"
 
-    # 2026-08-27 (prierez cez CELE portfolio - 69% win rate pocas silneho BTC
-    # rally vs. 26% pocas nasledujuceho plocheho obdobia, OBOMA smermi rovnako
-    # zle) - recent_trades_block vyssie ukazuje LEN tento ticker, takze kazdy
-    # ticker videl len svoju malu vzorku, nie fakt, ze CELE portfolio prehrava/
-    # vyhrava. Viz trade_cycle._get_portfolio_recent_performance.
-    portfolio_performance_block = ""
-    if portfolio_performance:
-        pp = portfolio_performance
-        sign = "+" if pp["net_pnl_usd"] >= 0 else ""
-        portfolio_performance_block = (
-            f"\n## Výkonnosť CELÉHO portfólia za posledných {pp['lookback_hours']}h "
-            f"(všetky tickery spolu, nie len {instrument})\n"
-            f"{pp['n']} uzavretých obchodov, win rate {pp['win_rate_pct']:.0f}%, "
-            f"net PnL {sign}${pp['net_pnl_usd']:.2f}. Toto je surový fakt o AKTUÁLNOM REŽIME "
-            f"trhu naprieč celým portfóliom, nie hodnotenie tohto konkrétneho tickera - "
-            f"nezvyčajne nízky win rate naprieč VIACERÝMI nesúvisiacimi tickermi naraz je "
-            f"silnejší signál, že sa zmenili trhové podmienky (napr. silný trend prešiel do "
-            f"range/konsolidácie), než že by šlo o náhodu alebo problém jedného tickera.\n"
-        )
-
     # 2026-08-29 (na ziadost pouzivatela) - risk_manager doteraz bral do uvahy
     # LEN otvorenu poziciu na TOMTO ISTOM tickeri, o ostatnych sucasne
     # otvorenych poziciach (a ich korelacii s tymto tickerom) Claude nevedel
@@ -1811,7 +1750,7 @@ Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/sp
 {streak_block}
 {watch_retrigger_block}
 {watch_set_context_block}
-{recent_trades_block}{portfolio_performance_block}{portfolio_exposure_block}
+{recent_trades_block}{portfolio_exposure_block}
 {retro_block}"""
 
     # 2026-09-02 (navrh pouzivatela) - makro udalost, ktora nastane PRED
@@ -2216,7 +2155,7 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
             btc_proxy: dict | None = None,
             prev_assumptions: str | None = None,
             prev_cycle_time: datetime | None = None,
-            retrospective_reflection: str | None = None,
+            performance_facts: str | None = None,
             new_stats_text: str | None = None,
             fred_macro: dict | None = None,
             eia_data: dict | None = None,
@@ -2232,7 +2171,6 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
             watch_retrigger_streak: dict | None = None,
             watch_set_context: dict | None = None,
             recent_trades_context: list[dict] | None = None,
-            portfolio_performance: dict | None = None,
             portfolio_exposure: list[dict] | None = None) -> tuple[dict, list[dict], dict]:
     """Vrati (decision, web_search_log, usage). web_search_log je zoznam
     {"query": str, "sources": [{"title", "url", "page_age"}]} pre kazde
@@ -2245,21 +2183,19 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
     Claude ho dostane na explicitne overenie, ci este plati.
     prev_cycle_time: kedy prev_assumptions vznikli - umoznuje formulovat hladanie
     ako presny inkrement ("co pribudlo OD X"), nie vagne "za poslednych ~4h".
-    retrospective_reflection: aktualne RollingRetrospective.summary pre tento asset
-    (priebezne aktualizovane zhrnutie, NIE len posledny den) - prenasa sa do vsetkych
-    cyklov, kym ho Claude neaktualizuje pri dalsom prvom cykle dna.
+    performance_facts: spocitany blok o doterajsej vykonnosti (viz performance_facts.py) -
+    od 2026-09-04 namiesto rolling retrospektivy.
     new_stats_text: ak toto je prvy cyklus po polnoci a vcerajsok este nebol
     zapracovany do summary, sem sa vlozi cerstvo spocitany text (viz retrospective.py)
     - Claude ma za ulohu na jeho zaklade vygenerovat daily_reflection (izolovany
-    zaznam) AJ summary_reflection (aktualizovane zhrnutie), ktore trade_cycle.py
-    nasledne ulozi (prve do DailyRetrospective, druhe do RollingRetrospective)."""
+    zaznam do DailyRetrospective pre dashboard)."""
     if not config.ANTHROPIC_API_KEY:
         raise RuntimeError("ANTHROPIC_API_KEY nie je nastavený")
 
     system_blocks = _system_prompt_blocks(asset)
     user_prompt = _build_user_prompt(asset, ta, cross_market, session, social,
                                       btc_proxy, prev_assumptions, prev_cycle_time,
-                                      retrospective_reflection, new_stats_text,
+                                      performance_facts, new_stats_text,
                                       fred_macro, eia_data, marketaux_news,
                                       confidence_streak, watch_retrigger_streak, watch_set_context,
                                       open_position=None,
@@ -2270,7 +2206,6 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
                                       close_verdict=close_verdict,
                                       coinmarketcal_events=coinmarketcal_events,
                                       recent_trades_context=recent_trades_context,
-                                      portfolio_performance=portfolio_performance,
                                       portfolio_exposure=portfolio_exposure)
     decision, web_search_log, usage = _call_claude(asset, system_blocks, user_prompt,
                                                      DECISION_TOOL, "submit_trade_decision")
@@ -2285,7 +2220,7 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                              btc_proxy: dict | None = None,
                              prev_assumptions: str | None = None,
                              prev_cycle_time: datetime | None = None,
-                             retrospective_reflection: str | None = None,
+                             performance_facts: str | None = None,
                              fred_macro: dict | None = None,
                              eia_data: dict | None = None,
                              marketaux_news: list[dict] | None = None,
@@ -2297,7 +2232,6 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                              new_stats_text: str | None = None,
                              coinmarketcal_events: list[dict] | None = None,
                              recent_trades_context: list[dict] | None = None,
-                             portfolio_performance: dict | None = None,
                              portfolio_exposure: list[dict] | None = None) -> tuple[dict, list[dict], dict]:
     """Ako analyze(), ale pre UZ OTVORENU poziciu (viz
     trade_cycle._run_position_health_check) - namiesto rozhodnutia o novom
@@ -2315,7 +2249,7 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
     system_blocks = _system_prompt_blocks(asset)
     user_prompt = _build_user_prompt(asset, ta, cross_market, session, social,
                                       btc_proxy, prev_assumptions, prev_cycle_time,
-                                      retrospective_reflection, new_stats_text,
+                                      performance_facts, new_stats_text,
                                       fred_macro, eia_data, marketaux_news,
                                       confidence_streak=None, open_position=open_position,
                                       macro_event=macro_event,
@@ -2325,7 +2259,6 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                                       close_verdict=close_verdict,
                                       coinmarketcal_events=coinmarketcal_events,
                                       recent_trades_context=recent_trades_context,
-                                      portfolio_performance=portfolio_performance,
                                       portfolio_exposure=portfolio_exposure)
     decision, web_search_log, usage = _call_claude(asset, system_blocks, user_prompt,
                                                      POSITION_HEALTH_TOOL, "submit_position_health_check")
@@ -2371,7 +2304,7 @@ _TRAILING_TAG_RE = re.compile(r"</\w+>\s*$")
 _PLAIN_TAG_FIELDS = (
     "key_assumptions", "watch_price", "watch_direction", "watch_price_2",
     "watch_direction_2", "watch_rationale", "confidence_threshold_note",
-    "data_issue", "daily_reflection", "summary_reflection",
+    "data_issue", "daily_reflection",
     "closed_trade_reflection", "sl_tp_calibration_verdict",
     "close_confidence", "recommendation", "expected_direction",
 )
@@ -2412,7 +2345,7 @@ _KNOWN_FIELD_CLOSE_TAG_RE = re.compile(
 # potencialnym hostitelom a musi sa skenovat rovnako.
 _HOST_FIELDS = (
     "reasoning", "key_assumptions", "data_issue", "watch_rationale",
-    "confidence_threshold_note", "daily_reflection", "summary_reflection",
+    "confidence_threshold_note", "daily_reflection",
     "closed_trade_reflection", "sl_tp_calibration_verdict",
 )
 
