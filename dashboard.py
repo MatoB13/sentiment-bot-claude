@@ -9,7 +9,7 @@ import contextlib
 import importlib
 import io
 import os
-from datetime import datetime, timezone
+from datetime import datetime
 
 import pandas as pd
 import streamlit as st

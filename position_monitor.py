@@ -10,7 +10,7 @@ import sl_grid_backtest
 import strike_client
 import trade_cycle
 import watch_monitor
-from db import (AtrCalibration, CycleLog, PriceBar, SlTpBacktestCandidate, Trade,
+from db import (AtrCalibration, CycleLog, SlTpBacktestCandidate, Trade,
                 get_session)
 
 # /v2/closedPositions (povodny zdroj) nema ZIADNE price/PnL/fee polia - viz

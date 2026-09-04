@@ -111,8 +111,13 @@ DECISION_TOOL = {
                     # pouzivany rozsah do uzkeho pasma tesne nad prahom, bez realnej
                     # rozlisovacej sily) - vysvetluje KONCEPT kalibracie namiesto konkretnych
                     # cisel (akekolvek cislo tu napiseme riskuje stat sa novym kotevnym bodom).
-                    "0-100 = kalibrovaná pravdepodobnosť, že tento smer/setup vyjde (NIE len "
-                    "'prekračujem prah na otvorenie'). Kalibrované znamená: ak by si rovnaké "
+                    # 2026-09-04 (holisticka kontrola) - povodne tu stalo "(NIE len
+                    # 'prekracujem prah na otvorenie')". Cislo to neprezradilo, ale
+                    # samotna veta priznavala, ze nejaka hranica existuje - presne to,
+                    # co sa balikom A malo skryt. Posledny zvysok, ktory test
+                    # test_prompt_no_threshold vtedy nezachytil (hladal ine formulacie).
+                    "0-100 = kalibrovaná pravdepodobnosť, že tento smer/setup vyjde. "
+                    "Kalibrované znamená: ak by si rovnaké "
                     "číslo priradil opakovane naprieč mnohými nezávislými rozhodnutiami, malo "
                     "by približne zodpovedať skutočnému podielu tých, čo naozaj vyjdú. Použi "
                     # 2026-09-04 - povodne tu stalo "nedrz sa umelo blizko prahu na
@@ -236,7 +241,8 @@ DECISION_TOOL = {
                     "sedeli tvoje vcerajsie confidence cisla s vysledkami - vysli setupy s vyssim "
                     "cislom castejsie nez tie s nizsim? Ak nie, v com bol odhad systematicky vedla "
                     "(prilis isty pri chase vstupoch, prilis neisty pri potvrdenom trende...). "
-                    "NEPOSUDZUJ ziadnu hranicu na otvorenie - ziadnu nepoznas; (2) ci "
+                    "Hodnot LEN presnost svojich odhadov, nie to, ktore z nich sa vykonali - "
+                    "o tom nerozhodujes; (2) ci "
                     "tvoje 'none' rozhodnutia boli opodstatnene, alebo ci si bol niekedy zbytocne "
                     "opatrny a v spatnom pohlade malo byt LONG/SHORT. Ak nemas take udaje k "
                     "dispozicii v tomto cykle, toto pole VYNECHAJ."
@@ -436,7 +442,8 @@ POSITION_HEALTH_TOOL = {
                     "sedeli tvoje vcerajsie confidence cisla s vysledkami - vysli setupy s vyssim "
                     "cislom castejsie nez tie s nizsim? Ak nie, v com bol odhad systematicky vedla "
                     "(prilis isty pri chase vstupoch, prilis neisty pri potvrdenom trende...). "
-                    "NEPOSUDZUJ ziadnu hranicu na otvorenie - ziadnu nepoznas; (2) ci "
+                    "Hodnot LEN presnost svojich odhadov, nie to, ktore z nich sa vykonali - "
+                    "o tom nerozhodujes; (2) ci "
                     "tvoje 'none' rozhodnutia boli opodstatnene, alebo ci si bol niekedy zbytocne "
                     "opatrny a v spatnom pohlade malo byt LONG/SHORT. Ak nemas take udaje k "
                     "dispozicii v tomto cykle, toto pole VYNECHAJ."
@@ -1235,8 +1242,8 @@ Pravidlá:
   čísla), nezávisle od rozhodnutia - nie na bežnú neistotu trhu.
 - daily_reflection (VOLITEĽNÉ): raz denne dostaneš "Nové štatistiky za včerajšok" - napíš k nim
   izolovanú poznámku (2-4 vety, ide len do dashboardu, nie do ďalších promptov): (1) či tvoje
-  confidence čísla sedeli s výsledkami (vyšší odhad = častejší úspech?) - NIE aká má byť hranica
-  na otvorenie, žiadnu nepoznáš; (2) či boli 'none' rozhodnutia opodstatnené. Jeden deň je malá
+  confidence čísla sedeli s výsledkami (vyšší odhad = častejší úspech?) - hodnoť LEN presnosť
+  svojich odhadov, nie to, ktoré z nich sa vykonali; (2) či boli 'none' rozhodnutia opodstatnené. Jeden deň je malá
   vzorka. Bez tej sekcie pole vynechaj. Tvoju dlhodobú výkonnosť dostávaš ako SPOČÍTANÉ fakty v
   user správe - to je opis toho, čo sa naozaj dialo, nie pravidlo, ktoré máš aplikovať.
 - Pri tomto istom DENNOM cykle ("Nové štatistiky za včerajšok" sekcia) navyše cieleným web_search

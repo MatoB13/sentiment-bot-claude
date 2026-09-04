@@ -155,14 +155,6 @@ def get_positions(symbol: str | None = None) -> list[dict]:
     return result if isinstance(result, list) else result.get("positions", [])
 
 
-def get_closed_positions(symbol: str | None = None, limit: int = 20) -> list[dict]:
-    params = [f"limit={limit}"]
-    if symbol:
-        params.append(f"symbol={symbol}")
-    result = _request("GET", f"/v2/closedPositions?{'&'.join(params)}")
-    return result if isinstance(result, list) else result.get("positions", [])
-
-
 def get_order_history(symbol: str, start_ms: int | None = None, end_ms: int | None = None,
                        limit: int = 100) -> list[dict]:
     """/v2/history/order - VSETKY objednavky (aj expirovane/zrusene) za obdobie,
