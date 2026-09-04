@@ -2197,6 +2197,22 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                   "padam spat na bezny interval.")
             watch_price = watch_direction = watch_price_2 = watch_direction_2 = watch_rationale = None
 
+        # 2026-09-04 - ked cyklus niesol odlozeny verdikt, reflexia sa naviaze na
+        # TEN obchod (nie na ten z post-close review). V _get_recent_trades_context
+        # vyhrava najnovsi zaznam, takze tento neskorsi, lepsie informovany verdikt
+        # prebije okamzitu reflexiu.
+        #
+        # POZOR (produkcny pad 4.9., NEAR+BTC): predtym to bolo napisane ako
+        # `reviewed_trade_id=...` a hned pod tym `**({"reviewed_trade_id": ...})`.
+        # Python to nespoji - vyhodi TypeError "got multiple values for keyword
+        # argument", takze KAZDY cyklus s odlozenym verdiktom spadol AZ PO
+        # zaplatenej Claude analyze, nezapisal CycleLog, a tym padom zostal
+        # navzdy "due" a opakoval sa kazdych 5 minut. Preto sa hodnota pocita RAZ.
+        reviewed_trade_id = closed_trade["trade_id"] if closed_trade else None
+        if (reviewed_trade_id is None and pending_verdict
+                and decision.get("closed_trade_reflection")):
+            reviewed_trade_id = pending_verdict["trade_id"]
+
         cycle_log = CycleLog(
             symbol=symbol, live_price=live_price, ta=ta, cross_market=cross_market,
             session_data=market_session,
@@ -2215,15 +2231,8 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             watch_rationale=watch_rationale,
             confidence_threshold_note=decision.get("confidence_threshold_note"),
             data_issue=decision.get("data_issue"),
-            reviewed_trade_id=closed_trade["trade_id"] if closed_trade else None,
+            reviewed_trade_id=reviewed_trade_id,
             closed_trade_reflection=decision.get("closed_trade_reflection"),
-            # 2026-09-04 - ked cyklus niesol odlozeny verdikt, naviaze sa
-            # reflexia na TEN obchod (nie na ten z post-close review). V
-            # _get_recent_trades_context vyhrava najnovsi zaznam, takze tento
-            # neskorsi, lepsie informovany verdikt prebije okamzitu reflexiu.
-            **({"reviewed_trade_id": pending_verdict["trade_id"]}
-               if (pending_verdict and decision.get("closed_trade_reflection")
-                   and not closed_trade) else {}),
             sl_tp_calibration_verdict=decision.get("sl_tp_calibration_verdict"),
             triggered_by_macro_event=macro_event,
             triggered_by_watch=True if watch_triggered else None,
