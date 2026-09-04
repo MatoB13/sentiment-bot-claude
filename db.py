@@ -188,6 +188,16 @@ class CycleLog(Base):
     # spolahlivo odlisit nedá.
     trigger_source = Column(String, nullable=True)
 
+    # 2026-09-04 (bod 6 auditu) - verdikt LACNEHO SKENU, ktory bezal pred plnym
+    # cyklom (viz claude_analyst.triage + config.TRIAGE_MODE). JSON:
+    #   {"worth_full_look": bool, "attention": 0-100, "reason": str,
+    #    "mode": "shadow"|"active", "usage": {...}, "watch_price": ..., ...}
+    # NULL = sken nebezal (rezim off, alebo mimoriadny/health cyklus).
+    # V rezime "shadow" je vyplneny AJ na riadku plneho cyklu - presne preto, aby
+    # sa dal verdikt skenu porovnat so skutocnym vysledkom toho isteho cyklu.
+    # Pri outcome="triage_skip" (len rezim "active") je to jediny obsah cyklu.
+    triage = Column(JSON, nullable=True)
+
     marketaux_used = Column(Boolean, nullable=True)
     social_post_count = Column(Integer, nullable=True)
     coinmarketcal_used = Column(Boolean, nullable=True)
@@ -281,7 +291,9 @@ class CycleLog(Base):
     # udalosti) tu staci boolean - watch nema "nazov", len fakt ze sa spustil.
     triggered_by_watch = Column(Boolean, nullable=True)
 
-    outcome = Column(String)            # opened | rejected | error | skipped | disabled | position_check
+    # outcome: opened | rejected | error | skipped | disabled | position_check |
+    #          evaluation_only | skipped_concurrent_cycle | triage_skip
+    outcome = Column(String)
     reject_reason = Column(String, nullable=True)
 
     trade_id = Column(Integer, nullable=True)  # ak outcome=opened, id v `trades`

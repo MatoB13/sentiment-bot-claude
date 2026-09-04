@@ -400,6 +400,9 @@ def _config_snapshot(asset: dict) -> dict:
         "health_check_loss_trigger_fraction": config.HEALTH_CHECK_LOSS_TRIGGER_FRACTION,
         # 2026-09-04 - brana na plytke prerazenie watch urovne (viz config).
         "watch_break_min_atr": config.WATCH_BREAK_MIN_ATR,
+        # 2026-09-04 - rezim dvojfazoveho cyklu (off/shadow/active, viz config).
+        "triage_mode": config.TRIAGE_MODE,
+        "triage_force_full_hours": config.TRIAGE_FORCE_FULL_HOURS,
         "min_confidence": asset["min_confidence"],
         "margin_usd": asset["margin_usd"],
         # POZOR (2026-08-08): "leverage" uz NIE JE skutocne pouzita paka -
@@ -1324,6 +1327,52 @@ def _trigger_source(macro_event=None, watch_triggered=False, closed_trade=None) 
     return "scheduled"
 
 
+# --- 2026-09-04 (bod 6 auditu): DVOJFAZOVY CYKLUS -------------------------
+# Viz config.TRIAGE_MODE a claude_analyst.triage. Tu su len dva fakty, ktore
+# sken potrebuje a vie ich dat len DB: ako davno bol posledny PLNY pohlad a ci
+# uz nejaka watch uroven zije.
+_TRIAGE_SKIP_OUTCOME = "triage_skip"
+
+
+def _hours_since_full_cycle(symbol: str, session, now: datetime) -> float | None:
+    """Hodiny od posledneho PLNEHO (plateneho, spravy citajuceho) cyklu tohto
+    tickera. None = taky cyklus zatial neexistuje.
+
+    Riadky lacneho skenu (outcome=triage_skip) sa NErataju - inak by sken sam
+    seba udrziaval "cerstvym" a plny cyklus by uz nikdy nemusel prist."""
+    log = (
+        session.query(CycleLog.created_at)
+        .filter(CycleLog.symbol == symbol,
+                CycleLog.outcome != _TRIAGE_SKIP_OUTCOME,
+                CycleLog.usage_output_tokens.isnot(None),
+                CycleLog.usage_output_tokens > 0)
+        .order_by(CycleLog.created_at.desc())
+        .first()
+    )
+    if log is None:
+        return None
+    created = log[0]
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    return (now - created).total_seconds() / 3600
+
+
+def _active_watch_context(symbol: str, session) -> dict | None:
+    """Watch uroven, ktoru poller PRAVE TERAZ sleduje (najnovsi CycleLog riadok
+    symbolu - rovnaka logika ako watch_monitor). Sken ju ma vidiet, aby
+    nenastavoval dalsiu tesne vedla nej."""
+    log = (
+        session.query(CycleLog)
+        .filter(CycleLog.symbol == symbol)
+        .order_by(CycleLog.created_at.desc())
+        .first()
+    )
+    if log is None or log.watch_price is None:
+        return None
+    return {"watch_price": log.watch_price, "watch_direction": log.watch_direction,
+            "watch_price_2": log.watch_price_2, "watch_direction_2": log.watch_direction_2}
+
+
 def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dict, market_session: dict,
                                 btc_proxy: dict | None, fred_macro: dict | None, session,
                                 macro_event: str | None = None, watch_triggered: bool = False) -> None:
@@ -2018,6 +2067,77 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             except Exception as e:
                 print(f"[{name}] CoinMarketCal cache-read zlyhal (pokracujem bez neho): {e}")
 
+        # --- LACNY SKEN (bod 6 auditu, 2026-09-04) --------------------------
+        # Bezi LEN pre planovany cyklus bez otvorenej pozicie. Mimoriadne cykly
+        # (watch/makro/post-close) preskakuje zamerne: tam UZ nastala udalost,
+        # sken by bol len krok navyse. Nespracovany vcerajsok (new_stats_text)
+        # a dlho chybajuci plny pohlad tiez vynutia plny cyklus - sken spravy
+        # necita, takze bot bez nich nesmie byt lubovolne dlho.
+        triage_payload = None
+        if (config.TRIAGE_MODE in ("shadow", "active")
+                and not closed_trade and not macro_event and not watch_triggered
+                and new_stats_text is None):
+            hours_since_full = None
+            try:
+                hours_since_full = _hours_since_full_cycle(
+                    symbol, session, datetime.now(timezone.utc))
+            except Exception as e:
+                print(f"[{name}] Vypocet casu od posledneho plneho cyklu zlyhal: {e}")
+            overdue = (hours_since_full is not None
+                       and hours_since_full >= config.TRIAGE_FORCE_FULL_HOURS)
+            if overdue:
+                print(f"[{name}] Posledny plny cyklus bol pred {hours_since_full:.1f} h "
+                      f"(>= {config.TRIAGE_FORCE_FULL_HOURS}) - sken preskakujem, "
+                      f"idem rovno na plny cyklus.")
+            else:
+                try:
+                    verdict, triage_usage = claude_analyst.triage(
+                        asset, ta, cross_market, market_session, btc_proxy,
+                        prev_assumptions, prev_cycle_time, marketaux_news,
+                        hours_since_full=hours_since_full,
+                        active_watch=_active_watch_context(symbol, session),
+                        schedule=_schedule_context(asset, datetime.now(timezone.utc)),
+                    )
+                    triage_payload = {**verdict, "mode": config.TRIAGE_MODE,
+                                      "hours_since_full": hours_since_full,
+                                      "usage": triage_usage}
+                    print(f"[{name}] Sken: worth_full_look={verdict.get('worth_full_look')} "
+                          f"attention={verdict.get('attention')} - {verdict.get('reason')}")
+                except Exception as e:
+                    # Zlyhanie skenu NIKDY nesmie zablokovat obchodny cyklus -
+                    # padame spat na plny cyklus (rovnaky duch ako ostatne doplnky).
+                    print(f"[{name}] Sken zlyhal, pokracujem plnym cyklom: {e}")
+
+                if (config.TRIAGE_MODE == "active" and triage_payload
+                        and not triage_payload["worth_full_look"]):
+                    print(f"[{name}] Sken hovori, ze plna analyza netreba - "
+                          f"zapisujem {_TRIAGE_SKIP_OUTCOME} a koncim cyklus.")
+                    session.add(CycleLog(
+                        symbol=symbol, live_price=live_price, ta=ta,
+                        cross_market=cross_market, session_data=market_session,
+                        config_snapshot=_config_snapshot(asset),
+                        direction="none", outcome=_TRIAGE_SKIP_OUTCOME,
+                        trigger_source=_trigger_source(macro_event, watch_triggered,
+                                                        closed_trade),
+                        reasoning=triage_payload.get("reason"),
+                        data_issue=triage_payload.get("data_issue"),
+                        # Watch zo skenu MUSI ist do DB - je to jediny sposob, ako
+                        # sa bot dostane k obrazovke skor nez v planovanom cykle.
+                        watch_price=triage_payload.get("watch_price"),
+                        watch_direction=triage_payload.get("watch_direction"),
+                        watch_rationale=triage_payload.get("watch_rationale"),
+                        key_assumptions=prev_assumptions,
+                        triage=triage_payload,
+                        usage_input_tokens=triage_payload["usage"]["input_tokens"],
+                        usage_cache_write_tokens=triage_payload["usage"]["cache_write_tokens"],
+                        usage_cache_read_tokens=triage_payload["usage"]["cache_read_tokens"],
+                        usage_output_tokens=triage_payload["usage"]["output_tokens"],
+                        **_source_usage_fields(asset, marketaux_news, social,
+                                                coinmarketcal_events),
+                    ))
+                    session.commit()
+                    return
+
         try:
             decision, web_search_log, usage = claude_analyst.analyze(
                 asset, ta, cross_market, market_session, social, btc_proxy,
@@ -2045,6 +2165,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 config_snapshot=_config_snapshot(asset),
                 outcome="error", reject_reason=str(e),
                 trigger_source=_trigger_source(macro_event, watch_triggered, closed_trade),
+                triage=triage_payload,
                 **_source_usage_fields(asset, marketaux_news, social, coinmarketcal_events),
             ))
             session.commit()
@@ -2106,6 +2227,9 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             sl_tp_calibration_verdict=decision.get("sl_tp_calibration_verdict"),
             triggered_by_macro_event=macro_event,
             triggered_by_watch=True if watch_triggered else None,
+            # Shadow rezim: verdikt skenu vedla skutocneho vysledku TOHO ISTEHO
+            # cyklu - jedine, z coho sa da zmerat, ci sken nezahadzuje obchody.
+            triage=triage_payload,
             usage_input_tokens=usage.get("input_tokens"),
             usage_cache_write_tokens=usage.get("cache_write_tokens"),
             usage_cache_read_tokens=usage.get("cache_read_tokens"),

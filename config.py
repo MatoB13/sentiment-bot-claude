@@ -252,6 +252,37 @@ HEALTH_CHECK_COOLDOWN_BYPASS_SL_PROXIMITY_FRACTION = _float(
 # Plati pre VSETKY tickery rovnako (na ziadost pouzivatela).
 AI_EARLY_CLOSE_CONFIDENCE_THRESHOLD = _float("AI_EARLY_CLOSE_CONFIDENCE_THRESHOLD", 50)
 
+# --- 2026-09-04: DVOJFAZOVY CYKLUS (bod 6 auditu) --------------------------
+# Problem: 95 % platenych cyklov konci `none`, planovane cykly su 74 % vsetkych
+# a otvaraju obchod v 1.3 %. Kazdy stoji ~$0.17, pricom vacsinu kontextu tvoria
+# web_search vysledky.
+#
+# Riesenie: pred plnym cyklom bezi LACNY SKEN (claude_analyst.triage) bez
+# web_search a s kratkym vlastnym promptom - odpoveda LEN na otazku "zmenilo sa
+# nieco, co stoji za plnu analyzu so spravami?". Plny cyklus potom bezi len ked
+# sken povie ano.
+#
+# REZIMY (menit LEN cez ENV, default je bezpecny):
+#   "off"    - sken vobec nebezi (spravanie pred 2026-09-04)
+#   "shadow" - sken bezi, ale plny cyklus bezi VZDY; verdikt sa uklada do
+#              CycleLog.triage vedla skutocneho vysledku. TOTO JE PRVY KROK -
+#              az z nazbieranych dat sa da povedat, ci sken nezahadzuje
+#              obchody (viz dashboard tab "Dvojfazovy cyklus").
+#   "active" - sken realne rozhoduje; pri "nie" sa zapise CycleLog s
+#              outcome="triage_skip" a plny cyklus sa nespusti.
+#
+# Sken sa NIKDY nepyta pri: watch/makro/post-close triggeri (to uz JE udalost),
+# otvorenej pozicii (tam bezi health check, ktory je mechanicky by default),
+# nespracovanom vcerajsku (retrospektiva stoji za plny pohlad raz denne) a ked
+# od posledneho PLNEHO cyklu ubehlo viac nez TRIAGE_FORCE_FULL_HOURS - sken
+# spravy necita, takze bot nesmie byt bez nich lubovolne dlho.
+TRIAGE_MODE = os.getenv("TRIAGE_MODE", "off").strip().lower()
+TRIAGE_FORCE_FULL_HOURS = _float("TRIAGE_FORCE_FULL_HOURS", 6)
+# Model skenu - default rovnaky ako hlavny. Haiku sa da skusit az ked shadow
+# data ukazu, ze sken rozhoduje spolahlivo.
+TRIAGE_MODEL = os.getenv("TRIAGE_MODEL", "") or CLAUDE_MODEL
+TRIAGE_EFFORT = os.getenv("TRIAGE_EFFORT", "low")
+
 # 2026-08-21 (na ziadost pouzivatela, pred cestou bez pocitaca) - "je bot
 # nazivo?" Discord hlasenie, viz heartbeat_check.py pre plny kontext a
 # DOLEZITE OBMEDZENIE (zachyti len "proces zije, ale zaseknuty", nie uplny

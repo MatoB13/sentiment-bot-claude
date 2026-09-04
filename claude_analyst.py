@@ -447,6 +447,91 @@ POSITION_HEALTH_TOOL = {
     },
 }
 
+# 2026-09-04 (bod 6 auditu) - LACNY SKEN pred plnym cyklom. Zamerne NEDAVA
+# moznost rozhodnut o obchode: jedina otazka je, ci sa nieco zmenilo natolko,
+# aby stalo za drahu plnu analyzu (web_search, cely prompt, minuty).
+TRIAGE_TOOL = {
+    "name": "submit_triage",
+    "description": (
+        "Odovzdaj verdikt rychleho skenu. Zavolaj VZDY, je to jediny sposob, ako "
+        "odpoved odovzdat. NEROZHODUJES o obchode - len o tom, ci sa oplati pozriet "
+        "sa na tento nastroj dokladne (s citanim sprav)."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "worth_full_look": {
+                "type": "boolean",
+                "description": (
+                    "true = od posledneho dokladneho pohladu sa stalo nieco, co stoji za "
+                    "plnu analyzu (vyrazny cenovy pohyb, prerazenie urovne, nezvycajny objem, "
+                    "obrat cross-marketu, nove headliny, bliziaca sa makro udalost, zmena "
+                    "technickeho obrazu oproti predpokladom). false = obraz je v podstate "
+                    "rovnaky ako vtedy."
+                ),
+            },
+            "attention": {
+                "type": "integer", "minimum": 0, "maximum": 100,
+                "description": (
+                    "0-100, ako VELA sa deje. 0 = uplne ticho, 100 = dramaticky pohyb/udalost. "
+                    "Nezavisle od worth_full_look (sluzi na neskorsie ladenie prahu) - vypln vzdy."
+                ),
+            },
+            "reason": {
+                "type": "string",
+                "description": "1-2 vety, PRECO ano/nie. Konkretne (cislo, uroven, nadpis), nie vseobecne.",
+            },
+            "watch_price": {
+                "type": "number",
+                "description": (
+                    "VOLITELNE (vzdy s watch_direction + watch_rationale) - cenova uroven, "
+                    "ktorej dosiahnutie by stalo za dokladny pohlad. Lacny poller ju sleduje "
+                    "kazdu minutu. Nastav ju TYPICKY vtedy, ked hlasis worth_full_look=false, "
+                    "ale vidis uroven, pri ktorej by sa to zmenilo. Uroven daj za hranicu bezneho "
+                    "sumu (orientacne aspon ~1 ATR od aktualnej ceny), nie tesne pri cene."
+                ),
+            },
+            "watch_direction": {"type": "string", "enum": ["above", "below"],
+                                 "description": "Volitelne, vzdy s watch_price."},
+            "watch_rationale": {
+                "type": "string",
+                "description": "POVINNE, ak vyplnas watch_price. Jedna veta: co by dosiahnutie tej urovne znamenalo.",
+            },
+            "data_issue": {
+                "type": "string",
+                "description": (
+                    "VOLITELNE - len ak su vstupne data zjavne pokazene (nulova/zastarana cena, "
+                    "nezmyselne TA cisla). Nie na bezne neistoty trhu."
+                ),
+            },
+        },
+        "required": ["worth_full_look", "attention", "reason"],
+    },
+}
+
+
+TRIAGE_SYSTEM_PROMPT = """Si rychly filter pre obchodneho analytika. Tvoja uloha NIE JE rozhodnut o obchode -
+je rozhodnut, ci sa od jeho posledneho DOKLADNEHO pohladu stalo nieco, co stoji za plnu analyzu.
+Plna analyza je draha: cita cerstve spravy cez web_search a trva minuty. Ty spravy NEVIDIS -
+mas len ceny, indikatory, cross-market a titulky.
+
+Povedz ANO, ked: cena sa vyrazne pohla alebo prerazila uroven, objem je nezvycajny, cross-market
+sa otocil (VIX/vynosy/BTC), titulky naznacuju novu udalost, blizi sa makro udalost, alebo sa
+technicky obraz zmenil oproti predpokladom z posledneho pohladu.
+Povedz NIE, ked je obraz v podstate rovnaky: cena v pasme bez prerazenia, priemerny objem,
+ziadne nove titulky, indikatory bez zmeny rezimu.
+
+Nie si opatrny ani odvazny - si presny. Falosne ANO stoji peniaze, falosne NIE znamena zmeskanu
+prilezitost. Ci je pohyb vyznamny, posudzuj VOCI `atr14` daneho nastroja (pohyb radovo mensi nez
+ATR je bezny sum), nie voci absolutnemu cislu.
+
+Ked hlasis NIE, ale vidis konkretnu uroven, pri ktorej by sa to zmenilo, nastav watch_price -
+lacny poller ju sleduje kazdu minutu a vtedy sa spusti plny cyklus. To je najlepsi vysledok skenu:
+usetrena analyza teraz + istota, ze skutocny pohyb neujde.
+
+Odpovedaj VYHRADNE volanim nastroja submit_triage."""
+
+
 _EQUITY_MACRO_RULES = """- **Cross-market konfirmácia**: Ak S&P500, Russell 2000 aj SOX (semikondukcia) potvrdzujú
   smer {instrument}, zvyšuje to istotu. Divergencia (napr. SOX klesá kým {instrument} rastie) je varovanie.
 - **VIX režim**: Rastúci VIX = risk-off nálada, najmä ak {instrument} zároveň rastie (divergencia =
@@ -2460,6 +2545,46 @@ def _strip_citation_tags(decision: dict) -> dict:
     return decision
 
 
+def _post_messages(payload: dict, label: str):
+    """POST /v1/messages s retry - zdielane medzi _call_claude (plny cyklus) a
+    _call_triage (lacny sken).
+
+    2026-08-20 produkcny nalez (ADA post-close review na TP zatvoreni #57 - Read
+    timed out, ZIADNY retry, reflexia navzdy stratena): requests.post() mimo
+    try/except znamenalo, ze retry na retryable STATUS KOD sa nikdy nedostal ku
+    slovu, ak spojenie zlyhalo/vyprsalo skor, nez prislo VOBEC nejake HTTP telo.
+    Preto siet ova vynimka prechadza rovnakym retry mechanizmom ako status kody."""
+    for attempt in range(_MAX_API_RETRIES + 1):
+        try:
+            resp = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": config.ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json=payload,
+                timeout=_REQUEST_TIMEOUT_SECONDS,
+            )
+        except requests.exceptions.RequestException as e:
+            if attempt < _MAX_API_RETRIES:
+                print(f"[claude_analyst] [{label}] POST /v1/messages zlyhalo "
+                      f"({e.__class__.__name__}: {e}) - skusam znova o "
+                      f"{_API_RETRY_DELAY_SECONDS}s ({attempt + 1}/{_MAX_API_RETRIES})...")
+                time.sleep(_API_RETRY_DELAY_SECONDS)
+                continue
+            raise
+        if resp.status_code in _RETRYABLE_STATUS and attempt < _MAX_API_RETRIES:
+            print(f"[claude_analyst] [{label}] POST /v1/messages -> {resp.status_code} "
+                  f"(prechodna chyba), skusam znova o {_API_RETRY_DELAY_SECONDS}s "
+                  f"({attempt + 1}/{_MAX_API_RETRIES})...")
+            time.sleep(_API_RETRY_DELAY_SECONDS)
+            continue
+        break
+    resp.raise_for_status()
+    return resp
+
+
 def _call_claude(asset: dict, system_blocks: list[dict], user_prompt: str,
                   tool: dict, tool_name: str) -> tuple[dict, list[dict], dict]:
     """Spolocna request/retry/pause_turn loop pre analyze() aj analyze_position_health()
@@ -2518,46 +2643,7 @@ def _call_claude(asset: dict, system_blocks: list[dict], user_prompt: str,
         if effort:
             payload["output_config"] = {"effort": effort}
 
-        for attempt in range(_MAX_API_RETRIES + 1):
-            # 2026-08-20 produkcny nalez (ADA post-close review na TP zatvoreni
-            # #57 - Read timed out, ZIADNY retry, reflexia navzdy stratena):
-            # requests.post() mimo try/except znamenalo, ze retry loop nizsie
-            # (na retryable STATUS KOD) sa nikdy nedostal ku slovu, ak spojenie
-            # zlyhalo/vyprsalo skor, nez prislo VOBEC nejake HTTP telo - vynimka
-            # (ReadTimeout/ConnectionError) prebublala rovno von. ADA bezi na
-            # effort=xhigh (extended thinking + web_search), co obcas genuinne
-            # potrebuje viac nez povodnych 300s. Preto: (1) timeout zvyseny na
-            # _REQUEST_TIMEOUT_SECONDS (viac priestoru pre genuinne pomalu
-            # odpoved), (2) network-level vynimka teraz TIEZ prechadza rovnakym
-            # retry mechanizmom ako retryable status kody (rovnaky pocet
-            # pokusov/pauza, ziadny novy tuning parameter).
-            try:
-                resp = requests.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={
-                        "x-api-key": config.ANTHROPIC_API_KEY,
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json",
-                    },
-                    json=payload,
-                    timeout=_REQUEST_TIMEOUT_SECONDS,
-                )
-            except requests.exceptions.RequestException as e:
-                if attempt < _MAX_API_RETRIES:
-                    print(f"[claude_analyst] [{asset['name']}] POST /v1/messages zlyhalo "
-                          f"({e.__class__.__name__}: {e}) - skusam znova o "
-                          f"{_API_RETRY_DELAY_SECONDS}s ({attempt + 1}/{_MAX_API_RETRIES})...")
-                    time.sleep(_API_RETRY_DELAY_SECONDS)
-                    continue
-                raise
-            if resp.status_code in _RETRYABLE_STATUS and attempt < _MAX_API_RETRIES:
-                print(f"[claude_analyst] [{asset['name']}] POST /v1/messages -> {resp.status_code} "
-                      f"(prechodna chyba), skusam znova o {_API_RETRY_DELAY_SECONDS}s "
-                      f"({attempt + 1}/{_MAX_API_RETRIES})...")
-                time.sleep(_API_RETRY_DELAY_SECONDS)
-                continue
-            break
-        resp.raise_for_status()
+        resp = _post_messages(payload, asset["name"])
         data = resp.json()
         content_blocks = data.get("content", [])
         web_search_log.extend(_extract_web_search_log(content_blocks))
@@ -2743,3 +2829,142 @@ def _validate_health_decision(decision: dict) -> None:
         decision.pop("watch_price", None)
         decision.pop("watch_direction", None)
         decision.pop("watch_rationale", None)
+
+
+def _build_triage_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
+                          btc_proxy: dict | None, prev_assumptions: str | None,
+                          prev_cycle_time: datetime | None,
+                          marketaux_news: list[dict] | None,
+                          hours_since_full: float | None,
+                          active_watch: dict | None,
+                          schedule: dict | None) -> str:
+    """User prompt pre lacny sken - podmnozina plneho promptu (bez makro pravidiel,
+    bez historie obchodov, bez retrospektivy, bez snippetov clankov). Viz triage()."""
+    instrument = asset["name"]
+    now = datetime.now(timezone.utc)
+
+    since = (f"Posledny DOKLADNY pohlad (s citanim sprav) bol pred {hours_since_full:.1f} h."
+             if hours_since_full is not None else
+             "Posledny dokladny pohlad: neznamy (prvy cyklus tohto nastroja).")
+
+    prev_block = "(ziadne)"
+    if prev_assumptions:
+        when = f" (z cyklu o {prev_cycle_time.strftime('%H:%M UTC')})" if prev_cycle_time else ""
+        prev_block = f'"{prev_assumptions}"{when}'
+
+    news_block = "(ziadne cerstve titulky)"
+    if marketaux_news:
+        news_block = "\n".join(
+            f"- [pred {a.get('age_hours'):.0f}h] {a.get('title')} (sentiment {a.get('sentiment_score')})"
+            if a.get("age_hours") is not None else f"- {a.get('title')}"
+            for a in marketaux_news
+        )
+
+    watch_block = "(ziadna aktivna uroven)"
+    if active_watch and active_watch.get("watch_price") is not None:
+        parts = [f"{active_watch.get('watch_direction')} {active_watch.get('watch_price')}"]
+        if active_watch.get("watch_price_2") is not None:
+            parts.append(f"{active_watch.get('watch_direction_2')} {active_watch.get('watch_price_2')}")
+        watch_block = ", ".join(parts) + " (uz nastavene, poller ich sleduje)"
+
+    schedule_line = ""
+    if schedule and schedule.get("next_run"):
+        mins = (schedule["next_run"] - now).total_seconds() / 60
+        if mins > 0:
+            schedule_line = (f"\nDalsi planovany cyklus tohto nastroja: o "
+                             f"{mins:.0f} min." if mins < 120 else
+                             f"\nDalsi planovany cyklus tohto nastroja: o {mins/60:.1f} h.")
+
+    btc_block = ""
+    if btc_proxy is not None:
+        btc_block = f"\n## BTC (krypto risk-on/off referencia)\n{json.dumps(btc_proxy, ensure_ascii=False)}\n"
+
+    return f"""## Aktualny datum a cas
+{now.strftime('%A, %d. %B %Y, %H:%M')} UTC
+{since}{schedule_line}
+
+## Technicka analyza {instrument}
+{json.dumps(_ta_for_prompt(ta), indent=2, ensure_ascii=False)}
+
+## Cross-market kontext
+{json.dumps(cross_market, indent=2, ensure_ascii=False)}
+
+## Session alignment (Azia -> Europa -> US futures)
+{json.dumps(session, indent=2, ensure_ascii=False)}
+{btc_block}
+## Cerstve titulky (Marketaux - len nadpisy, plne spravy vidi az plna analyza)
+{news_block}
+
+## Kluc. predpoklady z posledneho dokladneho pohladu
+{prev_block}
+
+## Aktualna sledovana cenova uroven
+{watch_block}
+
+Rozhodni: stoji tento nastroj PRAVE TERAZ za plnu analyzu so spravami?
+Zavolaj submit_triage.
+"""
+
+
+def _call_triage(asset: dict, user_prompt: str) -> tuple[dict, dict]:
+    """Jedno lacne volanie bez web_search (a teda bez pause_turn slucky).
+    tool_choice vynucuje volanie nastroja - nechceme volny text."""
+    payload = {
+        "model": config.TRIAGE_MODEL,
+        "max_tokens": 2000,
+        "system": [{"type": "text", "text": TRIAGE_SYSTEM_PROMPT,
+                     "cache_control": {"type": "ephemeral", "ttl": "1h"}}],
+        "tools": [TRIAGE_TOOL],
+        "tool_choice": {"type": "tool", "name": "submit_triage"},
+        "messages": [{"role": "user", "content": [{"type": "text", "text": user_prompt}]}],
+    }
+    if config.TRIAGE_EFFORT:
+        payload["output_config"] = {"effort": config.TRIAGE_EFFORT}
+
+    resp = _post_messages(payload, f"{asset['name']} triage")
+    data = resp.json()
+    usage = data.get("usage", {})
+    usage_record = {
+        "input_tokens": usage.get("input_tokens") or 0,
+        "cache_write_tokens": usage.get("cache_creation_input_tokens") or 0,
+        "cache_read_tokens": usage.get("cache_read_input_tokens") or 0,
+        "output_tokens": usage.get("output_tokens") or 0,
+        "model": config.TRIAGE_MODEL,
+        "effort": config.TRIAGE_EFFORT or None,
+    }
+    block = next((b for b in data.get("content", [])
+                  if b.get("type") == "tool_use" and b.get("name") == "submit_triage"), None)
+    if block is None:
+        raise RuntimeError(f"sken nezavolal submit_triage (stop_reason={data.get('stop_reason')})")
+    print(f"[claude_analyst] [{asset['name']}] triage usage: input={usage.get('input_tokens')} "
+          f"cache_write={usage.get('cache_creation_input_tokens')} "
+          f"cache_read={usage.get('cache_read_input_tokens')} output={usage.get('output_tokens')}")
+    return block["input"], usage_record
+
+
+def triage(asset: dict, ta: dict, cross_market: dict, session: dict,
+            btc_proxy: dict | None = None,
+            prev_assumptions: str | None = None,
+            prev_cycle_time: datetime | None = None,
+            marketaux_news: list[dict] | None = None,
+            hours_since_full: float | None = None,
+            active_watch: dict | None = None,
+            schedule: dict | None = None) -> tuple[dict, dict]:
+    """LACNY SKEN pred plnym cyklom (2026-09-04, bod 6 auditu) - vrati
+    (verdikt, usage). Bez web_search, kratky vlastny system prompt, effort low.
+
+    Verdikt: {"worth_full_look": bool, "attention": int, "reason": str,
+              volitelne watch_price/watch_direction/watch_rationale/data_issue}.
+
+    Volajuci (trade_cycle.run_cycle_for_asset) podla config.TRIAGE_MODE bud len
+    zaznamena verdikt a pokracuje ("shadow"), alebo pri worth_full_look=false
+    cyklus ukonci ("active")."""
+    if not config.ANTHROPIC_API_KEY:
+        raise RuntimeError("ANTHROPIC_API_KEY nie je nastavený")
+    prompt = _build_triage_prompt(asset, ta, cross_market, session, btc_proxy,
+                                   prev_assumptions, prev_cycle_time, marketaux_news,
+                                   hours_since_full, active_watch, schedule)
+    verdict, usage = _call_triage(asset, prompt)
+    verdict["worth_full_look"] = bool(verdict.get("worth_full_look"))
+    _drop_already_met_watch(verdict, (ta or {}).get("last_price"), f" [{asset['name']} triage]")
+    return verdict, usage
