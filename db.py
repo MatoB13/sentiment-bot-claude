@@ -766,6 +766,46 @@ class SlTpRecomputeStatus(Base):
     closed_trade_count = Column(Integer, nullable=False)
 
 
+class CostCorrection(Base):
+    """DOPOCET nakladov za behy, ktore Clauda zaplatili, ale zaznam nezapisali.
+
+    2026-09-04: dvojity kwarg `reviewed_trade_id` zhodil zapis CycleLog az PO
+    zaplatenej analyze, takze NEAR sa 9 hodin tocil dokola a v cycle_logs po tom
+    neostala ani stopa. Dashboard preto za ten den ukazoval $14 namiesto ~$52.
+    Poistka v trade_cycle uz taky beh zapise, ale SPATNE sa tie tokeny dopocitat
+    inak nedaju - nikde zaznamenane nie su.
+
+    PRECO VLASTNA TABULKA a nie riadky v cycle_logs: dopocet NIE JE cyklus.
+    Keby sme ho tam vlozili, zapocital by sa do poctov behov, trigger statistik,
+    audit kariet aj do historie signalov - vsade, kde sa cycle_logs cita ako
+    MERANY udaj. Takto ho scitava vyhradne to, co pocita naklady, a dashboard ho
+    ukazuje ako samostatnu, oznacenu zlozku.
+
+    Kazdy riadok musi byt OBHAJITELNY: `method` popisuje, ako sa cislo ziskalo,
+    `runs_low`/`runs_high` drzia rozsah a `runs_used` to, co sme nakoniec pouzili.
+    Ked sa neskor objavi lepsi zdroj, riadok sa prepise alebo zmaze - nic ineho
+    od neho nezavisi."""
+    __tablename__ = "cost_corrections"
+
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False, index=True)
+    # Okno, ktore dopocet pokryva (kvoli zaradeniu do spravneho dna na grafe).
+    period_start = Column(DateTime, nullable=False)
+    period_end = Column(DateTime, nullable=False)
+    reason = Column(String, nullable=False)          # kratky nazov incidentu
+    method = Column(String, nullable=True)           # ako sa cislo ziskalo
+    runs_low = Column(Integer, nullable=True)
+    runs_high = Column(Integer, nullable=True)
+    runs_used = Column(Integer, nullable=True)
+    input_tokens = Column(Integer, nullable=True)
+    cache_write_tokens = Column(Integer, nullable=True)
+    cache_write_1h_tokens = Column(Integer, nullable=True)
+    cache_read_tokens = Column(Integer, nullable=True)
+    output_tokens = Column(Integer, nullable=True)
+    web_searches = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class CoinMarketCalEvent(Base):
     """Kesovane nadchadzajuce krypto-projektove udalosti z CoinMarketCal
     (2026-08-19, na ziadost pouzivatela) - burzove listingy, hlasovania,
