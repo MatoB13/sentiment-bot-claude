@@ -119,6 +119,22 @@ class Trade(Base):
     # OPAKOVANIE TOHO ISTEHO druhu, co bol vzdy jeho zamer (ADA incident 2026-08-17
     # bol o opakovanej blizkosti SL, nie o miesani roznych signalov).
     last_health_escalation_kind = Column(String, nullable=True)
+    # 2026-09-04 (nalez pouzivatela z bodoveho grafu - zhluky BTC/NEAR) - KEDY
+    # sa na tuto poziciu naposledy pozrel MINUTOVY poller, bez ohladu na to, ci
+    # z toho vzisla eskalacia.
+    #
+    # position_monitor._fast_health_triggers ma branu 15/30 min, lenze tu
+    # pocitala z last_health_escalation_at vyssie - a ten sa posuva LEN pri
+    # SKUTOCNEJ eskalacii. Ked mechanicka kontrola eskalovat odmietla, nic sa
+    # neposunulo a poller dispatchol znova o minutu. Namerane: 61 % po sebe
+    # iducich fast_health dispatchov na tom istom tickeri bolo do 2 minut od
+    # seba (NEAR 4.9.: 10 dispatchov za 9 minut, z toho 0 platenych).
+    #
+    # Tie behy su vacsinou zadarmo (bez Claude volania), ale kazdy zapise
+    # CycleLog a spravi cely market snapshot (Strike + yfinance/Binance + TA) -
+    # co uz zadarmo nie je. Toto je teda oprava, aby brana robila to, na co
+    # bola navrhnuta, nie zmena spravania.
+    last_fast_health_at = Column(DateTime, nullable=True)
 
     # 2026-08-31 (na ziadost pouzivatela) - stav cenoveho pasma V CASE VSTUPU
     # (viz price_range.compute_price_range). Ulozene priamo na trade, nie

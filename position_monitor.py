@@ -375,9 +375,17 @@ def _fast_health_triggers(trade: Trade, session) -> str | None:
         return None
 
     now = datetime.now(timezone.utc)
-    last_esc = trade.last_health_escalation_at
-    if last_esc is not None and last_esc.tzinfo is None:
-        last_esc = last_esc.replace(tzinfo=timezone.utc)
+    # 2026-09-04 - brana sa pocita z NESKORSIEHO z dvoch casov: poslednej
+    # eskalacie a posledneho POHLADU minutoveho polleru. Predtym len z eskalacie,
+    # takze ked mechanicka kontrola eskalovat odmietla, nic sa neposunulo a
+    # poller dispatchol znova o minutu (61 % dispatchov bolo do 2 min od seba).
+    candidates = []
+    for ts in (trade.last_health_escalation_at,
+               getattr(trade, "last_fast_health_at", None)):
+        if ts is None:
+            continue
+        candidates.append(ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc))
+    last_esc = max(candidates) if candidates else None
     mins_since = ((now - last_esc).total_seconds() / 60) if last_esc else None
 
     sl_proximity = -pnl_pct / sl_pct
@@ -1125,6 +1133,13 @@ def check_open_trades():
                 reason = _fast_health_triggers(trade, session)
                 if reason:
                     pending_health.append((trade.symbol, reason))
+                    # Zapisujeme HNED (este v zivej session, pred samotnym
+                    # dispatchom na pozadi) - aby sa brana posunula aj vtedy, ked
+                    # z kontroly ziadna eskalacia nevzide, a aj vtedy, ked beh
+                    # zahodi in-flight poistka. Inak by poller skusal znova o
+                    # minutu, presne ako doteraz.
+                    trade.last_fast_health_at = datetime.now(timezone.utc)
+                    session.add(trade)
             except Exception as e:
                 print(f"[position_monitor] Trade {trade.id}: rychla health kontrola "
                       f"zlyhala (neblokujuce): {e}")
