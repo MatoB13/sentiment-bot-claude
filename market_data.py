@@ -738,42 +738,16 @@ SESSION_TICKERS = {
 }
 
 
-def _fetch_snapshot(tickers: dict, period: str = "10d", interval: str = "1d") -> dict:
-    symbols = list(tickers.values())
-    df = yf.download(symbols, period=period, interval=interval, progress=False,
-                      auto_adjust=True, group_by="ticker")
-
-    result = {}
-    for name, symbol in tickers.items():
-        try:
-            closes = df[symbol]["Close"].dropna()
-            if closes.empty:
-                result[name] = None
-                continue
-            last = float(closes.iloc[-1])
-            change_1d_pct = (
-                round(float((closes.iloc[-1] - closes.iloc[-2]) / closes.iloc[-2] * 100), 2)
-                if len(closes) > 1 else None
-            )
-            change_5d_pct = (
-                round(float((closes.iloc[-1] - closes.iloc[-6]) / closes.iloc[-6] * 100), 2)
-                if len(closes) > 5 else None
-            )
-            result[name] = {
-                "last": round(last, 2),
-                "change_1d_pct": change_1d_pct,
-                "change_5d_pct": change_5d_pct,
-            }
-        except Exception:
-            result[name] = None
-    return result
-
-
 def get_cross_market_snapshot() -> dict:
     """S&P500/Russell/SOX/VIX/DXY/US10Y/US13W/ropa/zlato - cross-market konfirmacia.
-    Denne sviecky su tu zamerne: tento blok ma overovat SIRSI trendovu konfirmaciu,
-    nie vnutrodenny sum, a "vcerajsia uzavierka" je pre tento ucel dostatocna."""
-    return _fetch_snapshot(CROSS_MARKET_TICKERS)
+
+    2026-09-04 (audit, A8) - HODINOVE sviecky, rovnako ako session blok. Dovtedy
+    denne uzavierky ("vcerajsia uzavierka staci"), lenze rozhodnutie je
+    intradenne a blok sa v prompte vola "konfirmacia": o 15:00 UTC Claude videl
+    VIX/vynosy zo vcerajsieho close, teda az 24 h stare, kym vlastne TA bolo
+    minutove. change_24h_pct/change_5d_pct namiesto change_1d_pct/change_5d_pct
+    (casovo zalozene, viz _pct_change_since) - ziadny iny kod tie kluce necita."""
+    return _fetch_session_snapshot(CROSS_MARKET_TICKERS)
 
 
 def _pct_change_since(closes: pd.Series, ref_ts, hours: float) -> float | None:

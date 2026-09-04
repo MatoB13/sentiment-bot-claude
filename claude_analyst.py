@@ -212,19 +212,15 @@ DECISION_TOOL = {
             "confidence_threshold_note": {
                 "type": "string",
                 "description": (
-                    "VYPLŇ VZDY, ked direction=long alebo short, ale tvoje presvedcenie je len "
-                    "STREDNE - teda setup vidis, ale nie je presvedcivy (2026-09-04: prah sa "
-                    "zamerne neuvadza, riadis sa vlastnym presvedcenim, nie hranicou). "
-                    "Napis, PRI AKEJ CENE by tvoja confidence z CISTO "
-                    "TECHNICKEHO hladiska (potvrdeny breakout, uspesny retest, prekonanie "
-                    "konkretnej urovne - NIKDY plynutim casu) prekrocila prah - a tu istu cenu daj "
-                    "aj do watch_price/watch_direction, aby ju lacny poller sledoval a pri splneni "
-                    "spustil mimoriadny cyklus (kde situaciu znova kompletne vyhodnotis od zaciatku, "
-                    "nemechanicky sa nevykona tento povodny navrh). Je UPLNE V PORIADKU napisat, ze "
-                    "v danej situacii takú cenu nevies odhadnut (napr. blokujuci dovod nie je "
-                    "cenova uroven, ale cakanie na konkretnu spravu/event) - vtedy watch_price/"
-                    "watch_direction nechaj prazdne. Mimo tohto pasma (confidence bezpecne nad "
-                    "alebo zjavne pod prahom) toto pole uplne vynechaj."
+                    "VYPLŇ, ked direction=long alebo short, ale tvoje presvedcenie je len "
+                    "STREDNE - setup vidis, nie je presvedcivy. Napis, PRI AKEJ CENE by tvoje "
+                    "presvedcenie z CISTO TECHNICKEHO hladiska (potvrdeny breakout, uspesny retest, "
+                    "prekonanie konkretnej urovne - NIKDY plynutim casu) vyrazne stuplo - a tu istu "
+                    "cenu daj aj do watch_price/watch_direction, aby ju lacny poller sledoval a pri "
+                    "splneni spustil mimoriadny cyklus (kde situaciu znova kompletne vyhodnotis od "
+                    "zaciatku). Je UPLNE V PORIADKU napisat, ze taku cenu nevies odhadnut (blokujuci "
+                    "dovod je udalost, nie uroven) - vtedy watch_price/watch_direction nechaj prazdne. "
+                    "Pri silnom aj zjavne slabom presvedceni toto pole vynechaj."
                 ),
             },
             "data_issue": {
@@ -245,9 +241,10 @@ DECISION_TOOL = {
                     "(deje sa raz denne, pri prvom cykle po polnoci). IZOLOVANA poznamka LEN k "
                     "VCERAJSKU (nie priebezne zhrnutie - to je samostatne pole "
                     "summary_reflection nizsie). Strucne (2-4 vety) zhodnot dve veci: (1) ci "
-                    "bola tvoja confidence kalibracia vcera primerana - najma ci signaly "
-                    "zamietnute LEN kvoli confidence boli vacsinou spravne zamietnute (boli by "
-                    "stratove) alebo naopak prilis prisne zamietnute (boli by ziskove); (2) ci "
+                    "sedeli tvoje vcerajsie confidence cisla s vysledkami - vysli setupy s vyssim "
+                    "cislom castejsie nez tie s nizsim? Ak nie, v com bol odhad systematicky vedla "
+                    "(prilis isty pri chase vstupoch, prilis neisty pri potvrdenom trende...). "
+                    "NEPOSUDZUJ ziadnu hranicu na otvorenie - ziadnu nepoznas; (2) ci "
                     "tvoje 'none' rozhodnutia boli opodstatnene, alebo ci si bol niekedy zbytocne "
                     "opatrny a v spatnom pohlade malo byt LONG/SHORT. Ak nemas take udaje k "
                     "dispozicii v tomto cykle, toto pole VYNECHAJ."
@@ -438,9 +435,8 @@ POSITION_HEALTH_TOOL = {
                     "Použi CELÝ rozsah 0-100 podľa reálnej sily dôkazov o vyvrátení pôvodnej "
                     "tézy - nedrž sa umelo v strednom pásme ani sa nevyhýbaj vysokým hodnotám, "
                     "ak je téza podľa teba skutočne prakticky vyvrátená alebo už naplnená a "
-                    "momentum stagnuje. DÔLEŽITÉ: toto číslo REÁLNE SPÚŠŤA akciu - pri hodnote "
-                    f"nad konfigurovaným prahom (aktuálne {config.AI_EARLY_CLOSE_CONFIDENCE_THRESHOLD:.0f}) "
-                    "systém pozíciu AUTOMATICKY zatvorí "
+                    "momentum stagnuje. DÔLEŽITÉ: toto číslo REÁLNE SPÚŠŤA akciu - nad hranicou, "
+                    "ktorú ti zámerne neuvádzame (nehádaj ju), systém pozíciu AUTOMATICKY zatvorí "
                     "trhovým príkazom bez ďalšieho čakania na používateľa. Buď preto úprimný a "
                     "kalibrovaný, nie umelo opatrný ani prehnane istý - toto sa NEPOUŽÍVA len "
                     "na spätné hodnotenie."
@@ -464,9 +460,10 @@ POSITION_HEALTH_TOOL = {
                     "(deje sa raz denne, pri prvom cykle po polnoci - aj ked je pozicia otvorena). "
                     "IZOLOVANA poznamka LEN k VCERAJSKU (nie priebezne zhrnutie - to je samostatne "
                     "pole summary_reflection nizsie). Strucne (2-4 vety) zhodnot dve veci: (1) ci "
-                    "bola tvoja confidence kalibracia vcera primerana - najma ci signaly "
-                    "zamietnute LEN kvoli confidence boli vacsinou spravne zamietnute (boli by "
-                    "stratove) alebo naopak prilis prisne zamietnute (boli by ziskove); (2) ci "
+                    "sedeli tvoje vcerajsie confidence cisla s vysledkami - vysli setupy s vyssim "
+                    "cislom castejsie nez tie s nizsim? Ak nie, v com bol odhad systematicky vedla "
+                    "(prilis isty pri chase vstupoch, prilis neisty pri potvrdenom trende...). "
+                    "NEPOSUDZUJ ziadnu hranicu na otvorenie - ziadnu nepoznas; (2) ci "
                     "tvoje 'none' rozhodnutia boli opodstatnene, alebo ci si bol niekedy zbytocne "
                     "opatrny a v spatnom pohlade malo byt LONG/SHORT. Ak nemas take udaje k "
                     "dispozicii v tomto cykle, toto pole VYNECHAJ."
@@ -1162,22 +1159,15 @@ Tvoja úloha je vyhodnotiť, či má zmysel otvoriť LONG, SHORT, alebo neobchod
 na horizont max. 24 hodín, s konkrétnym stop-lossom a take-profitom.
 
 Pravidlá:
-- Buď konzervatívny: ak signály nie sú jasné alebo sú protichodné, zvoľ "none" a nízku confidence.
-- confidence je 0-100 kalibrovaná pravdepodobnosť, že tento smer vyjde. Použi CELÝ rozsah
-  podľa reálnej sily dôkazov - presné pravidlo je v popise poľa `confidence` v nástroji.
-  DÔLEŽITÉ: confidence NIKDY needupuj len preto, aby prešla cez minimálny prah pre otvorenie
-  pozície - ten prah je externá poistka, nie odporúčanie. Ak retrospektíva/priebežné zhrnutie
-  naznačuje, že prah "netreba brať tak vážne" alebo že by nemal byť "prekážkou", je to chybná
-  interpretácia - správny záver z takého zistenia je, že KONKRÉTNE TAKÉTO SETUPY (jasný trend,
-  zhoda signálov a pod.) si zaslúžia VYŠŠIU confidence priamo teraz, nie že prah treba ignorovať.
-  Cesta k otvoreniu pozície vedie cez úprimne vyššiu confidence pri skutočne silnom signáli,
-  nikdy cez reinterpretáciu prahu. Ak dostaneš v user správe sekciu "Opakovane rovnaký smer
-  tesne pod prahom", ber ju ako konkrétny spočítaný fakt (nie len tvoj dojem) o tom, koľko
-  cyklov za sebou si už rovnaký smer opatrne obmedzoval - riaď sa presne rozlíšením v tej
-  sekcii. POZOR: samotný POČET cyklov/plynutie času NIKDY nie je dôvod na zvýšenie confidence -
-  rozhoduje len to, či sa cena SKUTOČNE POSUNULA v navrhovanom smere (potvrdenie trendom) alebo
-  zostáva plochá/v rangi (tam naopak platí, že dlhšie držanie extrému zvyšuje pravdepodobnosť
-  odrazu, nie znižuje).
+- Ak signály nie sú jasné alebo sú protichodné, zvoľ "none".
+- confidence je 0-100 kalibrovaná pravdepodobnosť, že tento smer vyjde - presné pravidlo je v
+  popise poľa `confidence` v nástroji. Je to tvoj odhad, nie páka: žiadnu hranicu, ktorú by si mal
+  "prekročiť", nepoznáš a nemáš ju hádať. Ak je presvedčenie len stredné, správna odpoveď je
+  úprimné stredné číslo + watch úroveň, nie číslo posunuté nahor. Ak dostaneš sekciu "Opakovane
+  rovnaký smer bez otvorenia pozície", je to spočítaný fakt o tom, koľko cyklov za sebou navrhuješ
+  ten istý smer - samotný POČET cyklov ani plynutie času NIE JE dôvod na vyššiu confidence;
+  rozhoduje len, či sa cena skutočne posunula navrhovaným smerom, alebo zostáva plochá (vtedy
+  dlhšie držanie extrému skôr zvyšuje pravdepodobnosť odrazu).
 - stop_loss_price a take_profit_price uveď ako absolútnu cenu sledovaného nástroja (nie percentá).
   Cieľové % vzdialenosti od aktuálnej ceny dostaneš v user správe - drž sa v ich blízkosti
   (môžeš sa mierne odchýliť podľa ATR/kontextu, ale nie výrazne mimo).
@@ -1209,18 +1199,14 @@ Pravidlá:
   support-held pred long vstupom". Nestačí len skonštatovať, že rozsah/hladina "zostáva v platnosti"
   - vysvetli VZŤAH medzi watch_price/watch_direction a tým, čo by si pri jeho splnení urobil,
   zakaždým, nie len príležitostne.
-- confidence_threshold_note (VYPĹŇAJ VŽDY, keď je relevantné): ak zvolíš direction="long" alebo
-  "short" a tvoja confidence vyjde v pásme tesne pod prahom na otvorenie pozície (presné číselné
-  pásmo pre tento cyklus dostaneš v user správe), VŽDY sa k tomu explicitne vyjadri - napíš, PRI
-  AKEJ CENE by tvoja confidence z ČISTO TECHNICKÉHO hľadiska (potvrdený breakout, úspešný retest,
-  prekonanie konkrétnej úrovne) prekročila prah, a tú istú cenu zapíš aj do watch_price/
-  watch_direction (above pre potvrdenie LONG, below pre potvrdenie SHORT - podľa toho, čo by
-  reálne posilnilo tvoj navrhovaný smer). PLYNUTIE ČASU SAMO OSEBE NIKDY nie je dôvod na zvýšenie
-  confidence (rovnaké pravidlo ako pri "Opakovane rovnaký smer tesne pod prahom" nižšie) - len
-  skutočný cenový pohyb. Je ÚPLNE V PORIADKU napísať, že v danej situácii takú cenu nevieš odhadnúť
-  (napr. blokujúci dôvod nie je cenová úroveň, ale čakanie na konkrétnu správu/event) - vtedy
-  watch_price/watch_direction nechaj prázdne, to je legitímna odpoveď. Mimo tohto pásma (confidence
-  bezpečne nad, alebo zjavne pod prahom) toto pole úplne vynechaj.
+- confidence_threshold_note: ak zvolíš direction="long"/"short", ale tvoje presvedčenie je len
+  STREDNÉ (setup vidíš, nie je presvedčivý), napíš, PRI AKEJ CENE by tvoje presvedčenie z ČISTO
+  TECHNICKÉHO hľadiska (potvrdený breakout, úspešný retest, prekonanie konkrétnej úrovne) výrazne
+  stúplo, a tú istú cenu zapíš aj do watch_price/watch_direction (above pre potvrdenie LONG, below
+  pre SHORT). PLYNUTIE ČASU SAMO OSEBE NIKDY nie je dôvod na vyššie presvedčenie - len skutočný
+  cenový pohyb. Je ÚPLNE V PORIADKU napísať, že takú cenu nevieš odhadnúť (blokujúci dôvod je
+  udalosť, nie úroveň) - vtedy watch nechaj prázdny. Pri silnom aj zjavne slabom presvedčení pole
+  vynechaj.
 - watch_price_2/watch_direction_2 (VOLITEĽNÉ, vždy spolu, len ak direction="none"): DRUHÁ (opačná)
   sledovaná úroveň - použi LEN pre genuinne obojstranne neistý/range-bound setup, kde by ROVNAKO
   relevantne potvrdil AJ breakout hore AJ breakdown dole (napr. "nad X by potvrdilo long, pod Y by
@@ -1236,7 +1222,7 @@ Pravidlá:
   Ak s dátami nič nesedí, toto pole vynechaj - nepoužívaj ho na bežné neistoty trhu.
 - daily_reflection (VOLITEĽNÉ) a summary_reflection (VOLITEĽNÉ): raz denne (pri prvom cykle po
   polnoci) dostaneš v user správe sekciu "Nové štatistiky za včerajšok" - skutočné výsledky
-  včerajších obchodov, HYPOTETICKÉ výsledky signálov zamietnutých len kvôli confidence, AJ
+  včerajších obchodov, HYPOTETICKÉ výsledky signálov so smerom, ktoré sa neotvorili, AJ
   hypotetické výsledky pri 'none' cykloch (čo by sa bolo stalo, keby si predsa len otvoril
   LONG/SHORT namiesto 'none', na základe reálneho neskoršieho cenového vývoja). Tieto dve polia
   majú ROZDIELNU úlohu:
@@ -1248,8 +1234,9 @@ Pravidlá:
     včerajšie nové dáta: potvrď vzory, ktoré sa opakujú cez viac dní (dôležitejšie než jednorazový
     výsledok jedného dňa), uprav závery, ktoré nové dáta vyvracajú, zahoď nepodstatné detaily. Drž
     to STRUČNÉ (cieľovo 5-8 viet) - je to trvalá prevádzková poznámka, nie narastajúci denník.
-  V oboch prípadoch zhodnoť dve veci: (1) či bola tvoja confidence kalibrácia primeraná - najmä či
-  prah nie je zbytočne prísny (veľa zamietnutých signálov by bolo ziskových) alebo naopak; (2) či
+  V oboch prípadoch zhodnoť dve veci: (1) či tvoje confidence čísla sedeli s výsledkami (vyšší
+  odhad = častejší úspech?) a v čom bol odhad systematicky vedľa - NIE aká má byť hranica na
+  otvorenie, žiadnu nepoznáš; (2) či
   boli tvoje 'none' rozhodnutia opodstatnené, alebo si bol niekedy zbytočne opatrný a v spätnom
   pohľade malo byť LONG/SHORT. POZOR: jeden deň je veľmi malá vzorka - nerob z toho drastické
   závery, len opatrný postreh (ale ak sa vzor opakuje cez viac dní v summary_reflection, ber to
@@ -1700,10 +1687,9 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
             + ("V TVOJOM navrhovanom smere" if moved_favorably else "PROTI tvojmu navrhovanému smeru")
         )
         streak_block = (
-            f"\n## Opakovane rovnaký smer tesne pod prahom (posledných {cs['streak_len']} cyklov za sebou)\n"
+            f"\n## Opakovane rovnaký smer bez otvorenia pozície (posledných {cs['streak_len']} cyklov za sebou)\n"
             f"Posledných {cs['streak_len']} cyklov za sebou navrhuješ rovnaký smer ({direction_label}) "
-            f"s priemernou confidence {cs['avg_confidence']:.0f} (pod prahom pre otvorenie pozície) - "
-            f"{movement_desc}.\n"
+            f"bez toho, aby sa pozícia otvorila - {movement_desc}.\n"
             f"DÔLEŽITÉ ROZLÍŠENIE (samotný počet cyklov NIČ neznamená):\n"
             f"- Ak sa cena SKUTOČNE POSÚVA v navrhovanom smere (vyššie percento, potvrdené aj cross-market "
             f"signálmi) a dôvod capovania confidence (napr. \"RSI extrém, riziko odrazu\") sa opakuje "
@@ -2159,7 +2145,8 @@ vyhodnotením.
                 "poslednou a touto kontrolou ďalej zhoršila, preto sa bežný cooldown medzi "
                 "eskaláciami obišiel.\n"
             )
-        close_threshold = config.AI_EARLY_CLOSE_CONFIDENCE_THRESHOLD
+        # 2026-09-04 (audit, A4) - cislo prahu sa uz NEUVADZA, rovnako ako pri
+        # vstupe (namerana kotva: close_confidence za 58 hodnot nikdy nad 68).
         position_block = f"""## OTVORENÁ POZÍCIA (toto NIE JE rozhodnutie o novom obchode - hodnotíš EXISTUJÚCU pozíciu)
 Smer: {direction_label} | Vstup: {op['entry_price']} | Aktuálna cena: {op['live_price']}
 Stop-loss: {op['stop_loss_price']} | Take-profit: {op['take_profit_price']} | Leverage: {op['leverage']}x
@@ -2173,8 +2160,9 @@ vyvíjať V PROSPECH tejto pozície alebo PROTI nej.
 
 ČO TVOJA ODPOVEĎ SKUTOČNE SPÔSOBÍ:
 - SL/TP na burze NEMENÍŠ - tie zostávajú presne tam, kde sú, bez ohľadu na tvoju odpoveď.
-- Ale ak zvolíš recommendation="consider_closing" a close_confidence dosiahne prah
-  ({close_threshold:.0f}), bot pozíciu ZATVORÍ SÁM trhovým príkazom, okamžite a bez potvrdenia
+- Ale ak zvolíš recommendation="consider_closing" a close_confidence je dosť vysoká (hranicu ti
+  zámerne neuvádzame - píš úprimný odhad, nie číslo na výsledok), bot pozíciu ZATVORÍ SÁM
+  trhovým príkazom, okamžite a bez potvrdenia
   človekom. NIE JE to len názor do logu. Podľa toho zváž, akú istotu tam napíšeš - podhodnotené
   číslo znamená, že pozícia zostane otvorená aj vtedy, keď si myslíš, že by nemala.
 - Máš aj TRETIU možnosť medzi "držím ďalej" a "zatváram teraz": watch_price + watch_direction.
@@ -2221,7 +2209,7 @@ vyvíjať V PROSPECH tejto pozície alebo PROTI nej.
                 "\"dobre timeované\" a šli do retrospektívy ako fakt - preto sa verdikt teraz "
                 "pýta znova s odstupom niekoľkých hodín.) DÔLEŽITÉ: tvoje direction/confidence "
                 "rozhodnutie nižšie sa v TOMTO behu NEVYKONÁ - žiadna nová pozícia sa z neho priamo "
-                "neotvorí, aj keby confidence prešla prahom. Je to zámerné (aby okamžitý re-entry po "
+                "neotvorí, nech je confidence akákoľvek. Je to zámerné (aby okamžitý re-entry po "
                 "stop-oute nebol poznačený túžbou 'dohnať stratu') - bot môže znova vstúpiť pri "
                 "najbližšom bežnom cykle na základe čerstvej analýzy. Nástroj polia "
                 "direction/confidence/SL/TP aj tak vyžaduje, tak ich vyplň ako svoj aktuálny názor - "
@@ -2243,7 +2231,7 @@ vyvíjať V PROSPECH tejto pozície alebo PROTI nej.
                 "primerane, alebo či niečo (vstup pri prehriatom RSI, chase breakoutu a pod.) vopred "
                 "naznačovalo zvýšené riziko rýchleho zvratu. DÔLEŽITÉ: tvoje direction/confidence "
                 "rozhodnutie nižšie sa v TOMTO behu NEVYKONÁ - žiadna nová pozícia sa z neho priamo "
-                "neotvorí, aj keby confidence prešla prahom. Je to zámerné (aby okamžitý re-entry po "
+                "neotvorí, nech je confidence akákoľvek. Je to zámerné (aby okamžitý re-entry po "
                 "stop-oute nebol poznačený túžbou 'dohnať stratu') - bot môže znova vstúpiť pri "
                 "najbližšom bežnom cykle na základe čerstvej analýzy. Nástroj polia "
                 "direction/confidence/SL/TP aj tak vyžaduje, tak ich vyplň ako svoj aktuálny názor - "
