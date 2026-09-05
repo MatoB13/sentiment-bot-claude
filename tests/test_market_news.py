@@ -115,7 +115,10 @@ mn.get_market_headlines()
 first = calls[0]
 for _ in range(5):
     mn.get_market_headlines()
-check("prve volanie stiahlo oba feedy", first, 2)
+# Pocet feedov sa ODVODZUJE, nie natvrdo - inak test spadne pri kazdom
+# pridani zdroja, hoci vlastnost (jedno stiahnutie zdielane vsetkymi)
+# stale plati. Prave to sa stalo pri rozsireni na 4 feedy.
+check("prve volanie stiahlo VSETKY feedy", first, len(mn._FEEDS))
 check("dalsich 5 volani islo z cache", calls[0], first)
 
 print("\n6) Globalny vypinac")
@@ -126,6 +129,23 @@ config.MARKET_NEWS_ENABLED = False
 check("vypnute -> prazdno", mn.get_market_headlines(), [])
 check("a ziadne stahovanie", calls[0], before)
 config.MARKET_NEWS_ENABLED = True
+
+print("\n6b) Stav posledneho stiahnutia - aby sa vypadok dal ukazat")
+reset()
+stub([Resp(feed([("Prvy", 1)])), RuntimeError("timeout")]
+     + [Resp(feed([])) for _ in mn._FEEDS])
+mn.get_market_headlines()
+st = mn.last_status()
+check("ok=True, ked aspon jeden feed zije", st["ok"], True)
+check("pocita zive feedy", st["feeds_ok"] >= 1, True)
+check("chyba nesie nazov zdroja", len(st["errors"]) >= 1, True)
+check("items nesu titulok", st["items"][0]["title"], "Prvy")
+check("items nesu zdroj", bool(st["items"][0]["source"]), True)
+
+reset()
+stub([RuntimeError("x") for _ in mn._FEEDS])
+mn.get_market_headlines()
+check("ok=False az ked padnu VSETKY", mn.last_status()["ok"], False)
 
 print("\n7) Zapnute LEN na dohodnutych tickeroch")
 import assets  # noqa: E402
