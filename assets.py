@@ -129,6 +129,10 @@ ADA = {
     "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "ADAUSD"},
+    # 2026-09-05: Marketaux pre tento ticker nevracia nic (7 dni: 0-4 %),
+    # takze sken rozhodoval len z TA. Zdielane trhove titulky to doplnaju -
+    # viz market_news_client.py. Zapnute zamerne len na 3 tickeroch.
+    "market_news": True,
     # Volitelny effort test (viz config.ADA_EFFORT) - prazdne = bez zmeny.
     "effort": config.ADA_EFFORT,
 }
@@ -476,6 +480,10 @@ ZEC = {
     # (najnovsi 78 dni stary), kym search "Zcash" vracia relevantne cenove
     # analyzy ("Zcash Reverses From 883.00 Resistance").
     "marketaux_query": {"search": "Zcash"},
+    # 2026-09-05: Marketaux pre tento ticker nevracia nic (7 dni: 0-4 %),
+    # takze sken rozhodoval len z TA. Zdielane trhove titulky to doplnaju -
+    # viz market_news_client.py. Zapnute zamerne len na 3 tickeroch.
+    "market_news": True,
     "effort": config.ZEC_EFFORT,
 }
 
@@ -568,6 +576,10 @@ NEAR = {
     "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "NEARUSD"},
+    # 2026-09-05: Marketaux pre tento ticker nevracia nic (7 dni: 0-4 %),
+    # takze sken rozhodoval len z TA. Zdielane trhove titulky to doplnaju -
+    # viz market_news_client.py. Zapnute zamerne len na 3 tickeroch.
+    "market_news": True,
     "effort": config.NEAR_EFFORT,
 }
 

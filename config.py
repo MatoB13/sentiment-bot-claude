@@ -230,6 +230,33 @@ WATCH_BREAK_MIN_ATR = _float("WATCH_BREAK_MIN_ATR", 0.30)
 # POZOR: prahy su vybrate z tych istych dat, na ktorych su merane (in-sample),
 # preto okruhle 3/6 namiesto presnych 3.2/5.83. Brana 0.30 ATR vyssie navyse
 # bezi od 4.9. a mohla cast tychto vstupov odrezat uz sama - po ~2 tyzdnoch
+# 2026-09-05 - TRHOVE KRYPTO TITULKY PRE LACNY SKEN (market_news_client.py).
+#
+# PRECO: sken NEMA web_search, takze jeho jediny zdroj sprav su Marketaux
+# titulky. Lenze Marketaux pre mensie krypto nevracia nic - namerane za 7 dni:
+# ADA 0 %, NEAR 0 %, PUMP 0 %, NIGHT 0 %, MINIMAX 0 %, ZEC 4 %, oproti
+# GOOGL 98 % a BTC 89 %. Pre tie tickery teda sken rozhodoval len z TA.
+#
+# Iny dodavatel to nerieši - overene na dvoch nezavislych RSS: najnovsi clanok
+# pre ADA 70 h, ZEC 205 h, NEAR 2137 h. Tie spravy proste neexistuju. Trhove
+# feedy su naopak cerstve (10-15 poloziek do 25 h) a relevantne spravy v nich
+# su, len neotagovane - pre mensie altcoiny je aj tak driverom trh.
+#
+# Zapina sa PER TICKER cez assets.py "market_news": True - zamerne po jednom,
+# lebo vseobecne titulky mozu vyvolat falosne "ANO" (drahy plny cyklus kvoli
+# nesuvisiacej sprave). MARKET_NEWS_ENABLED=false vypne globalne.
+MARKET_NEWS_ENABLED = _bool("MARKET_NEWS_ENABLED", "true")
+# Rovnaka hranica ako Marketaux (viz MARKETAUX_MAX_ARTICLE_AGE_HOURS) - starsie
+# nez posledny cyklus uz nie je "novinka", ktoru by sken mal riesit.
+MARKET_NEWS_MAX_AGE_HOURS = _float("MARKET_NEWS_MAX_AGE_HOURS", 25.0)
+# Strop na pocet titulkov v prompte. 8 je ~200 tokenov; viac by uz len zvysovalo
+# sancu na falosne "ANO" bez pridanej informacie.
+MARKET_NEWS_MAX_ITEMS = _int("MARKET_NEWS_MAX_ITEMS", 8)
+# Feed je ZDIELANY vsetkymi tickermi, takze sa stahuje raz za tento cas, nie
+# raz za ticker. 20 min je hlboko pod frekvenciou, akou tie feedy pribudaju.
+MARKET_NEWS_CACHE_MINUTES = _float("MARKET_NEWS_CACHE_MINUTES", 20.0)
+
+
 # treba premerat znova. Nastavenie oboch na 0 branu vypne.
 WATCH_DEAD_BAND_MIN_24H_PCT = _float("WATCH_DEAD_BAND_MIN_24H_PCT", 3.0)
 WATCH_DEAD_BAND_MAX_24H_PCT = _float("WATCH_DEAD_BAND_MAX_24H_PCT", 6.0)

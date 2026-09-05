@@ -24,6 +24,7 @@ import fred_client
 import macro_calendar
 import market_data
 import marketaux_client
+import market_news_client
 import performance_facts
 import retrospective
 import risk_manager
@@ -2129,9 +2130,19 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                       f"idem rovno na plny cyklus.")
             else:
                 try:
+                    # Zdielane trhove titulky - len pre tickery, kde Marketaux
+                    # nevracia nic (viz assets.py "market_news"). Zlyhanie je
+                    # neblokujuce, sken bez nich bezi ako doteraz.
+                    market_news = None
+                    if asset.get("market_news"):
+                        try:
+                            market_news = market_news_client.get_market_headlines()
+                        except Exception as e:
+                            print(f"[{name}] Trhove titulky zlyhali (pokracujem): {e}")
                     verdict, triage_usage = claude_analyst.triage(
                         asset, ta, cross_market, market_session, btc_proxy,
                         prev_assumptions, prev_cycle_time, marketaux_news,
+                        market_news=market_news,
                         hours_since_full=hours_since_full,
                         active_watch=_active_watch_context(symbol, session),
                         schedule=_schedule_context(asset, datetime.now(timezone.utc)),

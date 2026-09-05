@@ -2867,7 +2867,8 @@ def _build_triage_prompt(asset: dict, ta: dict, cross_market: dict, session: dic
                           marketaux_news: list[dict] | None,
                           hours_since_full: float | None,
                           active_watch: dict | None,
-                          schedule: dict | None) -> str:
+                          schedule: dict | None,
+                          market_news: list[dict] | None = None) -> str:
     """User prompt pre lacny sken - podmnozina plneho promptu (bez makro pravidiel,
     bez historie obchodov, bez retrospektivy, bez snippetov clankov). Viz triage()."""
     instrument = asset["name"]
@@ -2889,6 +2890,22 @@ def _build_triage_prompt(asset: dict, ta: dict, cross_market: dict, session: dic
             if a.get("age_hours") is not None else f"- {a.get('title')}"
             for a in marketaux_news
         )
+
+    # Zdielane TRHOVE titulky (market_news_client.py) - zapnute len pre tickery,
+    # kde Marketaux nevracia nic. NIE su o tomto tickeri, su o trhu; posudit
+    # relevantnost je uloha skenu, preto to prompt hovori vyslovne - inak by
+    # kazdy vseobecny titulok zvadzal na "ANO" a plny cyklus by sa spustal
+    # zbytocne. Prave toto riziko sa na 3 tickeroch meria.
+    market_block = ""
+    if market_news:
+        lines = "\n".join(f"- [pred {m['age_hours']:.0f}h] {m['title']}"
+                          for m in market_news)
+        market_block = (
+            "\n## Trhove krypto titulky (VSEOBECNE, nie o tomto nastroji)\n"
+            "Pre tento nastroj vlastne spravy nechodia, preto sirsi trhovy prehlad.\n"
+            "Vacsina sa ho NETYKA - ber do uvahy len to, co by realne pohlo jeho\n"
+            "cenou (regulacia, burzy, siet, sektor, makro). Samotna pritomnost\n"
+            "titulkov NIE JE dovod na ANO.\n" + lines + "\n")
 
     watch_block = "(ziadna aktivna uroven)"
     if active_watch and active_watch.get("watch_price") is not None:
@@ -2924,6 +2941,7 @@ def _build_triage_prompt(asset: dict, ta: dict, cross_market: dict, session: dic
 {btc_block}
 ## Cerstve titulky (Marketaux - len nadpisy, plne spravy vidi az plna analyza)
 {news_block}
+{market_block}
 
 ## Kluc. predpoklady z posledneho dokladneho pohladu
 {prev_block}
@@ -2980,7 +2998,8 @@ def triage(asset: dict, ta: dict, cross_market: dict, session: dict,
             marketaux_news: list[dict] | None = None,
             hours_since_full: float | None = None,
             active_watch: dict | None = None,
-            schedule: dict | None = None) -> tuple[dict, dict]:
+            schedule: dict | None = None,
+            market_news: list[dict] | None = None) -> tuple[dict, dict]:
     """LACNY SKEN pred plnym cyklom (2026-09-04, bod 6 auditu) - vrati
     (verdikt, usage). Bez web_search, kratky vlastny system prompt, effort low.
 
@@ -2994,7 +3013,7 @@ def triage(asset: dict, ta: dict, cross_market: dict, session: dict,
         raise RuntimeError("ANTHROPIC_API_KEY nie je nastavený")
     prompt = _build_triage_prompt(asset, ta, cross_market, session, btc_proxy,
                                    prev_assumptions, prev_cycle_time, marketaux_news,
-                                   hours_since_full, active_watch, schedule)
+                                   hours_since_full, active_watch, schedule, market_news)
     verdict, usage = _call_triage(asset, prompt)
     verdict["worth_full_look"] = bool(verdict.get("worth_full_look"))
     _drop_already_met_watch(verdict, (ta or {}).get("last_price"), f" [{asset['name']} triage]")
