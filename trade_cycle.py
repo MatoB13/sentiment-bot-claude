@@ -2134,11 +2134,15 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                     # nevracia nic (viz assets.py "market_news"). Zlyhanie je
                     # neblokujuce, sken bez nich bezi ako doteraz.
                     market_news = None
+                    market_news_status = None
                     if asset.get("market_news"):
                         try:
                             market_news = market_news_client.get_market_headlines()
+                            market_news_status = market_news_client.last_status()
                         except Exception as e:
                             print(f"[{name}] Trhove titulky zlyhali (pokracujem): {e}")
+                            market_news_status = {"ok": False, "errors": [str(e)[:80]],
+                                                   "count": 0}
                     verdict, triage_usage = claude_analyst.triage(
                         asset, ta, cross_market, market_session, btc_proxy,
                         prev_assumptions, prev_cycle_time, marketaux_news,
@@ -2149,7 +2153,10 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                     )
                     triage_payload = {**verdict, "mode": config.TRIAGE_MODE,
                                       "hours_since_full": hours_since_full,
-                                      "usage": triage_usage}
+                                      "usage": triage_usage,
+                                      # Stav trhoveho feedu - aby sa jeho vypadok
+                                      # dal ukazat na dashboarde, nie len v logu.
+                                      "market_news": market_news_status}
                     print(f"[{name}] Sken: worth_full_look={verdict.get('worth_full_look')} "
                           f"attention={verdict.get('attention')} - {verdict.get('reason')}")
                 except Exception as e:

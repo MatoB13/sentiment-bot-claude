@@ -48,6 +48,18 @@ _USER_AGENT = "Mozilla/5.0 (compatible; nas100-sentiment-bot/1.0)"
 # {(): (fetched_at_epoch, result)} - kluc je prazdny, feed je zdielany pre vsetkych
 _cache: tuple[float, list[dict]] | None = None
 
+# Stav POSLEDNEHO realneho stiahnutia (nie cache hitu) - aby sa vypadok zdroja
+# dal ukazat na dashboarde, nie len v logu. Zlyhanie feedu je NEBLOKUJUCE, takze
+# bez tohto by ticho zmizlo: sken by dalej bezal, len uz bez titulkov, a nikto
+# by sa to nedozvedel. Presne taky tichy vypadok stal 4.9. ~$25.
+_last_status: dict = {"ok": None, "feeds_ok": 0, "feeds_total": len(_FEEDS),
+                       "count": 0, "errors": []}
+
+
+def last_status() -> dict:
+    """Kopia stavu posledneho stiahnutia (viz _last_status)."""
+    return dict(_last_status)
+
 
 def _parse_feed(xml_bytes: bytes) -> list[dict]:
     """RSS -> [{"title", "age_hours", "source"}], len polozky s datumom."""
@@ -87,13 +99,19 @@ def get_market_headlines() -> list[dict]:
         return _cache[1]
 
     items: list[dict] = []
+    errors: list[str] = []
+    feeds_ok = 0
     for url in _FEEDS:
         try:
             resp = requests.get(url, timeout=_TIMEOUT_SECONDS,
                                  headers={"User-Agent": _USER_AGENT})
             resp.raise_for_status()
-            items.extend(_parse_feed(resp.content))
+            parsed = _parse_feed(resp.content)
+            items.extend(parsed)
+            feeds_ok += 1
         except Exception as e:
+            host = url.split("/")[2]
+            errors.append(f"{host}: {type(e).__name__}")
             print(f"[market_news] {url} zlyhal (pokracujem): {e}")
 
     fresh = [i for i in items if i["age_hours"] <= config.MARKET_NEWS_MAX_AGE_HOURS]
@@ -107,6 +125,13 @@ def get_market_headlines() -> list[dict]:
         unique.append(i)
     result = unique[:config.MARKET_NEWS_MAX_ITEMS]
     _cache = (now, result)
+    global _last_status
+    _last_status = {
+        # ok=False az ked padli VSETKY feedy - jeden zivy staci, druhy je zaloha.
+        "ok": feeds_ok > 0,
+        "feeds_ok": feeds_ok, "feeds_total": len(_FEEDS),
+        "count": len(result), "errors": errors,
+    }
     print(f"[market_news] {len(result)} cerstvych titulkov "
           f"(z {len(items)} stiahnutych, limit {config.MARKET_NEWS_MAX_AGE_HOURS} h)")
     return result
