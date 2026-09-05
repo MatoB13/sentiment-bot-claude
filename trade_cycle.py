@@ -1162,6 +1162,15 @@ def _save_flagged_macro_event(event: dict | None, symbol: str, session) -> None:
     macro_calendar.py, chce aby to Claude robil sam prubezne). Nikdy nezhodi
     cely cyklus - chybne formatovany datum len zaloguje a ignoruje (Claude sa
     mohol pomylit vo formate, nie je to fatalne)."""
+    # 2026-09-05 (produkcny pad, AAOI): schema deklaruje toto pole ako "object",
+    # ale Claude vratil obycajny RETAZEC - a `.get()` na nom zhodilo CELY cyklus
+    # az PO zaplatenej analyze (6329 output tokenov zahodenych). Docstring vyssie
+    # pritom slubuje, ze funkcia cyklus nikdy nezhodi: povodna poistka strazila
+    # len zly DATUM, nie zly TYP celeho pola. Preto kontrola typu ako prva vec.
+    if event is not None and not isinstance(event, dict):
+        print(f"[trade_cycle] upcoming_macro_event nie je objekt ({type(event).__name__}: "
+              f"{str(event)[:120]!r}) - ignorujem.")
+        return
     if not event or not event.get("name") or not event.get("datetime_utc"):
         return
     try:
