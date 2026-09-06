@@ -2330,6 +2330,11 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             sl_tp_choice=(decision.get("sl_tp_choice")
                           if str(decision.get("direction", "")).lower() in ("long", "short")
                           else None),
+            # `asset` je uz LOKALNA kopia s efektivnym SL/TP (viz
+            # risk_overrides.get_effective_sl_tp vyssie v tejto funkcii), takze
+            # sa tu uklada presne to, voci comu sa Claude rozhodoval.
+            effective_sl_pct=asset.get("sl_pct"),
+            effective_tp_pct=asset.get("tp_pct"),
             triggered_by_macro_event=macro_event,
             triggered_by_watch=True if watch_triggered else None,
             # Shadow rezim: verdikt skenu vedla skutocneho vysledku TOHO ISTEHO

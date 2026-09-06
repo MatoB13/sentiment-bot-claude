@@ -97,9 +97,30 @@ check("short -> zapise sa", stored("Short", "VLASTNE: ..."), "VLASTNE: ...")
 check("none -> zahodi sa", stored("none", "DEFAULT: ..."), None)
 check("chybajuci smer -> zahodi sa", stored(None, "DEFAULT: ..."), None)
 
+print("\n6b) Nasobok sa vyzaduje AJ pri defaulte")
+# Prvy produkcny zaznam (ZEC 6.9. 04:01) zacinal "DEFAULT:", ale bez cisla -
+# z textu sa nedalo overit, ci Claude naozaj isiel defaultom, alebo default len
+# opisal a poslal ine cislo. (Isiel: 3.460 % vs 3.5 % = 0.99x.)
+ch = PROPS["sl_tp_choice"]["description"]
+check("priklad DEFAULT nesie nasobky", "DEFAULT (SL 1.0x, TP 1.0x)" in ch, True)
+check("priklad VLASTNE nesie nasobky", "VLASTNE (SL 1.6x, TP 1.2x)" in ch, True)
+check("vyslovne ziada nasobok aj pri DEFAULT", "AJ pri DEFAULT" in ch, True)
+
 print("\n7) CycleLog ma stlpce, do ktorych sa to zapisuje")
-for col in ("sl_tp_choice", "optimal_sl_pct", "optimal_tp_pct"):
+for col in ("sl_tp_choice", "optimal_sl_pct", "optimal_tp_pct",
+            "effective_sl_pct", "effective_tp_pct"):
     check(f"cycle_logs.{col}", col in CycleLog.__table__.columns, True)
+
+print("\n7b) Nasobok sa da dopocitat z ulozenych cisel (text nie je zdroj pravdy)")
+# Presne produkcny ZEC cyklus. Dashboard pocita to iste (slTpMultipleHtml).
+def multiple(live, price, base_pct):
+    return (abs(live - price) / live * 100) / base_pct
+
+
+check("ZEC SL 1035.68 pri live 1072.8 a kalibracii 3.5 %",
+      round(multiple(1072.8, 1035.68, 3.5), 2), 0.99)
+check("ZEC TP 1129.58 pri kalibracii 5.25 %",
+      round(multiple(1072.8, 1129.58, 5.25), 2), 1.01)
 
 print("\n8) Zachrana poskodenej odpovede pozna nove polia")
 # Realny opakovany jav: Claude niekedy vrati pole ako obycajny <tag> v texte

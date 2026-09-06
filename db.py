@@ -290,6 +290,18 @@ class CycleLog(Base):
     # opodstatnene. None pri direction="none" (ziadna pozicia nevznika).
     sl_tp_choice = Column(String, nullable=True)
 
+    # 2026-09-06 (na ziadost pouzivatela) - kalibrovane SL/TP %, s ktorymi tento
+    # cyklus NAOZAJ bezal (uz po zohladneni RiskOverride, viz run_cycle_for_asset).
+    # Dovod: `sl_tp_choice` je Claudova PROZA a moze byt nejednoznacna - prvy
+    # produkcny zaznam (ZEC 6.9. 04:01) zacinal "DEFAULT:", ale bez cisla, takze
+    # sa z textu nedalo overit, ci naozaj isiel defaultom. S tymito dvoma stlpcami
+    # sa nasobok voci kalibracii DA DOPOCITAT z uz ulozeneho live_price/
+    # stop_loss_price/take_profit_price a text je len zdovodnenie, nie zdroj pravdy.
+    # Ulozene su PERCENTA platne v case cyklu - nie aktualne, takze neskorsia
+    # zmena overridu/ENV historicke cykly neskresli.
+    effective_sl_pct = Column(Float, nullable=True)
+    effective_tp_pct = Column(Float, nullable=True)
+
     # Ak tento cyklus bol vyvolany mimoriadne kvoli PRAVE zverejnenej makro
     # udalosti (FOMC/CPI/NFP - viz macro_calendar.py + watch_monitor.
     # _check_macro_events), nazov tej udalosti (napr. "CPI"). None pre bezne

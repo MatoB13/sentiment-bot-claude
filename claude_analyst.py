@@ -159,12 +159,14 @@ DECISION_TOOL = {
                 "type": "string",
                 "description": (
                     "VYPLN VZDY, ked direction je 'long' alebo 'short' (pri 'none' VYNECHAJ). "
-                    "1-2 vety. Zacni presne jednym z dvoch: 'DEFAULT:' ak si pouzil kalibrovanu "
-                    "vzdialenost (do ~10 % od nej), alebo 'VLASTNE:' ak si sa odchylil. Pri "
-                    "VLASTNE uved oboje ako nasobok kalibracie (napr. 'SL 1.6x, TP 1.2x') a "
-                    "TECHNICKY dovod - ATR/volatilitny rezim, vzdialenost k najblizsej S/R "
-                    "urovni, typ vstupu (breakout vs pullback). Nie 'aby bol priestor' ani "
-                    "odkaz na ocakavany zisk."
+                    "1-2 vety. Zacni presne jednym z dvoch tvarov, VZDY vratane nasobkov voci "
+                    "kalibrovanej vzdialenosti: 'DEFAULT (SL 1.0x, TP 1.0x): ...' ak si pouzil "
+                    "kalibrovanu vzdialenost (do ~10 % od nej), alebo "
+                    "'VLASTNE (SL 1.6x, TP 1.2x): ...' ak si sa odchylil. Nasobok uved AJ pri "
+                    "DEFAULT - bez neho sa z textu neda overit, co si naozaj poslal. Za dvojbodkou "
+                    "TECHNICKY dovod: ATR/volatilitny rezim, vzdialenost k najblizsej S/R urovni, "
+                    "typ vstupu (breakout vs pullback). Nie 'aby bol priestor' ani odkaz na "
+                    "ocakavany zisk."
                 ),
             },
             "reasoning": {
@@ -1269,8 +1271,9 @@ Pravidlá:
   obchod sa nikdy nezamietne). Kalibrácia je dobrý východiskový bod, nie povinnosť - ak ju
   ATR/štruktúra trhu v tejto konkrétnej chvíli popiera, použi vlastnú hodnotu.
 - sl_tp_choice: keď navrhuješ long/short, VŽDY napíš, či si použil kalibrovaný default alebo
-  vlastnú hodnotu v pásme, a technicky to zdôvodni (formát v popise poľa). Pri direction="none"
-  toto pole vynechaj.
+  vlastnú hodnotu v pásme, a technicky to zdôvodni. Násobky voči kalibrácii uveď VŽDY, aj keď
+  ideš defaultom - teda "DEFAULT (SL 1.0x, TP 1.0x): ..." resp. "VLASTNE (SL 1.6x, TP 1.2x): ..."
+  (presný formát v popise poľa). Pri direction="none" toto pole vynechaj.
 - reasoning: max 3-4 vety, fakticky, bez floskúl; spomeň najdôležitejší faktor(y), ktoré rozhodli.
   Ak dostaneš predpoklady z predchádzajúceho cyklu, výslovne spomeň, či stále platia alebo sa
   niečo zmenilo.
