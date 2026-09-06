@@ -1149,6 +1149,28 @@ def _same_macro_event(a: str, b: str) -> bool:
     return inter >= 2 and inter >= min(len(wa), len(wb)) * 0.8
 
 
+# Horna hranica pre optimal_sl_pct/optimal_tp_pct. Najsirsi realny ticker je
+# PUMP (SL 6.1 %/TP 9.2 %), takze 50 % je s velkou rezervou nad vsetkym rozumnym
+# a zaroven spolahlivo chyti hlavny omyl, ktoreho sa da cakat: Claude vrati
+# ABSOLUTNU CENU namiesto percenta (NAS100 ~28000, GOLD ~3400, ADA ~0.62).
+# ADA by takou chybou presla (0.62 vyzera ako platne percento) - preto to nie je
+# validacia spravnosti, len poistka proti zjavnemu nezmyslu v kalibracnom
+# formulari. Rovnaky dovod ako pri _save_flagged_macro_event: hodnota od modelu
+# nikdy nesmie zhodit zapis cyklu.
+_MAX_PLAUSIBLE_PCT = 50.0
+
+
+def _positive_pct(value) -> float | None:
+    """Percento vzdialenosti SL/TP od vstupu, alebo None ak to nedava zmysel."""
+    try:
+        pct = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not (0 < pct <= _MAX_PLAUSIBLE_PCT):
+        return None
+    return pct
+
+
 def _save_flagged_macro_event(event: dict | None, symbol: str, session) -> None:
     """Ak Claude tento cyklus vratil upcoming_macro_event (viz claude_analyst
     DECISION_TOOL/POSITION_HEALTH_TOOL - vyznamna nadchadzajuca udalost, ktoru
@@ -2300,6 +2322,14 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             reviewed_trade_id=reviewed_trade_id,
             closed_trade_reflection=decision.get("closed_trade_reflection"),
             sl_tp_calibration_verdict=decision.get("sl_tp_calibration_verdict"),
+            optimal_sl_pct=_positive_pct(decision.get("optimal_sl_pct")),
+            optimal_tp_pct=_positive_pct(decision.get("optimal_tp_pct")),
+            # Len ked z cyklu naozaj vzisiel smer - pri "none" ziadna pozicia
+            # nevznika, takze "ake SL/TP som zvolil" nema co popisovat (Claude
+            # to pole ma vtedy vynechat, ale nespoliehame sa na to).
+            sl_tp_choice=(decision.get("sl_tp_choice")
+                          if str(decision.get("direction", "")).lower() in ("long", "short")
+                          else None),
             triggered_by_macro_event=macro_event,
             triggered_by_watch=True if watch_triggered else None,
             # Shadow rezim: verdikt skenu vedla skutocneho vysledku TOHO ISTEHO

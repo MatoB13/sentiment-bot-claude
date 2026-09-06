@@ -276,6 +276,20 @@ class CycleLog(Base):
     # / uplne iny navrh s TECHNICKYM (nie len empirickym) zdovodnenim.
     sl_tp_calibration_verdict = Column(String, nullable=True)
 
+    # 2026-09-06 (na ziadost pouzivatela) - to iste odporucanie STRUKTUROVANE.
+    # Dashboard ho doteraz lovil regexom z prozy verdiktu (extractSlTpFromVerdict)
+    # a mylil sa - naivne samostatne hladanie SL a TP priradilo obom to iste
+    # cislo. Percenta vzdialenosti od vstupnej ceny, NIE absolutne ceny.
+    optimal_sl_pct = Column(Float, nullable=True)
+    optimal_tp_pct = Column(Float, nullable=True)
+
+    # 2026-09-06 (na ziadost pouzivatela) - pri KAZDOM otvoreni pozicie Claudov
+    # vlastny popis, ci pouzil kalibrovany default alebo vlastnu hodnotu v pasme
+    # 0.5x-5x (risk_manager.SAFETY_FLOOR/CAP_MULTIPLE) a preco. Do tohto dna to
+    # nebolo nikde vidiet, takze sa nedalo posudit, ci su jeho odchylky
+    # opodstatnene. None pri direction="none" (ziadna pozicia nevznika).
+    sl_tp_choice = Column(String, nullable=True)
+
     # Ak tento cyklus bol vyvolany mimoriadne kvoli PRAVE zverejnenej makro
     # udalosti (FOMC/CPI/NFP - viz macro_calendar.py + watch_monitor.
     # _check_macro_events), nazov tej udalosti (napr. "CPI"). None pre bezne

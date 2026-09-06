@@ -136,11 +136,36 @@ DECISION_TOOL = {
             },
             "stop_loss_price": {
                 "type": "number",
-                "description": "Absolutna cena stop-lossu (nie percenta).",
+                "description": (
+                    "Absolutna cena stop-lossu (nie percenta). Cielove % dostanes v user sprave. "
+                    "Smies sa od neho odchylit v pasme 0.5x az 5x kalibrovanej vzdialenosti - "
+                    "mimo neho sa to len oreze na hranicu (obchod sa NIKDY nezamietne)."
+                ),
             },
             "take_profit_price": {
                 "type": "number",
-                "description": "Absolutna cena take-profitu (nie percenta).",
+                "description": (
+                    "Absolutna cena take-profitu (nie percenta). Rovnake pasmo 0.5x-5x voci "
+                    "kalibrovanemu TP. Navyse plati podlaha pomeru TP/SL = 1.0 - ak by tvoj TP "
+                    "vysiel blizsie nez SL, roztiahne sa na vzdialenost SL."
+                ),
+            },
+            # 2026-09-06 (na ziadost pouzivatela) - do tohto dna nebolo NIKDE vidiet,
+            # ci Claude pri otvarani pozicie pouzil kalibrovany default alebo vlastnu
+            # hodnotu v pasme 0.5x-5x, ani preco. Bez toho sa neda spatne posudit, ci
+            # su jeho odchylky opodstatnene. Nie je v `required` zamerne: pri
+            # direction="none" ziadna pozicia nevznika a text by len palil tokeny.
+            "sl_tp_choice": {
+                "type": "string",
+                "description": (
+                    "VYPLN VZDY, ked direction je 'long' alebo 'short' (pri 'none' VYNECHAJ). "
+                    "1-2 vety. Zacni presne jednym z dvoch: 'DEFAULT:' ak si pouzil kalibrovanu "
+                    "vzdialenost (do ~10 % od nej), alebo 'VLASTNE:' ak si sa odchylil. Pri "
+                    "VLASTNE uved oboje ako nasobok kalibracie (napr. 'SL 1.6x, TP 1.2x') a "
+                    "TECHNICKY dovod - ATR/volatilitny rezim, vzdialenost k najblizsej S/R "
+                    "urovni, typ vstupu (breakout vs pullback). Nie 'aby bol priestor' ani "
+                    "odkaz na ocakavany zisk."
+                ),
             },
             "reasoning": {
                 "type": "string",
@@ -277,7 +302,31 @@ DECISION_TOOL = {
                     "vzdialenosti k najbližšej S/R úrovni, typu vstupu), NIE LEN odkaz na to, že v "
                     "backteste vyšla lepšie - backtest čísla sú vstup do úvahy, nie samotné "
                     "zdôvodnenie. Zohľadni aj históriu predošlých obchodov tohto tickera. 3-5 viet. "
+                    "POSLEDNÁ VETA musí byť VŽDY presne v tomto tvare (aj keď je verdikt "
+                    "'súčasné SL/TP bolo správne' - vtedy zopakuj súčasné hodnoty): "
+                    "'Optimálne SL/TP pre tento ticker: SL X.XX %, TP Y.YY %.' "
+                    "Tie isté dve čísla vyplň aj do polí optimal_sl_pct a optimal_tp_pct. "
                     "Ak sekcia chýba, toto pole VYNECHAJ."
+                ),
+            },
+            # 2026-09-06 (na ziadost pouzivatela) - dashboard doteraz cisla z verdiktu
+            # LOVIL REGEXOM z prozy (extractSlTpFromVerdict) a mylil sa: naivne
+            # samostatne hladanie SL a TP priradilo obom to iste cislo. Preto ich
+            # Claude odteraz vracia aj strukturovane a formular ich predvyplna odtialto.
+            # Veta vo verdikte zostava, aby bolo v historii cyklu vidiet zdovodnenie.
+            "optimal_sl_pct": {
+                "type": "number",
+                "description": (
+                    "VYPLN LEN spolu s sl_tp_calibration_verdict. Optimalna SL vzdialenost "
+                    "v PERCENTACH od vstupnej ceny (napr. 2.14, nie 0.0214 a nie absolutna cena) - "
+                    "presne to cislo, ktore uvadzas v poslednej vete verdiktu."
+                ),
+            },
+            "optimal_tp_pct": {
+                "type": "number",
+                "description": (
+                    "VYPLN LEN spolu s sl_tp_calibration_verdict. Optimalna TP vzdialenost "
+                    "v PERCENTACH od vstupnej ceny - presne to cislo z poslednej vety verdiktu."
                 ),
             },
             "upcoming_macro_event": _UPCOMING_MACRO_EVENT_PROPERTY,
@@ -1215,8 +1264,13 @@ Pravidlá:
   rozhoduje len, či sa cena skutočne posunula navrhovaným smerom, alebo zostáva plochá (vtedy
   dlhšie držanie extrému skôr zvyšuje pravdepodobnosť odrazu).
 - stop_loss_price a take_profit_price uveď ako absolútnu cenu sledovaného nástroja (nie percentá).
-  Cieľové % vzdialenosti od aktuálnej ceny dostaneš v user správe - drž sa v ich blízkosti
-  (môžeš sa mierne odchýliť podľa ATR/kontextu, ale nie výrazne mimo).
+  Cieľové % vzdialenosti od aktuálnej ceny dostaneš v user správe. Smieš sa od nich odchýliť
+  v pásme 0.5x až 5x kalibrovanej vzdialenosti (mimo pásma sa hodnota len oreže na hranicu,
+  obchod sa nikdy nezamietne). Kalibrácia je dobrý východiskový bod, nie povinnosť - ak ju
+  ATR/štruktúra trhu v tejto konkrétnej chvíli popiera, použi vlastnú hodnotu.
+- sl_tp_choice: keď navrhuješ long/short, VŽDY napíš, či si použil kalibrovaný default alebo
+  vlastnú hodnotu v pásme, a technicky to zdôvodni (formát v popise poľa). Pri direction="none"
+  toto pole vynechaj.
 - reasoning: max 3-4 vety, fakticky, bez floskúl; spomeň najdôležitejší faktor(y), ktoré rozhodli.
   Ak dostaneš predpoklady z predchádzajúceho cyklu, výslovne spomeň, či stále platia alebo sa
   niečo zmenilo.
@@ -2128,7 +2182,10 @@ vyvíjať V PROSPECH tejto pozície alebo PROTI nej.
                     "tickera, kalibrační kandidáti aj S/R kontext) vyplň sl_tp_calibration_verdict - "
                     "zauji výslovné stanovisko, či bolo zvolené SL/TP správne, či mal byť použitý "
                     "niektorý z uvedených kandidátov, alebo by si zvolil úplne inú hodnotu s vlastným "
-                    "TECHNICKÝM zdôvodnením (nie len odkazom na to, čo vyšlo lepšie v backteste)."
+                    "TECHNICKÝM zdôvodnením (nie len odkazom na to, čo vyšlo lepšie v backteste). "
+                    "Verdikt UKONČI vetou v presnom tvare 'Optimálne SL/TP pre tento ticker: "
+                    "SL X.XX %, TP Y.YY %.' a tie isté dve čísla vyplň aj do optimal_sl_pct a "
+                    "optimal_tp_pct - predvypĺňajú kalibračný formulár na dashboarde."
                 )
             sltp_eval_block = "\n" + "\n".join(lines) + "\n"
 
@@ -2233,8 +2290,9 @@ presvedčila výraznejšie.
 {pre_macro_block}{close_verdict_block}{macro_event_block}{recent_close_block}{closed_trade_block}## Cielove SL/TP vzdialenosti
 Stop-loss cca {asset['sl_pct']}% od aktuálnej ceny, take-profit cca {asset['tp_pct']}%
 (pri LONG: stop_loss_price = last_price * (1 - {asset['sl_pct']}/100), take_profit_price =
-last_price * (1 + {asset['tp_pct']}/100); pri SHORT opačne). Môžeš sa mierne odchýliť podľa
-ATR/kontextu, ale nie výrazne mimo tento rozsah.
+last_price * (1 + {asset['tp_pct']}/100); pri SHORT opačne). Toto je kalibrovaný default -
+smieš sa od neho odchýliť v pásme 0.5x-5x tejto vzdialenosti podľa ATR/kontextu. Ak navrhuješ
+smer, do `sl_tp_choice` vždy napíš, či ideš defaultom alebo vlastnou hodnotou, a prečo.
 {threshold_block}
 Ak je to relevantné, over si cez web_search aktuálne správy k {instrument}/súvisiacim témam a
 nadchádzajúce makro eventy (CPI/FOMC/NFP/earnings) za posledných ~{interval_h}h / najbližších 24h -
@@ -2398,12 +2456,13 @@ _PLAIN_TAG_FIELDS = (
     "watch_direction_2", "watch_rationale", "confidence_threshold_note",
     "data_issue", "daily_reflection",
     "closed_trade_reflection", "sl_tp_calibration_verdict",
+    "sl_tp_choice", "optimal_sl_pct", "optimal_tp_pct",
     "close_confidence", "recommendation", "expected_direction",
 )
 _PLAIN_TAG_FIELD_RE = re.compile(
     r"<(" + "|".join(_PLAIN_TAG_FIELDS) + r")>(.*?)</\1>", re.DOTALL,
 )
-_NUMERIC_FIELDS = {"watch_price", "watch_price_2"}
+_NUMERIC_FIELDS = {"watch_price", "watch_price_2", "optimal_sl_pct", "optimal_tp_pct"}
 _DIRECTION_FIELDS = {"watch_direction", "watch_direction_2"}
 # Vseobecny "zostala tam nejaka znacka" sniff test - POUZE na logovanie
 # (viz koniec _recover_malformed_fields), nie na zachranu. Ak toto niekedy
@@ -2438,7 +2497,7 @@ _KNOWN_FIELD_CLOSE_TAG_RE = re.compile(
 _HOST_FIELDS = (
     "reasoning", "key_assumptions", "data_issue", "watch_rationale",
     "confidence_threshold_note", "daily_reflection",
-    "closed_trade_reflection", "sl_tp_calibration_verdict",
+    "closed_trade_reflection", "sl_tp_calibration_verdict", "sl_tp_choice",
 )
 
 
