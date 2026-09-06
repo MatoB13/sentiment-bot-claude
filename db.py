@@ -838,6 +838,70 @@ class LongShortPollStatus(Base):
     error = Column(String, nullable=True)
 
 
+class StrikeTrade(Base):
+    """Verejna obchodna tape zo Strike - KAZDY obchod VSETKYCH uzivatelov na
+    danom symbole (2026-09-06, na ziadost pouzivatela).
+
+    Zdroj: GET https://api.strikefinance.org/price/v2/trades - verejny,
+    NEAUTENTIFIKOVANY endpoint na inej base ceste (`/price`) nez ta, cez ktoru
+    obchodujeme. Je to ten isty tok dat, aky Strike renderuje do svojho Discord
+    kanala #strike-feed, len strukturovane a s ID sekvenciou, takze sa da
+    overit, ze nic nechyba.
+
+    `is_buyer_maker` je AGRESOR obchodu (rovnaka semantika ako Binance):
+    True  = kupujuci bol maker -> agresor bol PREDAVAJUCI (agresivny predaj)
+    False = kupujuci bol taker -> agresivny NAKUP
+    Overene, ze pole naozaj kolise (namerane 31-69 % True podla tickera), takze
+    sa z neho da pocitat imbalance toku - keby bolo konstantne, bolo by na nic.
+    """
+    __tablename__ = "strike_trades"
+    __table_args__ = (UniqueConstraint("symbol", "trade_id", name="uq_strike_trades_symbol_id"),)
+
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False, index=True)
+    trade_id = Column(Integer, nullable=False)
+    ts = Column(DateTime, nullable=False, index=True)   # naive UTC
+    price = Column(Float, nullable=False)
+    qty = Column(Float, nullable=False)                  # v base-asset jednotkach
+    quote_qty = Column(Float, nullable=False)            # v USD
+    is_buyer_maker = Column(Boolean, nullable=False)
+
+
+class OpenInterestBar(Base):
+    """Hodinovy open interest per symbol zo Strike (2026-09-06).
+
+    Zdroj: GET .../price/v2/openInterest - jedno volanie vrati VSETKY symboly
+    (namerane 31), takze sa uklada aj pre tickery, ktore neobchodujeme.
+    Hodnota je v base-asset jednotkach, nie v USD.
+
+    Rovnaky tvar (symbol + hour_start) ako PriceBar/LongShortBar, aby sa dala
+    spajat s cenou bez interpolacie - prave zmena OI VOCI zmene ceny je to,
+    co ma vypovednu hodnotu (rast ceny + rast OI = nove longy; rast ceny +
+    pokles OI = zatvaranie shortov, atd.), nie OI samotny.
+    """
+    __tablename__ = "open_interest_bars"
+    __table_args__ = (UniqueConstraint("symbol", "hour_start", name="uq_oi_bars_symbol_hour"),)
+
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False, index=True)
+    hour_start = Column(DateTime, nullable=False, index=True)
+    open_interest = Column(Float, nullable=False)
+
+
+class StrikeTapePollStatus(Base):
+    """Vysledok POSLEDNEHO pokusu o zber tape/OI per symbol - zapisuje sa VZDY,
+    aj (hlavne) ked zlyha. Rovnaky dovod ako pri LongShortPollStatus: vypadok
+    zberu vyzera na grafe identicky ako "nic sa nedeje", takze musi byt
+    explicitne vidiet na dashboarde."""
+    __tablename__ = "strike_tape_poll_status"
+
+    symbol = Column(String, primary_key=True)
+    polled_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    ok = Column(Boolean, nullable=False)
+    trades_written = Column(Integer, nullable=True)
+    error = Column(String, nullable=True)
+
+
 class CostCorrection(Base):
     """DOPOCET nakladov za behy, ktore Clauda zaplatili, ale zaznam nezapisali.
 

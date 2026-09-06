@@ -13,6 +13,7 @@ import long_short_poller
 import position_monitor
 import price_poller
 import sl_calibration
+import strike_tape_poller
 import trade_cycle
 import watch_monitor
 
@@ -144,6 +145,16 @@ def main():
     # Denne (2026-08-19) - ATR-zalozena SL/TP kalibracia (viz sl_calibration.py).
     # Ziadne Claude volanie, len OHLC + aritmetika - lacne ako funding_tracker.
     # Vysledok je LEN navrh (db.AtrCalibration), nic sa tu automaticky nemeni.
+    # Hodinovo (2026-09-06, na ziadost pouzivatela) - verejna Strike tape
+    # (obchody VSETKYCH uzivatelov) + open interest, viz strike_tape_poller.py.
+    # Ziadne Claude volanie, len ~17 verejnych GET-ov. Endpoint vracia max 1000
+    # obchodov, co pri najrusnejsom tickeri (ZEC, 93 obch./h) pokryva 10.8 h,
+    # takze hodinovy zber ma desatnasobnu rezervu proti diere v rade.
+    # ZATIAL SA LEN ZBIERA - ziadny signal z toho do bota nevstupuje.
+    scheduler.add_job(strike_tape_poller.poll_all, "interval",
+                       hours=1,
+                       next_run_time=now + timedelta(minutes=4),
+                       id="strike_tape_poller")
     # Hodinovo (2026-09-06, na ziadost pouzivatela) - Binance long/short account
     # ratio do vlastnych barov, aby sa dal vykreslit v cenovom grafe (viz
     # long_short_poller.py). ZAMERNE NIE v minutovom price_polleri: endpoint ma
