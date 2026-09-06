@@ -197,6 +197,19 @@ def _current_candle_volume_note(df: pd.DataFrame, include_volume: bool) -> dict 
     hour_start = df.index[-1]
     if hasattr(hour_start, "to_pydatetime"):
         hour_start = hour_start.to_pydatetime()
+    # 2026-09-06 (produkcny pad CRCL): index NIE JE vzdy naivny. Vlastne
+    # price_bars maju hour_start naivny (UTC), ale ked sa padne spat na externy
+    # zdroj (yfinance/CoinGecko/Binance - viz get_price_history), index je
+    # tz-aware. Odcitanie potom vyhodilo "can't subtract offset-naive and
+    # offset-aware datetimes", co zhodilo CELY zber trhovych dat pre ten ticker
+    # (cyklus skoncil ako market_data_fetch_failed).
+    #
+    # Chyba bola latentna od zavedenia tejto funkcie (3.9.) a prejavila sa az
+    # ked CRCL pocas vypadku burzy prepadol na fallback zdroj. Objavila sa v
+    # pruhu zdravia medzi 9 chybami z vypadku - presne ten pripad, ktory sa da
+    # lahko prehliadnut.
+    if getattr(hour_start, "tzinfo", None) is not None:
+        hour_start = hour_start.astimezone(timezone.utc).replace(tzinfo=None)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     elapsed = (now - hour_start).total_seconds() / 60
     if not (0 < elapsed <= 60):

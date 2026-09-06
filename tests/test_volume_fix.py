@@ -127,6 +127,47 @@ check("...ale ratio z dokoncenej stale funguje",
 
 print()
 print("=" * 94)
+print("TZ-AWARE INDEX Z FALLBACK ZDROJA (produkcny pad CRCL 6.9.)")
+print("=" * 94)
+# Vlastne price_bars maju naivny index, ale ked ticker prepadne na externy zdroj
+# (yfinance/CoinGecko/Binance), index je tz-aware. Odcitanie naivneho `now`
+# potom vyhodilo "can't subtract offset-naive and offset-aware datetimes" a
+# zhodilo CELY zber trhovych dat pre ten ticker (market_data_fetch_failed).
+now_utc = datetime.now(timezone.utc)
+hour = now_utc.replace(minute=0, second=0, microsecond=0)
+
+
+def note_for(index_tz):
+    """index_tz: None = naivny index (vlastne bary), inak tz-aware (fallback)."""
+    idx = [hour - timedelta(hours=2), hour - timedelta(hours=1), hour]
+    if index_tz is None:
+        idx = [t.replace(tzinfo=None) for t in idx]
+    df = pd.DataFrame({"open": [1, 1, 1], "high": [1, 1, 1], "low": [1, 1, 1],
+                       "close": [1, 1, 1], "volume": [100.0, 120.0, 60.0]},
+                      index=pd.DatetimeIndex(idx))
+    return market_data._current_candle_volume_note(df, include_volume=True)
+
+
+crashed = False
+try:
+    aware = note_for("UTC")
+except TypeError as e:
+    crashed = True
+    print(f"       vynimka: {e}")
+    aware = None
+check("tz-aware index uz NEZHODI zber", crashed, False)
+check("a vrati pouzitelnu poznamku", isinstance(aware, dict), True)
+
+naive = note_for(None)
+check("naivny index funguje ako predtym", isinstance(naive, dict), True)
+# Oba tvary popisuju TU ISTU hodinu, takze musia dat rovnaky vysledok - inak by
+# sa cislo menilo podla toho, z akeho zdroja data prisli.
+if isinstance(aware, dict) and isinstance(naive, dict):
+    check("obe cesty daju rovnaky objem", aware["volume_so_far"], naive["volume_so_far"])
+    check("aj rovnaky zaciatok hodiny", aware["hour_start_utc"], naive["hour_start_utc"])
+
+print()
+print("=" * 94)
 print("VSETKY TESTY PRESLI" if ok else "NIEKTORE TESTY ZLYHALI")
 print("=" * 94)
 sys.exit(0 if ok else 1)
