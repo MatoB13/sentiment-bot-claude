@@ -143,9 +143,15 @@ def main():
     # Denne (2026-08-19) - ATR-zalozena SL/TP kalibracia (viz sl_calibration.py).
     # Ziadne Claude volanie, len OHLC + aritmetika - lacne ako funding_tracker.
     # Vysledok je LEN navrh (db.AtrCalibration), nic sa tu automaticky nemeni.
+    # 2026-09-06 - next_run_time bolo +24h, takze prvy beh nastal az DEN po
+    # starte procesu. Kazdy Railway redeploy proces restartuje a odpocet zacal
+    # odznova - pri viacerych nasadeniach denne sa job nespustil NIKDY. Realny
+    # dopad: posledny AtrCalibration riadok pre KAZDY ticker bol z 30.8., cize
+    # dashboard tyzden ukazoval navrhy vypocitane este starou (pred 31.8.
+    # opravenou) jednobodovou ATR metodou. +2 min ako coinmarketcal_poller nizsie.
     scheduler.add_job(sl_calibration.compute_all, "interval",
                        hours=24,
-                       next_run_time=now + timedelta(hours=24),
+                       next_run_time=now + timedelta(minutes=2),
                        id="sl_calibration")
     # Denne (2026-08-19, na ziadost pouzivatela) - CoinMarketCal krypto-projektovy
     # event kalendar (viz coinmarketcal_client.py) pre kazdy asset s nastavenym

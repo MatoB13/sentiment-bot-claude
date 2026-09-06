@@ -232,7 +232,23 @@ def _compute_for_asset(asset: dict, session) -> None:
         return
 
     sl_pct, tp_pct = risk_overrides.get_effective_sl_tp(session, asset)
-    ratio = (tp_pct / sl_pct) if sl_pct else 1.5
+    # 2026-09-06 (na ziadost pouzivatela) - pomer TP:SL sa berie z KONFIGURACNEHO
+    # defaultu tickera (assets.py / Railway {TICKER}_SL_PCT-TP_PCT, u vsetkych
+    # presne 1.5), NIE z prave nasadeneho overridu.
+    #
+    # POVOD: do tohto dna sa bral z risk_overrides.get_effective_sl_tp, cize zo
+    # ZIVEHO overridu - a ten moze mat degenerovany pomer. ADA mala 0.407%/5.157%
+    # = pomer 12.67. Expektancia sa pocita ako (tp_hits*ratio - sl_hits)/total,
+    # takze pri ratio 12.67 mal jeden TP zasah vahu 12.67 SL zasahov a sweep
+    # vybral NAJSIRSIE k=6.0 -> navrh SL 6.12% / TP 77.48%. Kalibracia si tak
+    # spatne potvrdzovala pomer, ktory mala prave preverovat.
+    # S konfiguracnym 1.5 vychadza pre ADA k=1.5 -> SL 1.53%/TP 2.29%, co sedi
+    # s Claudovym vlastnym verdiktom po obchode #193 ("SL okolo 1.3-1.5%").
+    # Meni sa v Railway ENV ({TICKER}_SL_PCT / {TICKER}_TP_PCT) - assets.py ich
+    # cita cez config.py z os.getenv, takze zmena premennej zmeni aj tento pomer
+    # bez zasahu do kodu. Fallback 1.5 len keby ticker nemal ani jedno z nich.
+    cfg_sl, cfg_tp = asset.get("sl_pct"), asset.get("tp_pct")
+    ratio = (cfg_tp / cfg_sl) if (cfg_sl and cfg_tp) else 1.5
 
     best_k, stats = _sweep_k(df, ratio)
     # 2026-08-31 - median za posledne _ATR_ROBUST_WINDOW_BARS namiesto
