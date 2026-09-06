@@ -792,6 +792,52 @@ class SlTpRecomputeStatus(Base):
     closed_trade_count = Column(Integer, nullable=False)
 
 
+class LongShortBar(Base):
+    """Hodinovy Binance "global long/short account ratio" per ticker
+    (2026-09-06, na ziadost pouzivatela) - aby sa dal vykreslit ako ciara
+    v cenovom grafe. Rovnaky tvar ako PriceBar (symbol + hour_start), aby sa
+    obe rady dali spojit po hodinach bez interpolacie.
+
+    PRECO SAMOSTATNA TABULKA a nie `cycle_logs.ta`: tam uz jedna hodnota je,
+    ale zapise sa LEN ked bezi cyklus - namerane 44-89 bodov za 10 dni podla
+    tickera (priemerny odstup 1.6-3.0 h, najvacsia diera 12 h), zatial co
+    cenovy graf ma 240 hodinovych sviecok. Ciara z toho by bola detto
+    deravá. Binance pritom v JEDNOM volani vracia az 500 hodinovych bodov
+    (~21 dni), takze hustu radu dostaneme lacnejsie nez tu redu.
+
+    `symbol` je NAS strike_symbol (napr. "ADA-USD"), nie Binance "ADAUSDT" -
+    kvoli priamemu joinu s price_bars/cycle_logs.
+    """
+    __tablename__ = "long_short_bars"
+    __table_args__ = (UniqueConstraint("symbol", "hour_start", name="uq_ls_bars_symbol_hour"),)
+
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False, index=True)
+    hour_start = Column(DateTime, nullable=False, index=True)  # UTC, cela hodina
+    long_pct = Column(Float, nullable=False)
+    short_pct = Column(Float, nullable=False)
+    ratio = Column(Float, nullable=False)
+
+
+class LongShortPollStatus(Base):
+    """Vysledok POSLEDNEHO pokusu o zber pre kazdy symbol - zapisuje sa VZDY,
+    aj (hlavne) ked zlyha.
+
+    POVOD (poziadavka pouzivatela 2026-09-06): zlyhanie musi byt tiche voci
+    obchodnemu cyklu, ale NESMIE byt tiche voci pouzivatelovi - nad grafom sa
+    ma cervenym pismom objavit, ze zber padol. Endpoint je na fapi.binance.com
+    (nie na oficialnom mirrore data-api.binance.vision), takze regionalny blok
+    je realne riziko. Bez tejto tabulky by sa vypadok prejavil len tym, ze
+    ciara prestane rast - co vyzera identicky ako "pomer sa nemeni"."""
+    __tablename__ = "long_short_poll_status"
+
+    symbol = Column(String, primary_key=True)
+    polled_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    ok = Column(Boolean, nullable=False)
+    bars_written = Column(Integer, nullable=True)
+    error = Column(String, nullable=True)
+
+
 class CostCorrection(Base):
     """DOPOCET nakladov za behy, ktore Clauda zaplatili, ale zaznam nezapisali.
 

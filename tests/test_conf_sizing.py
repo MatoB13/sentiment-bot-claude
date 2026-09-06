@@ -2,6 +2,7 @@
 import os as _os
 _ROOT = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..")
 import os
+import re
 import sys
 
 os.environ["DATABASE_URL"] = "sqlite:///" + os.environ["TEMP"].replace("\\", "/") + "/cs.db"
@@ -103,7 +104,16 @@ p = claude_analyst._build_user_prompt(
     asset, {"last_price": 100.0, "atr14": 2.0}, {}, {"session": "US"}, [], None, None)
 sysblocks = " ".join(str(b) for b in claude_analyst._system_prompt_blocks(asset))
 whole = p + sysblocks + str(claude_analyst.DECISION_TOOL)
-check("prah nie je v prompte", str(asset["min_confidence"]) in p, False)
+# Casova hlavicka promptu nesie AKTUALNY cas az na mikrosekundy (napr.
+# "2026-09-06T06:13:29.763579+00:00"). Hladanie prahu ako holeho podretazca
+# ("65" pre NAS100) v nej nahodne trafilo susedne cislice - test tak zlyhaval
+# priblizne kazdy N-ty beh bez akejkolvek zmeny kodu (2026-09-06). Cas z
+# porovnania vyradime; na to, co test naozaj overuje (ze Claude prah nevidi),
+# nema vplyv.
+p_no_time = "\n".join(
+    ln for ln in p.split("\n")
+    if not re.search(r"\d{4}-\d{2}-\d{2}T[\d:.]+\+\d{2}:\d{2}", ln))
+check("prah nie je v prompte", str(asset["min_confidence"]) in p_no_time, False)
 for term in ("confidence/100", "margin_usd *", "marža = ", "skaluje"):
     check(f"vzorec '{term}' nie je nikde v prompte", term in whole, False)
 check("ale 'reálne peniaze' tam je", "za živé peniaze" in p, True)

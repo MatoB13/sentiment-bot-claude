@@ -9,6 +9,7 @@ import coinmarketcal_client
 import config
 import funding_tracker
 import heartbeat_check
+import long_short_poller
 import position_monitor
 import price_poller
 import sl_calibration
@@ -143,6 +144,17 @@ def main():
     # Denne (2026-08-19) - ATR-zalozena SL/TP kalibracia (viz sl_calibration.py).
     # Ziadne Claude volanie, len OHLC + aritmetika - lacne ako funding_tracker.
     # Vysledok je LEN navrh (db.AtrCalibration), nic sa tu automaticky nemeni.
+    # Hodinovo (2026-09-06, na ziadost pouzivatela) - Binance long/short account
+    # ratio do vlastnych barov, aby sa dal vykreslit v cenovom grafe (viz
+    # long_short_poller.py). ZAMERNE NIE v minutovom price_polleri: endpoint ma
+    # najjemnejsiu granularitu 5 min (minutova neexistuje) a pri period=1h sa
+    # hodnota meni raz za hodinu, takze minutove volanie by 60x stiahlo to iste.
+    # Vlastny job = vlastne vlakno, nevie zdrzat price_poller ani obchodny cyklus.
+    # Prvy beh o 3 min stiahne 500 hodinovych bodov (~21 dni) a graf je plny hned.
+    scheduler.add_job(long_short_poller.poll_all, "interval",
+                       hours=1,
+                       next_run_time=now + timedelta(minutes=3),
+                       id="long_short_poller")
     # 2026-09-06 - next_run_time bolo +24h, takze prvy beh nastal az DEN po
     # starte procesu. Kazdy Railway redeploy proces restartuje a odpocet zacal
     # odznova - pri viacerych nasadeniach denne sa job nespustil NIKDY. Realny

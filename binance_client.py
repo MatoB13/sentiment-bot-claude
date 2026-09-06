@@ -85,6 +85,38 @@ def get_long_short_ratio(symbol: str) -> dict | None:
     }
 
 
+def get_long_short_history(symbol: str, period: str = "1h", limit: int = 500) -> list[dict]:
+    """To iste co get_long_short_ratio, ale CELA vratena rada namiesto
+    posledneho bodu (2026-09-06) - endpoint ju dava v tej istej odpovedi,
+    doteraz sa 499 z 500 bodov zahadzovalo.
+
+    Vrati [{"timestamp" (ms epoch UTC), "long_pct", "short_pct",
+    "long_short_ratio"}] od najstarsieho po najnovsi.
+
+    period: najjemnejsia podporovana granularita je "5m" - MINUTOVA NEEXISTUJE
+    (preto nema zmysel volat to z minutoveho pollera). Pri "1h" da limit=500
+    ~21 dni historie, co presne pokryva 10-dnovy cenovy graf aj s rezervou.
+    limit: max 500 (strop endpointu).
+
+    Vynimky NEODCHYTAVA - volajuci (long_short_poller) ich musi zapisat do
+    LongShortPollStatus, aby sa vypadok dal ukazat na dashboarde."""
+    resp = requests.get(
+        _FUTURES_DATA_URL,
+        params={"symbol": symbol, "period": period, "limit": limit},
+        timeout=_TIMEOUT_SECONDS,
+    )
+    resp.raise_for_status()
+    return [
+        {
+            "timestamp": int(r["timestamp"]),
+            "long_pct": round(float(r["longAccount"]) * 100, 1),
+            "short_pct": round(float(r["shortAccount"]) * 100, 1),
+            "long_short_ratio": round(float(r["longShortRatio"]), 3),
+        }
+        for r in resp.json()
+    ]
+
+
 if __name__ == "__main__":
     import json
     print(json.dumps(get_hourly_klines("ADAUSDT", limit=3), indent=2))
