@@ -14,6 +14,8 @@ jednotkach (napr. kolko NAS100 kontraktov), nie notional USD hodnota.
 import email.utils
 import hashlib
 import json
+import os
+import sys
 import time
 import uuid
 
@@ -107,7 +109,41 @@ def _is_clock_skew_error(resp: requests.Response) -> bool:
     return resp.status_code == 401 and "signature expired" in resp.text.lower()
 
 
+# 2026-09-06 - TVRDA ZAMKA: v testovacom procese sa nesmie odoslat ziadna
+# MUTUJUCA poziadavka na burzu.
+#
+# POVOD (realny incident): test position_monitora si vyrobil fiktivny obchod
+# (WTI, velkost 1, TP 102.0) a presiel vetvou _check_and_reheal_bracket_legs,
+# ktora zavolala place_take_profit_order. Kedze `config.py` robi load_dotenv()
+# a v repozitari je `.env` s OSTRYMI klucmi, objednavka sa NAOZAJ zadala na
+# zivom ucte pouzivatela a musel ju rucne zrusit.
+#
+# Zamka je zamerne tu, v _request, a nie ako zoznam zakazanych funkcii: cez
+# _request prejde KAZDA poziadavka, takze plati aj pre endpointy, ktore este
+# neexistuju. Blokuju sa len ne-GET metody - citanie je neskodne a niektore
+# testy by inak zbytocne padali.
+#
+# Detekcia je zamerne siroka (spustaci skript v priecinku `tests`, pytest,
+# alebo explicitna premenna), lebo prave PRIAMY beh jedneho testu
+# (`python tests/test_x.py`) ten incident sposobil - nastavenie premennych
+# v run_all.py by ho nebolo zachytilo.
+def _in_test_process() -> bool:
+    if os.environ.get("STRIKE_CLIENT_ALLOW_MUTATIONS") == "1":
+        return False  # zamerny unik pre rucne skripty, nikdy nie pre testy
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return True
+    entry = os.path.abspath(sys.argv[0]) if sys.argv and sys.argv[0] else ""
+    parts = {p.lower() for p in entry.split(os.sep)}
+    return "tests" in parts
+
+
 def _request(method: str, path: str, body: dict | None = None) -> dict:
+    if method.upper() != "GET" and _in_test_process():
+        raise AssertionError(
+            f"ZABLOKOVANE: test sa pokusil o {method.upper()} {path} na Strike. "
+            "Testy nesmu mutovat stav na burze - stubni to volanie. "
+            "(Ak toto naozaj potrebujes v rucnom skripte, nastav "
+            "STRIKE_CLIENT_ALLOW_MUTATIONS=1.)")
     body_str = json.dumps(body, separators=(",", ":")) if body is not None else ""
     url = f"{config.STRIKE_BASE_URL}{path}"
     attempts = _MAX_RETRIES + 1 if method.upper() == "GET" else 1

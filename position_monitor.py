@@ -949,7 +949,30 @@ def check_open_trades():
         # Bez symbol filtra - vsetky otvorene pozicie na ucte v JEDNOM volani,
         # zdielanom pre vsetky sledovane assety (NAS100/NVDA/ADA), namiesto
         # samostatneho volania na kazdy symbol zvlast.
-        live_positions = strike_client.get_positions()
+        #
+        # 2026-09-06 - vypadok burzy (Strike 503, 3.4 h) sa tu do tohto dna
+        # prejavil ako vynimka vyhodena do scheduleru: job sa opakoval spravne
+        # kazdu minutu, ale logy boli plne tracebackov, v ktorych by sa skutocny
+        # problem lahko stratil. price_poller aj watch_monitor riesia to iste
+        # zlyhanie potichu ("preskakujem tento tik") - dorovnane na rovnaky vzor.
+        #
+        # DOLEZITE, preco sa tu vracia a NEpokracuje s prazdnym zoznamom:
+        # chybajuci symbol v `live_by_symbol` nizsie znamena "pozicia uz na burze
+        # nie je, teda sa zatvorila". Keby get_positions() pri vypadku vratilo
+        # [] namiesto vynimky, bot by oznacil VSETKY otvorene pozicie za
+        # zatvorene, spustil na ne post-close review a poslal Discord notifikacie
+        # o zatvoreni, ktore sa nikdy nestalo. Preto sa tik proste preskoci.
+        #
+        # Nic sa necommituje - self-heal backfilly vyssie su idempotentne a
+        # dobehnu pri najblizsom uspesnom tiku. Z rovnakeho dovodu sa preskakuju
+        # aj _fire_* akcie na konci funkcie: ich DB priznaky nie su zapisane,
+        # takze odoslat ich teraz by znamenalo poslat ich znova aj nabuduce.
+        try:
+            live_positions = strike_client.get_positions()
+        except Exception as e:
+            print(f"[position_monitor] Strike /v2/positions zlyhalo, "
+                  f"preskakujem tento tik: {e}")
+            return
         live_by_symbol = {p.get("symbol"): p for p in live_positions}
 
         now = datetime.now(timezone.utc)

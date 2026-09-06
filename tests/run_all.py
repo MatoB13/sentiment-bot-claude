@@ -29,7 +29,17 @@ def main() -> int:
         print("Ziadny test nesedi na zadany vzor.")
         return 1
 
-    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    # 2026-09-06 - druha vrstva ochrany pred zadanim objednavky z testu.
+    # Prva (a dolezitejsia) je zamka v strike_client._request, ktora blokuje
+    # kazdu ne-GET poziadavku v testovacom procese - ta plati aj pri priamom
+    # `python tests/test_x.py`, cim ten realny incident vznikol. Toto je len
+    # opasok navyse: aj keby sa zamka niekedy obisla, kluce su neplatne a burza
+    # by poziadavku odmietla. STRIKE_CLIENT_ALLOW_MUTATIONS sa zahadzuje, aby
+    # ju testy nemohli zdedit z prostredia.
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8",
+           "STRIKE_API_PRIVATE_KEY": "",
+           "STRIKE_API_PUBLIC_KEY": ""}
+    env.pop("STRIKE_CLIENT_ALLOW_MUTATIONS", None)
     failed, t0 = [], time.time()
     for name in names:
         started = time.time()
