@@ -441,8 +441,10 @@ ZHIPU = {
     "trade_interval_hours": config.ZHIPU_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.ZHIPU_OFF_HOURS_INTERVAL_HOURS,
     "weekend_interval_hours": config.ZHIPU_WEEKEND_INTERVAL_HOURS,
-    "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
-    "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
+    # Sanghajsky STAR Market (01:30-07:00 UTC), nie zdielany NYSE default -
+    # viz config.ZHIPU_TRADING_HOURS_START_UTC pre plne zdovodnenie.
+    "trading_hours_start_utc": config.ZHIPU_TRADING_HOURS_START_UTC,
+    "trading_hours_end_utc": config.ZHIPU_TRADING_HOURS_END_UTC,
     # Viacslovna fraza (rovnaky dovod ako MINIMAX/NIGHT) - "Zhipu" samo osebe
     # by mohlo davat falosne zhody, "Zhipu AI" je jednoznacnejsie.
     "marketaux_query": {"search": "Zhipu AI"},
@@ -541,8 +543,10 @@ UNITREE = {
     "trade_interval_hours": config.UNITREE_TRADE_INTERVAL_HOURS,
     "off_hours_interval_hours": config.UNITREE_OFF_HOURS_INTERVAL_HOURS,
     "weekend_interval_hours": config.UNITREE_WEEKEND_INTERVAL_HOURS,
-    "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
-    "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
+    # Sanghajsky STAR Market (01:30-07:00 UTC), nie zdielany NYSE default -
+    # viz config.UNITREE_TRADING_HOURS_START_UTC pre plne zdovodnenie.
+    "trading_hours_start_utc": config.UNITREE_TRADING_HOURS_START_UTC,
+    "trading_hours_end_utc": config.UNITREE_TRADING_HOURS_END_UTC,
     # "Unitree" nie je bezne anglicke slovo (na rozdiel od "night"/"minimax") -
     # zive overene 2026-08-19 (holy aj viacslovny dopyt), oba cisto relevantne,
     # nulove falosne zhody, viacero clankov mladsich nez 25h (IPO prave dnes).

@@ -822,14 +822,37 @@ ZHIPU_MIN_CONFIDENCE = _int("ZHIPU_MIN_CONFIDENCE", MIN_CONFIDENCE)
 ZHIPU_MARGIN_USD = _float("ZHIPU_MARGIN_USD", 50)
 ZHIPU_LEVERAGE = _int("ZHIPU_LEVERAGE", 10)
 ZHIPU_LIQUIDATION_CUSHION_MULTIPLE = _float("ZHIPU_LIQUIDATION_CUSHION_MULTIPLE", LIQUIDATION_CUSHION_MULTIPLE)
-# Najsirsi konzervativny odhad (6.0/9.0, rovnako ako NIGHT/povodny MINIMAX pri
-# ich pridani) kvoli uplnej absencii cenovej historie - NIE empiricky
-# backtestovane. PREHODNOTIT cez realny ATR14 z vlastnych PriceBar dat
-# (rovnaky postup ako MINIMAX 2026-08-19 aj UNITREE 2026-08-29), akonahle
-# ma dost vlastnej historie na aktivaciu - viz [[feedback_new_ticker_sl_tp_derivation]]
-# politika.
-ZHIPU_SL_PCT = _float("ZHIPU_SL_PCT", 6.0)
-ZHIPU_TP_PCT = _float("ZHIPU_TP_PCT", 9.0)
+# 2026-09-06 PREPOCITANE z realnych dat (189 vlastnych hodinovych barov s
+# platnym ATR14) - povodnych 6.0/9.0 bol len konzervativny odhad BEZ akejkolvek
+# cenovej historie, zavedeny v den pridania. Postup podla
+# [[feedback_new_ticker_sl_tp_derivation]], rovnako ako MINIMAX/UNITREE/SKHYNIX:
+#
+# ATR14 median za celu historiu = 0.835 %. ZAMERNE sa NEBERIE 48-hodinovy median
+# (0.345 %) - poslednych 48 h bolo nezvycajne tichych a trafit vypocet do
+# takeho okna je presne chyba, ktora pri UNITREE #140 dala SL 0.209 %.
+#
+# Pomer SL/ATR 3.21x = MEDIAN UZ NASADENYCH tickerov, meraný jednotne (SL voci
+# vlastnemu ATR14 medianu): UNITREE 3.21, MINIMAX 3.06, SKHYNIX 3.73, CRCL 2.67,
+# NVDA 3.69, GOOGL 3.80. (Pozor: cislo 2.34x z komentarov vyssie sa merala voci
+# ATR odcitanemu v case nastavenia, nie voci medianu - nie je s tymto priamo
+# porovnatelne.)
+#   0.835 * 3.21 = 2.68 % -> 2.7 % SL, TP 4.05 % (pomer 1.5 ako vsetky tickery)
+#
+# Krizova kontrola sumom: pri SL 2.7 % prekroci samotny hodinovy rozsah stopku
+# v 6.4 % hodin - portfoliovy median je 6.0 %, cize ZHIPU sedi do radu.
+# Pri 2.0 % by to bolo 12.4 % hodin (tesnejsie nez ktorykolvek nas ticker okrem
+# AAOI, ktore ma 28.5 % a je zjavne zle nastavene - PREVERIT samostatne).
+ZHIPU_SL_PCT = _float("ZHIPU_SL_PCT", 2.7)
+ZHIPU_TP_PCT = _float("ZHIPU_TP_PCT", 4.05)
+# 2026-09-06 (na ziadost pouzivatela pri aktivacii) - VLASTNE obchodne hodiny,
+# nie zdielany NYSE default. Zhipu AI je cinska firma; jej relevantna seansa je
+# sanghajska (STAR Market 09:30-15:00 CST = 01:30-07:00 UTC), nie newyorska.
+# So zdielanym 13-21 UTC by cinske otvorenie padlo do OFF-HOURS, teda by sa
+# ZHIPU kontrolovalo najmenej casto prave vtedy, ked je jeho trh najaktivnejsi.
+# Rovnaky vzor uz pouziva SKHYNIX pre KRX (viz SKHYNIX_TRADING_HOURS vyssie).
+# To iste dostava UNITREE (tiez STAR Market) - viz UNITREE_TRADING_HOURS nizsie.
+ZHIPU_TRADING_HOURS_START_UTC = _int("ZHIPU_TRADING_HOURS_START_UTC", 1)
+ZHIPU_TRADING_HOURS_END_UTC = _int("ZHIPU_TRADING_HOURS_END_UTC", 7)
 ZHIPU_TRADE_INTERVAL_HOURS = _float("ZHIPU_TRADE_INTERVAL_HOURS", TRADE_INTERVAL_HOURS)
 ZHIPU_OFF_HOURS_INTERVAL_HOURS = _float("ZHIPU_OFF_HOURS_INTERVAL_HOURS", OFF_HOURS_INTERVAL_HOURS)
 ZHIPU_WEEKEND_INTERVAL_HOURS = _float("ZHIPU_WEEKEND_INTERVAL_HOURS", WEEKEND_INTERVAL_HOURS)
@@ -948,6 +971,17 @@ UNITREE_TP_PCT = _float("UNITREE_TP_PCT", 3.0)
 UNITREE_TRADE_INTERVAL_HOURS = _float("UNITREE_TRADE_INTERVAL_HOURS", TRADE_INTERVAL_HOURS)
 UNITREE_OFF_HOURS_INTERVAL_HOURS = _float("UNITREE_OFF_HOURS_INTERVAL_HOURS", OFF_HOURS_INTERVAL_HOURS)
 UNITREE_WEEKEND_INTERVAL_HOURS = _float("UNITREE_WEEKEND_INTERVAL_HOURS", WEEKEND_INTERVAL_HOURS)
+# 2026-09-06 (na ziadost pouzivatela, spolu s aktivaciou ZHIPU) - VLASTNE
+# obchodne hodiny namiesto zdielaneho NYSE defaultu. Komentar vyssie tento
+# nesulad sam priznaval ("NYSE-orientovany default je len hruba aproximacia,
+# prehodnotit pri realnej aktivacii") - UNITREE je akcia na sanghajskom STAR
+# Markete (09:30-15:00 CST = 01:30-07:00 UTC), takze pri 13-21 UTC padala cela
+# jeho realna seansa do OFF-HOURS. Ticker sa teda kontroloval v 6-hodinovom
+# intervale prave vtedy, ked sa jeho podkladova akcia realne obchodovala, a v
+# 4-hodinovom vtedy, ked bola sanghajska burza zatvorena. Rovnaky vzor ako
+# SKHYNIX (KRX) a novo aj ZHIPU.
+UNITREE_TRADING_HOURS_START_UTC = _int("UNITREE_TRADING_HOURS_START_UTC", 1)
+UNITREE_TRADING_HOURS_END_UTC = _int("UNITREE_TRADING_HOURS_END_UTC", 7)
 
 # ============================== AAPL (NEAKTIVNE - Strike este nema market) ==============================
 # Pridany 2026-08-22 na ziadost pouzivatela (Strike mal Apple pridat "tento
