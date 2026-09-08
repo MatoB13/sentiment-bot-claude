@@ -2550,7 +2550,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 trade.open_notified_at = datetime.now(timezone.utc)
                 session.add(trade)
                 session.commit()
-    except Exception:
+    except Exception as cycle_exc:
         # 2026-09-04 - POISTKA PROTI PLATENEJ SLUCKE (na ziadost pouzivatela).
         #
         # PRECO: dovtedy sa vynimka odtialto vyniesla az do dispatch vlakna
@@ -2590,15 +2590,28 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 # volanim - vtedy je riadok naozaj nulovy. Ak uz volanie prebehlo,
                 # tokeny sa minuli a patria do uctovnictva, aj ked sme vysledok
                 # zahodili (inak dashboard ten beh ukaze ako zadarmo).
-                u = usage or {}
+                # 2026-09-08 - usage sa berie aj z VYNIMKY. Ked odpoved neprejde
+                # validaciou (claude_analyst.MalformedDecision), vynimka vyletí
+                # z analyze() EŠTE PREDTYM, nez sa lokalne `usage` priradi -
+                # dovtedy tu boli same NULL a taky cyklus vyzeral ako bezplatny,
+                # hoci sme za tokeny zaplatili. Za 11 vyskytov sa tak nedalo
+                # zistit ani to, ci islo o orezanie na max_tokens.
+                u = usage or getattr(cycle_exc, "usage", None) or {}
                 session.add(CycleLog(
                     symbol=symbol,
                     config_snapshot=_config_snapshot(asset),
                     outcome="error",
                     trigger_source=_trigger_source(macro_event, watch_triggered,
                                                     closed_trade),
-                    reject_reason=f"cyklus spadol po analyze: "
-                                  f"{traceback.format_exc(limit=3)}"[:2000],
+                    reject_reason=(
+                        # Pri MalformedDecision je stop_reason to NAJDOLEZITEJSIE:
+                        # "max_tokens" = odpoved bola orezana a povinne polia sa
+                        # do nej nezmestili. Bez neho sa dalo len hadat.
+                        f"cyklus spadol po analyze"
+                        + (f" [stop_reason={u.get('stop_reason')}, "
+                           f"prisle kluce={getattr(cycle_exc, 'present_keys', None)}]"
+                           if hasattr(cycle_exc, "present_keys") else "")
+                        + f": {traceback.format_exc(limit=3)}")[:2000],
                     web_search_log=web_search_log,
                     usage_input_tokens=u.get("input_tokens"),
                     usage_cache_write_tokens=u.get("cache_write_tokens"),

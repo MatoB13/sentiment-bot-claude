@@ -2362,7 +2362,16 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
                                       portfolio_exposure=portfolio_exposure)
     decision, web_search_log, usage = _call_claude(asset, system_blocks, user_prompt,
                                                      DECISION_TOOL, "submit_trade_decision")
-    _validate_decision(decision)
+    try:
+        _validate_decision(decision)
+    except ValueError as e:
+        # Doplnime kontext, ktory _validate_decision nema - viz MalformedDecision.
+        print(f"[claude_analyst] [{asset['name']}] NEPOUZITELNA odpoved: {e} | "
+              f"stop_reason={usage.get('stop_reason')} "
+              f"output_tokens={usage.get('output_tokens')} "
+              f"prisle kluce={sorted(decision.keys())}")
+        raise MalformedDecision(str(e), usage=usage, web_search_log=web_search_log,
+                                 present_keys=sorted(decision.keys())) from e
     # ta["last_price"] je cena, s ktorou Claude v tomto cykle pracoval
     _drop_already_met_watch(decision, (ta or {}).get("last_price"), f" [{asset['name']}]")
     return decision, web_search_log, usage
@@ -2708,13 +2717,19 @@ def _call_claude(asset: dict, system_blocks: list[dict], user_prompt: str,
     # PRED povinnym polom (typicky "reasoning" na konci) - cyklus sa bezpecne, ale
     # zbytocne zahodi (_validate_decision). "low"/"medium" (momentalne nikde nepouzite)
     # ostavaju pri povodnom strope.
+    # 2026-09-08 - default/high zdvihnuty 16000 -> 24000. Po zdvihnuti 8192 ->
+    # 16000 (22.8.) klesla frekvencia orezanych odpovedi z 8 vyskytov za 16 dni
+    # na 3 za 17 dni, cize strop je preukazatelne to, co viaze - ale nie dost.
+    # max_tokens je STROP, nie poplatok: plati sa len za realne vygenerovane
+    # tokeny, takze zdvihnutie nestoji nic, kym sa odpovede naozaj nepredlzia.
+    # Jedine realne riziko je latencia (_post_messages ma timeout 300 s).
     effort = asset.get("effort")
     if effort in ("xhigh", "max"):
         max_tokens = 24000
     elif effort in ("low", "medium"):
         max_tokens = 8192
     else:
-        max_tokens = 16000
+        max_tokens = 24000
 
     # server-side web_search moze pri velmi dlhom hladani vratit stop_reason=pause_turn -
     # v takom pripade treba poslat konverzaciu znova a nechat ju dokoncit (max 1 pokracovanie).
@@ -2772,6 +2787,9 @@ def _call_claude(asset: dict, system_blocks: list[dict], user_prompt: str,
             "cache_read_tokens": total_usage["cache_read_input_tokens"],
             "output_tokens": total_usage["output_tokens"],
             "effort": effort or None,
+            # 2026-09-08 - potrebne na diagnostiku MalformedDecision: "max_tokens"
+            # znamena, ze odpoved bola orezana a povinne polia sa do nej nezmestili.
+            "stop_reason": data.get("stop_reason"),
         }
         cleaned = _strip_citation_tags(_recover_malformed_fields(decision_block["input"], asset["name"]))
         return cleaned, web_search_log, usage_record
@@ -2861,6 +2879,30 @@ def _drop_already_met_watch(decision: dict, live_price: float | None, label: str
                   f"{price} - zahadzujem (inak by hned spustil zbytocny cyklus).")
             decision.pop(price_key, None)
             decision.pop(dir_key, None)
+
+
+class MalformedDecision(ValueError):
+    """Claude nastroj ZAVOLAL, ale vratil nepouzitelny vstup.
+
+    2026-09-08: nesie so sebou `usage`, `stop_reason` a to, ktore kluce v
+    odpovedi NAOZAJ prisli. Dovod - za tie tokeny sme uz zaplatili, ale
+    _validate_decision vyhodilo vynimku este predtym, nez si volajuci
+    (trade_cycle) stihol `usage` priradit, takze v DB zostali same NULL:
+    cyklus vyzeral ako bezplatny a nedalo sa z neho zistit vobec nic.
+
+    Za 11 vyskytov (od 6.8., naprie 7 tickermi) sme sa tak o pricine mohli len
+    dohadovat. Podozrenie je orezanie na `max_tokens` - povinne polia su v
+    schéme az za volitelnymi reflection polami, takze pri dlhom thinkingu +
+    web_search sa rozpocet minie EŠTE PRED nimi. Sedi to s tym, ze zdvihnutie
+    stropu 8192 -> 16000 (22.8.) znizilo frekvenciu z 8 vyskytov za 16 dni na
+    3 za 17 dni. `stop_reason == "max_tokens"` to pri dalsom vyskyte potvrdi
+    alebo vyvrati bez hadania."""
+
+    def __init__(self, message, usage=None, web_search_log=None, present_keys=None):
+        super().__init__(message)
+        self.usage = usage
+        self.web_search_log = web_search_log
+        self.present_keys = present_keys or []
 
 
 def _validate_decision(decision: dict) -> None:
