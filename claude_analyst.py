@@ -2510,6 +2510,10 @@ _HOST_FIELDS = (
     "reasoning", "key_assumptions", "data_issue", "watch_rationale",
     "confidence_threshold_note", "daily_reflection",
     "closed_trade_reflection", "sl_tp_calibration_verdict", "sl_tp_choice",
+    # 2026-09-09 - `reason` je volne textove pole SKENU (TRIAGE_TOOL). Odkedy sa
+    # zachrana aplikuje aj na sken, musi byt medzi hostitelmi: prave v nom
+    # koncili uniknute `<parameter name="watch_price">` tagy.
+    "reason",
 )
 
 
@@ -3092,7 +3096,20 @@ def _call_triage(asset: dict, user_prompt: str) -> tuple[dict, dict]:
     print(f"[claude_analyst] [{asset['name']}] triage usage: input={usage.get('input_tokens')} "
           f"cache_write={usage.get('cache_creation_input_tokens')} "
           f"cache_read={usage.get('cache_read_input_tokens')} output={usage.get('output_tokens')}")
-    return block["input"], usage_record
+    # 2026-09-09 - TA ISTA zachrana ako na rozhodovacej ceste (viz volanie
+    # _recover_malformed_fields v _call_claude). Sem sa doteraz NEAPLIKOVALA a
+    # sken tak trpel presne tym, co sa v auguste opravovalo pri plnom cykle:
+    # namiesto riadneho pola vratil Claude hodnotu ako obycajny XML tag v texte.
+    #
+    # Namerane na produkcii: 8 zo 173 skenov (4.6 %), ktore chceli nastavit
+    # watch, ho NENASTAVILO - `watch_direction` prislo, ale `watch_price` bolo
+    # NULL, lebo cena skoncila ako "</reason><parameter name="watch_price">117.2"
+    # v texte dovodu. watch_monitor potrebuje oboje, takze cely watch pre ten
+    # ticker ticho nevznikol (rovnaky nasledok ako pri #707/ADA v auguste).
+    # Verdikt samotny (worth_full_look/attention) prezil vzdy - stratil sa len
+    # watch, co je o to zradnejsie, ze to na nicom nevidno.
+    return _strip_citation_tags(
+        _recover_malformed_fields(block["input"], f"{asset['name']} triage")), usage_record
 
 
 def triage(asset: dict, ta: dict, cross_market: dict, session: dict,
