@@ -85,12 +85,18 @@ check("GET zamka nezastavi", reached_network, True)
 
 print("\n5) Detekcia nezavisi na nazve suboru, ale na priecinku `tests`")
 real_argv = sys.argv[0]
+# POZOR na tvar tejto cesty: os.path.join("C:", "app", ...) da na Windows
+# "C:app\..." - to je DRIVE-RELATIVNA cesta a _in_test_process ju cez abspath()
+# dolozi aktualnym priecinkom. Ked sa suita spustila z tests/, vyslo z toho
+# "...\tests\app\main.py" a tento test padol, hoci zamka bola v poriadku.
+# os.path.abspath(os.sep) da skutocny koren ("C:\" resp. "/") na oboch OS.
+_ABS_ROOT = os.path.abspath(os.sep)
 try:
-    sys.argv[0] = os.path.join("C:", "app", "main.py")
+    sys.argv[0] = os.path.join(_ABS_ROOT, "app", "main.py")
     check("produkcny beh zamku NEaktivuje", strike_client._in_test_process(), False)
-    sys.argv[0] = os.path.join("C:", "app", "tests", "cokolvek.py")
+    sys.argv[0] = os.path.join(_ABS_ROOT, "app", "tests", "cokolvek.py")
     check("hocijaky subor v tests/ ju aktivuje", strike_client._in_test_process(), True)
-    sys.argv[0] = os.path.join("C:", "app", "main.py")
+    sys.argv[0] = os.path.join(_ABS_ROOT, "app", "main.py")
     os.environ["PYTEST_CURRENT_TEST"] = "x"
     check("pytest ju aktivuje tiez", strike_client._in_test_process(), True)
     del os.environ["PYTEST_CURRENT_TEST"]

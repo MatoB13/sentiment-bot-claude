@@ -935,6 +935,38 @@ _CRCL_MACRO_RULES = """- **Vydavateľ USDC stablecoinu - biznis model priamo nav
   politike vedia bez varovania pohnúť sentimentom - over cez web_search nedávne výroky s dopadom na
   stablecoinový/krypto regulačný sektor."""
 
+# TSLA má vlastné pravidlá (nie zdieľané _EQUITY_MACRO_RULES ako GOOGL/AAPL),
+# lebo jeho drivery sú z veľkej časti idiosynkratické - štvrťročné dodávky,
+# jeden nevyspytateľný CEO a robotaxi naratív hýbu cenou viac než CPI/FOMC.
+_TSLA_MACRO_RULES = """- **Štvrťročné čísla dodávok a výroby (najsilnejší jednotlivý katalyzátor)**: {instrument} zverejňuje
+  počty vyrobených/dodaných vozidiel na začiatku každého kvartálu, oddelene od earnings - je to
+  najtvrdší fundamentálny údaj o firme a odchýlka od konsenzu ňou pravidelne hýbe o jednotky až
+  desiatky percent. Over cez web_search, či sa práve blíži alebo prebehol takýto report.
+- **Elon Musk ako samostatný rizikový faktor**: politické výroky, spory s administratívou, čas
+  venovaný iným firmám (xAI, SpaceX, X), predaj akcií, kompenzačný balík aj súdne spory okolo neho
+  vedia pohnúť {instrument} bez akejkoľvek zmeny fundamentu firmy. Toto je pri {instrument}
+  podstatne väčší faktor než pri ktorejkoľvek inej akcii v portfóliu - over cez web_search nedávne
+  výroky/udalosti. Naopak sa NEDÁ predpovedať dopredu, takže neistota má tlačiť confidence dole,
+  nie vytvárať smer.
+- **Robotaxi/FSD naratív vs. súčasná automobilová realita**: veľká časť ocenenia stojí na budúcom
+  autonómnom jazdení a Optimuse, nie na dnešných maržiach z áut. Preto {instrument} vie rásť na zlých
+  predajných číslach (ak príde regulačné povolenie alebo rozšírenie robotaxi flotily) aj padať na
+  dobrých. Rozlíš, ktorý z týchto dvoch naratívov práve trh oceňuje - miešanie je najčastejšia chyba.
+- **Konkurencia v EV a čínsky trh**: BYD a domáci čínski výrobcovia, európske EV dotácie/clá a
+  cenové vojny priamo tlačia na marže. Čína je zároveň veľký odbytový aj výrobný trh (Gigafactory
+  Shanghai), takže správy o čínskom dopyte majú dvojitý dopad.
+- **Politika a dotácie**: zrušenie/zmeny federálnych EV daňových kreditov, emisné regulačné kredity
+  (významná položka zisku), clá na komponenty a batérie. Sú to legislatívne, nie trhové udalosti -
+  reakcia býva jednorazová a prudká.
+- **Vysoká beta a retailová držba**: {instrument} sa hýbe výrazne viac než NAS100/SP500 v oboch
+  smeroch a má nadpriemerný podiel retailových a opčných hráčov - short squeeze aj panické výpredaje
+  sú tu bežnejšie než pri GOOGL/NVDA. Silný pohyb sám o sebe je teda slabší dôkaz o zmene trendu.
+- **Market Reaction Score**: rovnako dôležité ako inde - porovnaj obsah správy s reálnou cenovou
+  reakciou {instrument}.
+- **Event Risk Gate**: report dodávok, earnings, akciová/produktová akcia (napr. robotaxi event),
+  veľké Muskove vyhlásenia a bežné makro dáta (CPI, PPI, NFP, FOMC) - pred/počas nich buď výrazne
+  konzervatívnejší (nízka confidence alebo "none")."""
+
 
 _UNITREE_MACRO_RULES = """- **KRITICKÉ UPOZORNENIE - čerstvo listovaná akcia bez obchodnej histórie**: {instrument} (Unitree
   Robotics, čínsky výrobca quadruped/humanoidných robotov) mala IPO na šanghajskom STAR Markete
@@ -1136,6 +1168,19 @@ ASSET_TEXT = {
             'dátach (CPI, PPI, NFP, FOMC - zvýšená váha kvôli priamemu dopadu sadzieb na rezervný výnos)'
         ),
         "macro_rules": _CRCL_MACRO_RULES,
+    },
+    "TSLA": {
+        "label": "akciu TSLA (Tesla, NASDAQ)",
+        "news_focus": (
+            'správach o Tesle samotnej (štvrťročné dodávky a výroba, earnings a marže na '
+            'automobilovom segmente, cenové úpravy modelov, energy storage biznis), pokroku a '
+            'regulačných povoleniach robotaxi/FSD a projektu Optimus, konkurencii v EV (BYD a '
+            'čínski výrobcovia, európske cenové vojny, clá), politike a dotáciám (EV daňové '
+            'kredity, emisné regulačné kredity), vyjadreniach a aktivitách Elona Muska (vrátane '
+            'politických, ktoré vedia pohnúť cenou bez zmeny fundamentu), a Fed/makro dátach '
+            '(CPI, PPI, NFP, FOMC)'
+        ),
+        "macro_rules": _TSLA_MACRO_RULES,
     },
     "UNITREE": {
         "label": "akciu UNITREE (Unitree Robotics, čínsky výrobca humanoidných/quadruped robotov, IPO na šanghajskom STAR Markete 19.8.2026)",

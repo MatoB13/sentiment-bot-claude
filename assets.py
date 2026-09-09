@@ -682,9 +682,42 @@ PUMP = {
     "effort": config.PUMP_EFFORT,
 }
 
+TSLA = {
+    "name": "TSLA",
+    "asset_class": "stock",
+    "strike_symbol": config.STRIKE_TSLA_SYMBOL,
+    # Skutocna verejne obchodovana akcia (NASDAQ) - plna yfinance historia,
+    # rovnaky spolahlivy zdroj ako GOOGL/NVDA/CRCL. Strike feed pre TSLA je
+    # riedky (0.49 obchodu/h), ale to sa tyka len plnenia prikazov - cena aj
+    # ATR sa citaju z yfinance, viz config.py TSLA sekcia.
+    "yf_symbol": "TSLA",
+    "yf_fallback": None,
+    "sl_pct": config.TSLA_SL_PCT,
+    "tp_pct": config.TSLA_TP_PCT,
+    "leverage": config.TSLA_LEVERAGE,
+    "liquidation_cushion_multiple": config.TSLA_LIQUIDATION_CUSHION_MULTIPLE,
+    "margin_usd": config.TSLA_MARGIN_USD,
+    "min_confidence": config.TSLA_MIN_CONFIDENCE,
+    "enabled": config.ENABLE_TSLA,
+    "needs_btc_proxy": False,
+    # Objem cez yfinance overeny naozivo 2026-09-09: 210/210 hodinovych barov
+    # nenulovych (100 %), rovnako spolahlivy ako NVDA/GOOGL.
+    "include_volume": True,
+    "trade_interval_hours": config.TSLA_TRADE_INTERVAL_HOURS,
+    "off_hours_interval_hours": config.TSLA_OFF_HOURS_INTERVAL_HOURS,
+    "weekend_interval_hours": config.TSLA_WEEKEND_INTERVAL_HOURS,
+    "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
+    "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
+    # Overene naozivo 2026-09-09 (politika "nikdy holy ticker bez overenia"):
+    # symbols=TSLA vratil 6 cerstvych clankov do 24 h, vsetky o Tesle samotnej
+    # (predaje v Cine, robotaxi, akcia) - ziadne falosne zhody ako pri NIGHT/PUMP.
+    "marketaux_query": {"symbols": "TSLA"},
+    "effort": config.TSLA_EFFORT,
+}
+
 
 ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX, AAOI, MINIMAX, ZEC,
-              GOOGL, UNITREE, NEAR, AAPL, ZHIPU, CRCL, PUMP]
+              GOOGL, UNITREE, NEAR, AAPL, ZHIPU, CRCL, PUMP, TSLA]
 
 
 # --- 2026-08-31: run_slot (rozprestretie cyklov v case) ---------------------

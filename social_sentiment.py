@@ -45,6 +45,11 @@ QUERIES = {
     # manipulativnej schemy ("pump and dump"), takze by dopyt zaplavili uplne
     # nesuvisiace prispevky. Rovnaky dovod ako NIGHT/HYPE/MINIMAX.
     "PUMP": '("Pump.fun" OR "pumpdotfun" OR $PUMP) lang:en -is:retweet',
+    # Pridane 2026-09-09 hned pri pridani tickera (poucenie z UNITREE naleze,
+    # kde dopyt chybal a .get() fallback ticho podsuval NAS100 dopyt).
+    # Zamerne BEZ holeho "Tesla" - to by nabralo aj Nikolu Teslu, Tesla coil
+    # a nesuvisiace firmy s tym menom; $TSLA + "Tesla stock"/Musk je uzsie.
+    "TSLA": '($TSLA OR "Tesla stock" OR "Elon Musk") lang:en -is:retweet',
 }
 
 

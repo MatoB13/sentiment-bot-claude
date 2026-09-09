@@ -54,6 +54,7 @@ AAPL_EFFORT = os.getenv("AAPL_EFFORT", "")
 ZHIPU_EFFORT = os.getenv("ZHIPU_EFFORT", "")
 CRCL_EFFORT = os.getenv("CRCL_EFFORT", "")
 PUMP_EFFORT = os.getenv("PUMP_EFFORT", "")
+TSLA_EFFORT = os.getenv("TSLA_EFFORT", "")
 
 # Strike
 STRIKE_API_PRIVATE_KEY = os.getenv("STRIKE_API_PRIVATE_KEY", "")
@@ -562,6 +563,12 @@ ENABLE_ZHIPU = _bool("ENABLE_ZHIPU", "false")
 # sekcia nizsie pre plne zdovodnenie SL/TP aj korelacnu analyzu.
 ENABLE_CRCL = _bool("ENABLE_CRCL", "true")
 ENABLE_PUMP = _bool("ENABLE_PUMP", "true")
+# TSLA pridany 2026-09-09 na ziadost pouzivatela ako VYSLEDOK korelacnej
+# analyzy Strike ponuky - rovnaky "aktivny hned" vzor ako CRCL/GOOGL/NEAR
+# (skutocna verejne obchodovana akcia s plnou yfinance historiou, netreba
+# cakat na vlastne price_bars). Zo sirsieho zoznamu kandidatov prezil ako
+# JEDINY - viz TSLA sekcia nizsie pre korelacie aj SL/TP odvodenie.
+ENABLE_TSLA = _bool("ENABLE_TSLA", "true")
 
 # Presny symbol/asset identifikator zisti cez strike_client.get_markets() - toto
 # su len predpoklady podla existujuceho NAS100-USD pomenovacieho vzoru, okrem
@@ -1103,3 +1110,67 @@ PUMP_TP_PCT = _float("PUMP_TP_PCT", 9.2)
 PUMP_TRADE_INTERVAL_HOURS = _float("PUMP_TRADE_INTERVAL_HOURS", ADA_TRADE_INTERVAL_HOURS)
 PUMP_OFF_HOURS_INTERVAL_HOURS = _float("PUMP_OFF_HOURS_INTERVAL_HOURS", PUMP_TRADE_INTERVAL_HOURS)
 PUMP_WEEKEND_INTERVAL_HOURS = _float("PUMP_WEEKEND_INTERVAL_HOURS", PUMP_TRADE_INTERVAL_HOURS)
+
+# ============================== TSLA (AKTIVNY od 2026-09-09) ==============================
+# Pridany 2026-09-09 na ziadost pouzivatela ako jediny prezivsi kandidat z
+# korelacneho skenu celej Strike ponuky. TSLA-USD overene naozivo v
+# /v2/exchangeInfo (status=trading, tickSize 0.01, MIN_NOTIONAL 5).
+#
+# KORELACIA - a preco NIE zo Strike dat. Prvy beh skenu pouzil Strike
+# /price/v2/klines a vratil rebricek, ktory bol cely artefakt: klines su
+# TRADE-BASED, takze pri riedko obchodovanom symbole je vacsina barov plocha
+# (namerane: SP500 94 %, TSLA 91 %, BNB 77 %) a plocha seria nekoreluje s
+# nicim. Rebricek teda zoradil kandidatov podla toho, ako malo sa obchoduju.
+# Prepocitane na REALNYCH trhoch (Binance pre krypto, yfinance pre akcie/
+# indexy/komodity, 60 dni hodinovych log-vynosov, inner join na case) - a
+# poradie sa uplne otocilo:
+#   TSLA +0.35 (max, voci CRCL)  <- jediny pod 0.5
+#   SNDK +0.60 / MU +0.62 (voci AAOI) - dalsia stavka na polovodice
+#   SP500 +0.62 (voci NVDA), BNB +0.71 (voci BTC), ETH +0.85 (voci BTC)
+#   XAG +0.86 (voci XAU) - prakticky duplikat uz drzaneho zlata
+# Zo Strike dat pritom XAG vysiel ako druhy NAJLEPSI kandidat (+0.28) - to je
+# presne miera toho, o kolko sa dalo pomylit. TSLA ma najvyssiu korelaciu
+# +0.35 s CRCL, +0.30 priemerne - jediny skutocny diverzifikator v ponuke.
+# POZOR na hranice merania: HYPE (Binance vracia 400), SKHYNIX (KRW/USD scale
+# mismatch) a MINIMAX/UNITREE/ZHIPU (sukromne firmy bez verejneho zdroja) sa
+# do porovnania nedostali - "max voci portfoliu" je teda max voci 13 z 18.
+#
+# LIKVIDITA je zname riziko, nie prehliadnutie: 0.49 obchodu/h na Strike
+# (498 obchodov za 1008 h). To je horsie nez AAOI, ktore uz mame oznacene ako
+# sotva obchodovatelne. Na Strike plati opacna zavislost, nez by clovek cakal -
+# likvidne su prave korelovane symboly (ETH 39.7 obch./h pri korelacii 0.85),
+# nekorelovane sa neobchoduju. Pouzivatel bol na to upozorneny a ticker
+# nasadzuje s tymto vedomim. Cena sa berie z yfinance (skutocna akcia,
+# 100% pokrytie objemu overene), takze riedky Strike feed neskresluje analyzu -
+# dotyka sa len samotneho plnenia prikazov.
+#
+# SL/TP z REALNYCH dat (politika [[feedback_new_ticker_sl_tp_derivation]]):
+# hodinovy ATR14 z yfinance, 420 barov / 60 dni. Median 1.246 % za cele okno,
+# 1.254 % za 72 h, 1.333 % za 48 h - vyrazne stabilnejsie nez pri UNITREE/ZHIPU,
+# takze tu nehrozi trafenie do tichej diery (chyba, ktora dala UNITREE 0.209 %).
+# Pomer SL/ATR 3.21x = median UZ NASADENYCH tickerov meraný jednotne voci
+# vlastnemu ATR14 medianu (UNITREE 3.21, MINIMAX 3.06, SKHYNIX 3.73, CRCL 2.67,
+# NVDA 3.69, GOOGL 3.80, ZHIPU 3.21).
+#   1.246 * 3.21 = 4.00 % SL, TP 6.00 % (pomer 1.5 ako vsetky ostatne tickery)
+#
+# Krizova kontrola sumom: pri SL 4.0 % prekroci samotny hodinovy rozsah stopku
+# len v 1.9 % hodin, portfoliovy median je 6.0-6.5 %. TSLA je teda na
+# KONZERVATIVNEJ strane radu (SL zodpovedajuca portfoliovemu medianu by bola
+# ~2.8 %). Zamerne to nechavam takto: vsetky nase incidenty (ADA #206 na 1.53 %,
+# UNITREE #140 na 0.209 %) boli z PRILIS TESNEJ stopky, ziadny z prilis sirokej,
+# a pri 60-dnovom okne bez extremneho eventu je sirsia strana bezpecnejsia.
+# Prehodnotit po ~20 obchodoch alebo pri prvej ATR kalibracii z vlastnych barov.
+STRIKE_TSLA_SYMBOL = os.getenv("STRIKE_TSLA_SYMBOL", "TSLA-USD")
+TSLA_MIN_CONFIDENCE = _int("TSLA_MIN_CONFIDENCE", MIN_CONFIDENCE)
+# 100 $ na ziadost pouzivatela (nie zdielany default 50) - vedomy pokus dat
+# jedinemu skutocne nekorelovanemu tickeru vacsiu vahu.
+TSLA_MARGIN_USD = _float("TSLA_MARGIN_USD", 100)
+TSLA_LEVERAGE = _int("TSLA_LEVERAGE", 10)  # DEAD - viz risk_manager._leverage_from_cushion, skutocna paka sa odvodzuje z cushion multiple nizsie
+TSLA_LIQUIDATION_CUSHION_MULTIPLE = _float("TSLA_LIQUIDATION_CUSHION_MULTIPLE", LIQUIDATION_CUSHION_MULTIPLE)
+TSLA_SL_PCT = _float("TSLA_SL_PCT", 4.0)
+TSLA_TP_PCT = _float("TSLA_TP_PCT", 6.0)
+# 4/6/12 h na ziadost pouzivatela - NIE zdielane defaulty. Obchodne hodiny ma
+# zdielane NYSE (TRADING_HOURS_START/END_UTC), Tesla je NASDAQ titul.
+TSLA_TRADE_INTERVAL_HOURS = _float("TSLA_TRADE_INTERVAL_HOURS", 4)
+TSLA_OFF_HOURS_INTERVAL_HOURS = _float("TSLA_OFF_HOURS_INTERVAL_HOURS", 6)
+TSLA_WEEKEND_INTERVAL_HOURS = _float("TSLA_WEEKEND_INTERVAL_HOURS", 12)
