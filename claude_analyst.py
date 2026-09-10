@@ -33,6 +33,104 @@ import market_data
 _RETRYABLE_STATUS = {429, 502, 503, 504, 520, 521, 522, 523, 524, 529}
 _MAX_API_RETRIES = 2
 _API_RETRY_DELAY_SECONDS = 60
+# 2026-09-10 - 429 ma o JEDEN pokus navyse (4 namiesto 3, teda ~3 min okno
+# namiesto ~2). Namerane v produkcii za jedno rano: XAU (03:18 UTC) a WTI
+# (05:28) padli po troch 429 za sebou, ZHIPU (06:07) dostal 429, 429 a na
+# TRETI pokus presiel - presne vo chvili, ked dobehol subezny MINIMAX review.
+# Limit sa teda uvolni sam, len nase okno bolo tesne kratke. 429 sa neuctuje,
+# takze pokus navyse nestoji nic.
+_MAX_API_RETRIES_429 = 3
+# Strop na cakanie podla `retry-after` - aby jedna absurdne velka hodnota
+# nezablokovala dispatch slot (_DISPATCH_CONCURRENCY_LIMIT) na desiatky minut.
+_API_RETRY_MAX_DELAY_SECONDS = 180
+
+
+class AnthropicAPIError(requests.HTTPError):
+    """HTTP chyba z Messages API, ktorej TEXT nesie aj to, co poslal Anthropic.
+
+    PRECO (2026-09-10): predtym sa volalo resp.raise_for_status(), ktore vyrobi
+    len "429 Client Error: Too Many Requests for url: ..." - telo odpovede aj
+    hlavicky zahodi. Pritom presne tam Anthropic hovori, KTORY limit sme trafili.
+    Pri troch 429 za jedno rano sa preto nedalo zistit nic: kvoty organizacie
+    aj workspace mali vrchol 1 % (overene v konzole), takze pricina je mimo nich
+    a vidiet ju je len v tele odpovede.
+
+    str(e) sa bez dalsej zmeny dostane do CycleLog.reject_reason (trade_cycle
+    uklada str(e), resp. f"health_check_failed: {e}") a odtial do cerveneho
+    banneru na dashboarde. Podtrieda requests.HTTPError, aby hocijaky
+    existujuci `except requests.HTTPError` fungoval dalej."""
+
+
+def _parse_retry_after(resp) -> float | None:
+    raw = resp.headers.get("retry-after")
+    if raw is None:
+        return None
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        return None  # HTTP-date tvar Anthropic neposiela; radsej ignorovat nez hadat
+    return val if val >= 0 else None
+
+
+def _retry_wait_seconds(resp) -> float:
+    """Kolko cakat pred dalsim pokusom.
+
+    `retry-after` sa pouzije, ale NIKDY kratsie ako doterajsich 60 s. Keby sme
+    ho brali doslova a Anthropic poslal napr. 5 s, spalili by sme vsetky pokusy
+    za 20 sekund - a namerane uvolnenie limitu trvalo ~2 minuty (ZHIPU presiel
+    az ked dobehol subezny cyklus). Hlavicka teda cakanie len PREDLZUJE."""
+    ra = _parse_retry_after(resp)
+    if ra is None:
+        return _API_RETRY_DELAY_SECONDS
+    return min(max(ra, _API_RETRY_DELAY_SECONDS), _API_RETRY_MAX_DELAY_SECONDS)
+
+
+def _describe_error_response(resp) -> str:
+    """Kratky, ale uplny popis chybovej odpovede: typ a sprava z tela,
+    retry-after, request-id a VSETKY anthropic-ratelimit-* hlavicky.
+
+    Hlavicky sa beru vsetky, nie len znamy zoznam - cele je to o tom, ze
+    nevieme, ktory limit sme trafili, takze nesmieme vopred zahodit ten,
+    o ktorom nevieme."""
+    parts = []
+    try:
+        body = resp.json()
+        err = body.get("error") or {}
+        etype, emsg = err.get("type"), err.get("message")
+        if etype or emsg:
+            parts.append(f"{etype}: {emsg}" if etype else str(emsg))
+        else:
+            parts.append(str(body)[:300])
+    except ValueError:
+        text = (resp.text or "").strip()
+        if text:
+            parts.append(text[:300])
+
+    meta = []
+    ra = resp.headers.get("retry-after")
+    if ra is not None:
+        meta.append(f"retry-after={ra}s")
+    rid = resp.headers.get("request-id")
+    if rid:
+        meta.append(f"request-id={rid}")
+    prefix = "anthropic-ratelimit-"
+    limits = {k.lower()[len(prefix):]: v for k, v in resp.headers.items()
+              if k.lower().startswith(prefix)}
+    # Kompaktne "druh zostava/limit", zvysne (vratane neznamych druhov) surovo.
+    kinds = sorted({k.rsplit("-", 1)[0] for k in limits
+                    if k.endswith(("-limit", "-remaining", "-reset"))})
+    used = set()
+    for kind in kinds:
+        lim, rem = limits.get(f"{kind}-limit"), limits.get(f"{kind}-remaining")
+        if lim is not None or rem is not None:
+            meta.append(f"{kind} {rem if rem is not None else '?'}/{lim if lim is not None else '?'}")
+            used.update({f"{kind}-limit", f"{kind}-remaining", f"{kind}-reset"})
+    for k, v in sorted(limits.items()):
+        if k not in used:
+            meta.append(f"{k}={v}")
+    if meta:
+        parts.append("[" + ", ".join(meta) + "]")
+    return " ".join(parts) if parts else "(prazdna odpoved)"
 # Zvysene z povodnych 300s (2026-08-20, po ADA timeout produkcnom naleze -
 # effort=xhigh/max s extended thinking + viacerymi web_search volaniami obcas
 # genuinne potrebuje viac nez 5 min na odpoved, nie len prechodnu sietovu chybu).
@@ -2697,8 +2795,15 @@ def _post_messages(payload: dict, label: str):
     timed out, ZIADNY retry, reflexia navzdy stratena): requests.post() mimo
     try/except znamenalo, ze retry na retryable STATUS KOD sa nikdy nedostal ku
     slovu, ak spojenie zlyhalo/vyprsalo skor, nez prislo VOBEC nejake HTTP telo.
-    Preto siet ova vynimka prechadza rovnakym retry mechanizmom ako status kody."""
-    for attempt in range(_MAX_API_RETRIES + 1):
+    Preto siet ova vynimka prechadza rovnakym retry mechanizmom ako status kody.
+
+    2026-09-10: 429 ma o pokus viac (_MAX_API_RETRIES_429), cakanie respektuje
+    `retry-after` (viz _retry_wait_seconds) a chybova odpoved sa uz nezahadzuje -
+    kazdy retry aj konecne zlyhanie nesu jej telo a rate-limit hlavicky (viz
+    AnthropicAPIError). Aj 429, ktore nakoniec prejde, tak ostane v logu s
+    pricinou - dovtedy boli uplne neviditelne."""
+    attempt = 0
+    while True:
         try:
             resp = requests.post(
                 "https://api.anthropic.com/v1/messages",
@@ -2716,16 +2821,24 @@ def _post_messages(payload: dict, label: str):
                       f"({e.__class__.__name__}: {e}) - skusam znova o "
                       f"{_API_RETRY_DELAY_SECONDS}s ({attempt + 1}/{_MAX_API_RETRIES})...")
                 time.sleep(_API_RETRY_DELAY_SECONDS)
+                attempt += 1
                 continue
             raise
-        if resp.status_code in _RETRYABLE_STATUS and attempt < _MAX_API_RETRIES:
+        retries_allowed = _MAX_API_RETRIES_429 if resp.status_code == 429 else _MAX_API_RETRIES
+        if resp.status_code in _RETRYABLE_STATUS and attempt < retries_allowed:
+            wait = _retry_wait_seconds(resp)
             print(f"[claude_analyst] [{label}] POST /v1/messages -> {resp.status_code} "
-                  f"(prechodna chyba), skusam znova o {_API_RETRY_DELAY_SECONDS}s "
-                  f"({attempt + 1}/{_MAX_API_RETRIES})...")
-            time.sleep(_API_RETRY_DELAY_SECONDS)
+                  f"(prechodna chyba: {_describe_error_response(resp)}), skusam znova "
+                  f"o {wait:.0f}s ({attempt + 1}/{retries_allowed})...")
+            time.sleep(wait)
+            attempt += 1
             continue
         break
-    resp.raise_for_status()
+    if resp.status_code >= 400:
+        raise AnthropicAPIError(
+            f"{resp.status_code} z Anthropic API po {attempt + 1} "
+            f"{'pokuse' if attempt == 0 else 'pokusoch'}: {_describe_error_response(resp)}",
+            response=resp)
     return resp
 
 
