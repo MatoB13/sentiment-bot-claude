@@ -125,7 +125,16 @@ check("  jej OI v USD", s["next_expiry_oi_usd"], 15 * 78000)
 check("expiracie len do 35 dni (11.9. a 25.9.)",
       [e["expiry"] for e in s["expiries"]], ["2026-09-11T08:00Z", "2026-09-25T08:00Z"])
 
-print("\n9) Deribit: poll_all zapise riadok, zlyhanie ETH nezhodi BTC")
+print("\n9) Deribit: zbiera sa LEN co obchodujeme")
+check("podklady su BTC a HYPE (ETH vyhodeny 10.9.)", set(dp.SOURCES), {"BTC", "HYPE"})
+check("HYPE je v USDC knihe", dp.SOURCES["HYPE"]["book_currency"], "USDC")
+check("DVOL sa pyta len pre BTC", [k for k, v in dp.SOURCES.items() if v["dvol"]], ["BTC"])
+check("desatinna 'd' v striku (XRP_USDC 0d85)",
+      dp._parse_instrument("XRP_USDC-30OCT26-0d85-P")[1], 0.85)
+check("HYPE_USDC instrument sa rozparsuje",
+      dp._parse_instrument("HYPE_USDC-25SEP26-78-C"), (U(2026, 9, 25, 8), 78.0, "C"))
+
+print("\n10) Deribit: poll_all - HYPE bez cudzich strikov, zlyhanie jedneho nezhodi druhy")
 import db  # noqa: E402
 
 
@@ -141,13 +150,23 @@ class R:
 
 
 calls = []
+# USDC kniha obsahuje VSETKY linearne opcie - SOL tam musi byt, aby test overil,
+# ze sa do HYPE snimku nepremiesa.
+usdc_book = [
+    {"instrument_name": "HYPE_USDC-25SEP26-80-C", "open_interest": 1000, "volume": 10, "estimated_delivery_price": 82},
+    {"instrument_name": "HYPE_USDC-25SEP26-75-P", "open_interest": 500, "volume": 5, "estimated_delivery_price": 82},
+    {"instrument_name": "SOL_USDC-25SEP26-150-C", "open_interest": 99999, "volume": 999, "estimated_delivery_price": 140},
+]
+fail_usdc = {"on": False}
 
 
 def fake_get(url, params=None, timeout=None):
     calls.append((url, params))
-    if params.get("currency") == "ETH":
-        raise ConnectionError("simulovany vypadok")
     if url.endswith("get_book_summary_by_currency"):
+        if params["currency"] == "USDC":
+            if fail_usdc["on"]:
+                raise ConnectionError("simulovany vypadok")
+            return R({"result": usdc_book})
         return R({"result": book})
     return R({"result": {"data": [[1, 40, 41, 39, 40.5]]}})
 
@@ -155,15 +174,21 @@ def fake_get(url, params=None, timeout=None):
 dp.requests.get = fake_get
 dp.poll_all()
 S = db.get_session()
-rows = S.query(db.OptionsSnapshot).all()
-check("zapisal sa prave jeden snimok (BTC)", [r.currency for r in rows], ["BTC"])
-check("  s DVOL", rows[0].dvol, 40.5)
-check("  s max pain najblizsej expiracie", rows[0].next_expiry_max_pain is not None, True)
-st = {r.currency: r for r in S.query(db.OptionsPollStatus).all()}
-check("status BTC ok", st["BTC"].ok, True)
-check("status ETH zlyhal", st["ETH"].ok, False)
-check("  s dovodom", "simulovany vypadok" in (st["ETH"].error or ""), True)
+rows = {r.currency: r for r in S.query(db.OptionsSnapshot).all()}
+check("zapisali sa BTC aj HYPE", sorted(rows), ["BTC", "HYPE"])
+check("BTC s DVOL", rows["BTC"].dvol, 40.5)
+check("HYPE bez DVOL (Deribit ho nema)", rows["HYPE"].dvol, None)
+check("HYPE OI = 1500 HYPE x 82 (SOL sa NEprimiesal)", rows["HYPE"].total_oi_usd, 1500 * 82)
+check("HYPE put/call = 500/1000", rows["HYPE"].put_call_oi, 0.5)
+check("DVOL sa pre HYPE ani nepytal",
+      any(u.endswith("get_volatility_index_data") and p.get("currency") == "HYPE" for u, p in calls), False)
+
+fail_usdc["on"] = True
 dp.poll_all()
+st = {r.currency: r for r in S.query(db.OptionsPollStatus).all()}
+check("pri vypadku USDC knihy: BTC ok", st["BTC"].ok, True)
+check("  HYPE zlyhal", st["HYPE"].ok, False)
+check("  s dovodom", "simulovany vypadok" in (st["HYPE"].error or ""), True)
 check("druhy beh v tej istej hodine prepise, nezdvoji",
       S.query(db.OptionsSnapshot).filter_by(currency="BTC").count(), 1)
 check("vsetky volania boli GET na deribit.com",

@@ -855,13 +855,15 @@ class OptionsSnapshot(Base):
     __table_args__ = (UniqueConstraint("currency", "hour_start", name="uq_options_snapshots_ccy_hour"),)
 
     id = Column(Integer, primary_key=True)
-    currency = Column(String, nullable=False, index=True)  # "BTC" | "ETH"
+    # "BTC" | "HYPE" (ETH sa zbieral len prvych par hodin 10.9., riadky zmazane -
+    # neobchodujeme ho a ako proxy pre altcoiny nepridaval nic k BTC)
+    currency = Column(String, nullable=False, index=True)
     hour_start = Column(DateTime, nullable=False, index=True)  # naive UTC, ako PriceBar
     index_price = Column(Float, nullable=True)
     total_oi_usd = Column(Float, nullable=True)
     put_call_oi = Column(Float, nullable=True)       # put OI / call OI (vsetky expiracie)
     put_call_volume_24h = Column(Float, nullable=True)
-    dvol = Column(Float, nullable=True)              # Deribit implied-vol index (ako VIX)
+    dvol = Column(Float, nullable=True)              # Deribit implied-vol index (ako VIX); pre HYPE neexistuje
     next_expiry = Column(DateTime, nullable=True)    # najblizsia expiracia (hocijaka, aj tyzdenna)
     next_expiry_oi_usd = Column(Float, nullable=True)
     next_expiry_max_pain = Column(Float, nullable=True)

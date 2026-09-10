@@ -8,16 +8,27 @@ Preto sa to najprv LEN ZBIERA a az potom sa zmeria, ci to ma vazbu na pohyb
 nasich tickerov. Rovnaky postup ako long/short ratio, ktore meranie nakoniec
 vyvratilo (Spearman 0.01-0.03) - bez merania by bolo v prompte zbytocne.
 
-CO SA ZBIERA (BTC a ETH - najvacsi krypto opcny trh; ADA/NEAR/ZEC... opcie
-na Deribite nemaju, posobi to na ne nepriamo cez BTC):
+CO SA ZBIERA - LEN podklady, ktore naozaj obchodujeme:
+  - BTC (inverzne opcie, currency=BTC) - najvacsi krypto opcny trh
+  - HYPE (linearne USDC opcie, HYPE_USDC-*) - pridane 10.9. na ziadost
+    pouzivatela, POZOR: tenky trh (OI ~$36M, denny objem ~$17k proti $34B OI
+    pri BTC), takze max pain a put/call su tahane par poziciami. DVOL pre HYPE
+    Deribit nema (endpoint vracia prazdne data), preto dvol=None.
   - put/call pomer open interestu a 24h objemu
   - celkovy OI v USD
   - max pain pre KAZDU expiraciu do 35 dni (v case sa posuva, preto hodinovo)
-  - DVOL - Deribit implied-volatility index (krypto obdoba VIX)
+  - DVOL - Deribit implied-volatility index (krypto obdoba VIX), len BTC
+
+ADA/ZEC/NEAR/NIGHT/PUMP opcie NEEXISTUJU nikde (overene 10.9. na Deribite,
+Binance, OKX aj Bybite) - pre ne je jedina nahrada BTC (korelacia hodinovych
+vynosov za 60 dni: ADA 0.62, ZEC 0.51, NEAR 0.50).
+
+PRECO NIE ETH (zbieral sa prvych par hodin 10.9.): ETH neobchodujeme a ako
+proxy pre nase altcoiny nepridava nic navyse k BTC - ADA 0.63 vs 0.62,
+ZEC 0.52 vs 0.51, NEAR 0.51 vs 0.50. Riadky z tych hodin boli zmazane.
 
 ZDROJ: verejne Deribit API, bez kluca a bez limitu, ktory by nas trapil
-(2 volania na menu za hodinu). Overene naozivo 10.9.: 942 BTC opcii, DVOL
-hodinovo.
+(3 volania za hodinu). Overene naozivo 10.9.: 942 BTC opcii, 436 HYPE opcii.
 
 Zlyhanie je voci botu uplne tiche (nic z tohto modulu nevstupuje do cyklu),
 ale zapise sa do OptionsPollStatus, aby vypadok nevyzeral ako "trh sa nehybe".
@@ -31,7 +42,16 @@ import options_expiry
 from db import OptionsPollStatus, OptionsSnapshot, get_session
 
 _BASE = "https://www.deribit.com/api/v2/public"
-CURRENCIES = ("BTC", "ETH")
+# kluc = co sa uklada do options_snapshots.currency
+#   book_currency - parameter pre get_book_summary_by_currency (linearne alt
+#                   opcie su vsetky pod "USDC", preto treba filtrovat prefixom)
+#   prefix        - zaciatok instrument_name, ktory k tomuto podkladu patri
+#   dvol          - ci Deribit pre podklad pocita volatility index
+SOURCES = {
+    "BTC": {"book_currency": "BTC", "prefix": "BTC-", "dvol": True},
+    "HYPE": {"book_currency": "USDC", "prefix": "HYPE_USDC-", "dvol": False},
+}
+CURRENCIES = tuple(SOURCES)
 # Expiracie dalej nez toto sa do JSON-u neukladaju - na obchod s drzanim
 # ~12 h su irelevantne a len by nafukovali tabulku (Deribit ma expiracie az
 # rok dopredu).
@@ -49,13 +69,15 @@ def _get(path: str, params: dict) -> dict:
 
 
 def _parse_instrument(name: str):
-    """'BTC-25SEP26-155000-P' -> (expiry_dt, strike, 'P') alebo None."""
+    """'BTC-25SEP26-155000-P' / 'HYPE_USDC-25SEP26-78-C' -> (expiry_dt, strike,
+    'P'/'C') alebo None. Linearne opcie pisu desatinnu ciarku ako 'd'
+    (XRP_USDC-...-0d85-P = strike 0.85) - HYPE dnes nie, ale nech to nespadne."""
     parts = name.split("-")
     if len(parts) != 4 or parts[3] not in ("C", "P"):
         return None
     expiry = options_expiry.parse_deribit_expiry(parts[1])
     try:
-        strike = float(parts[2])
+        strike = float(parts[2].replace("d", "."))
     except ValueError:
         return None
     if expiry is None:
@@ -157,18 +179,25 @@ def poll_all() -> None:
     print(f"\n=== [deribit_options_poller] {datetime.now(timezone.utc).isoformat()} ===")
     session = get_session()
     try:
-        for ccy in CURRENCIES:
-            # Commit po kazdej mene - pri spolocnom by rollback pri zlyhani ETH
-            # zahodil aj uz hotovy BTC riadok (chyba chytena v long_short_poller).
+        for ccy, src in SOURCES.items():
+            # Commit po kazdom podklade - pri spolocnom by rollback pri zlyhani
+            # HYPE zahodil aj uz hotovy BTC riadok (chyba chytena v long_short_poller).
             try:
                 now = datetime.now(timezone.utc)
-                book = _get("get_book_summary_by_currency", {"currency": ccy, "kind": "option"})
+                book = _get("get_book_summary_by_currency",
+                            {"currency": src["book_currency"], "kind": "option"})
+                # USDC kniha obsahuje VSETKY linearne opcie (SOL, XRP, HYPE...) -
+                # bez filtra by sa do HYPE snimku primiesali cudzie striky.
+                book = [b for b in book if b.get("instrument_name", "").startswith(src["prefix"])]
+                if not book:
+                    raise ValueError(f"Deribit nevratil ziadne {src['prefix']}* opcie")
                 s = summarize(book, now)
-                try:
-                    s["dvol"] = _latest_dvol(ccy, now)
-                except Exception as e:  # DVOL je doplnok - bez neho snimok stale ma zmysel
-                    print(f"[deribit_options_poller] [{ccy}] DVOL zlyhal: {e}")
-                    s["dvol"] = None
+                s["dvol"] = None
+                if src["dvol"]:
+                    try:
+                        s["dvol"] = _latest_dvol(ccy, now)
+                    except Exception as e:  # DVOL je doplnok - bez neho snimok stale ma zmysel
+                        print(f"[deribit_options_poller] [{ccy}] DVOL zlyhal: {e}")
                 hour = now.replace(minute=0, second=0, microsecond=0, tzinfo=None)
                 if s["next_expiry"] is not None:
                     s["next_expiry"] = s["next_expiry"].replace(tzinfo=None)

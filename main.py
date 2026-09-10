@@ -170,7 +170,7 @@ def main():
     # Hodinovo (2026-09-10, na ziadost pouzivatela) - TICHY zber krypto opcneho
     # trhu z Deribitu (put/call, max pain, DVOL), viz deribit_options_poller.py.
     # ZATIAL SA LEN ZBIERA - do promptu nic nejde, kym sa nezmeria, ci to ma
-    # vazbu na pohyb nasich tickerov. 4 verejne GET-y za hodinu, ziadny Claude.
+    # vazbu na pohyb nasich tickerov. BTC + HYPE (ETH vyhodeny - neobchodujeme ho), 3 verejne GET-y za hodinu, ziadny Claude.
     scheduler.add_job(deribit_options_poller.poll_all, "interval",
                        hours=1,
                        next_run_time=now + timedelta(minutes=5),
