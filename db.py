@@ -838,6 +838,50 @@ class LongShortPollStatus(Base):
     error = Column(String, nullable=True)
 
 
+class OptionsSnapshot(Base):
+    """Hodinovy snimok krypto opcneho trhu z Deribitu (2026-09-10, na ziadost
+    pouzivatela) - viz deribit_options_poller.py.
+
+    ZATIAL SA LEN ZBIERA: do promptu ani do rozhodovania nic z toho nejde. Najprv
+    sa ma zmerat, ci to ma vobec nejaku vazbu na pohyb nasich tickerov - rovnaky
+    postup ako pri long/short ratio, ktore sa ukazalo ako nepouzitelne
+    (Spearman 0.01-0.03).
+
+    OI su v USD (kontrakty v coinoch x index). `expiries` je JSON zoznam
+    expiracii do 35 dni: [{"expiry", "oi_usd", "put_call_oi", "max_pain"}] -
+    max pain sa v case posuva, preto sa uklada kazdu hodinu pre kazdu expiraciu,
+    nie len pre najblizsiu."""
+    __tablename__ = "options_snapshots"
+    __table_args__ = (UniqueConstraint("currency", "hour_start", name="uq_options_snapshots_ccy_hour"),)
+
+    id = Column(Integer, primary_key=True)
+    currency = Column(String, nullable=False, index=True)  # "BTC" | "ETH"
+    hour_start = Column(DateTime, nullable=False, index=True)  # naive UTC, ako PriceBar
+    index_price = Column(Float, nullable=True)
+    total_oi_usd = Column(Float, nullable=True)
+    put_call_oi = Column(Float, nullable=True)       # put OI / call OI (vsetky expiracie)
+    put_call_volume_24h = Column(Float, nullable=True)
+    dvol = Column(Float, nullable=True)              # Deribit implied-vol index (ako VIX)
+    next_expiry = Column(DateTime, nullable=True)    # najblizsia expiracia (hocijaka, aj tyzdenna)
+    next_expiry_oi_usd = Column(Float, nullable=True)
+    next_expiry_max_pain = Column(Float, nullable=True)
+    expiries = Column(JSON, nullable=True)
+    instruments = Column(Integer, nullable=True)
+    fetched_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class OptionsPollStatus(Base):
+    """Posledny pokus o zber pre kazdu menu - zapisuje sa VZDY, aj pri zlyhani
+    (rovnaky vzor ako LongShortPollStatus). Bez neho by sa vypadok prejavil len
+    tym, ze rada prestane rast - a to vyzera ako "nic sa nedeje"."""
+    __tablename__ = "options_poll_status"
+
+    currency = Column(String, primary_key=True)
+    polled_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    ok = Column(Boolean, nullable=False)
+    error = Column(String, nullable=True)
+
+
 class StrikeTrade(Base):
     """Verejna obchodna tape zo Strike - KAZDY obchod VSETKYCH uzivatelov na
     danom symbole (2026-09-06, na ziadost pouzivatela).

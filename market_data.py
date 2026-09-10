@@ -19,6 +19,7 @@ import yfinance as yf
 
 import binance_client
 import coingecko_client
+import options_expiry
 import price_range
 from db import FundingRateBar, PriceBar
 
@@ -723,6 +724,18 @@ def get_market_snapshot(asset: dict, session) -> dict:
             snapshot["price_range"] = pr
     except Exception as e:
         print(f"[market_data] Detekcia cenoveho pasma zlyhala (pokracujem bez nej): {e}")
+
+    # 2026-09-10 (na ziadost pouzivatela) - blizke expiracie opcii (US 3. piatok /
+    # triple witching, Deribit posledny piatok). Z kalendarneho pravidla, ziadne
+    # API. Kluc je v snapshote LEN ak je expiracia v okne -2/+7 dni, takze
+    # vacsinu casu nestoji ani token. Poznamka s vykladom je priamo v hodnote
+    # (rovnaky vzor ako recent_candles_note), system prompt sa nemeni.
+    try:
+        exp = options_expiry.upcoming_for_asset(asset, datetime.now(timezone.utc))
+        if exp is not None:
+            snapshot["options_expiry"] = exp
+    except Exception as e:
+        print(f"[market_data] Kalendar expiracii opcii zlyhal (pokracujem bez neho): {e}")
 
     return snapshot
 

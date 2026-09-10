@@ -9,6 +9,7 @@ import coinmarketcal_client
 import config
 import funding_tracker
 import heartbeat_check
+import deribit_options_poller
 import long_short_poller
 import position_monitor
 import price_poller
@@ -166,6 +167,14 @@ def main():
                        hours=1,
                        next_run_time=now + timedelta(minutes=3),
                        id="long_short_poller")
+    # Hodinovo (2026-09-10, na ziadost pouzivatela) - TICHY zber krypto opcneho
+    # trhu z Deribitu (put/call, max pain, DVOL), viz deribit_options_poller.py.
+    # ZATIAL SA LEN ZBIERA - do promptu nic nejde, kym sa nezmeria, ci to ma
+    # vazbu na pohyb nasich tickerov. 4 verejne GET-y za hodinu, ziadny Claude.
+    scheduler.add_job(deribit_options_poller.poll_all, "interval",
+                       hours=1,
+                       next_run_time=now + timedelta(minutes=5),
+                       id="deribit_options_poller")
     # 2026-09-06 - next_run_time bolo +24h, takze prvy beh nastal az DEN po
     # starte procesu. Kazdy Railway redeploy proces restartuje a odpocet zacal
     # odznova - pri viacerych nasadeniach denne sa job nespustil NIKDY. Realny
