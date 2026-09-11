@@ -2204,15 +2204,16 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                             print(f"[{name}] Trhove titulky zlyhali (pokracujem): {e}")
                             market_news_status = {"ok": False, "errors": [str(e)[:80]],
                                                    "count": 0}
-                    # 2026-09-11 - titulky Benzinga cez Alpaca (viz alpaca_news_client.py),
-                    # len pre tickery s pokrytim (assets.py "alpaca_news_symbols").
-                    # Neblokujuce rovnako ako trhove titulky vyssie.
+                    # 2026-09-11 - titulky Benzinga cez Alpaca (viz alpaca_news_client.py).
+                    # Zdielany zasobnik celeho feedu, ticker si vyberie svoje podla
+                    # symbolu alebo nazvu - aj ked o nom dnes nikto nepise, zajtra
+                    # to zachyti sam. Neblokujuce rovnako ako trhove titulky vyssie.
                     alpaca_news = None
                     alpaca_news_status = None
-                    if asset.get("alpaca_news_symbols") and alpaca_news_client.enabled():
+                    if alpaca_news_client.covers(asset) and alpaca_news_client.enabled():
                         try:
-                            alpaca_news = alpaca_news_client.get_headlines(asset["alpaca_news_symbols"])
-                            alpaca_news_status = alpaca_news_client.last_status(asset["alpaca_news_symbols"])
+                            alpaca_news = alpaca_news_client.get_headlines_for_asset(asset)
+                            alpaca_news_status = alpaca_news_client.last_status(name)
                         except Exception as e:
                             print(f"[{name}] Alpaca titulky zlyhali (pokracujem): {e}")
                             alpaca_news_status = {"ok": False, "error": str(e)[:80], "count": 0}

@@ -133,6 +133,11 @@ ADA = {
     "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "ADAUSD"},
+    # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py. Ticker bez
+    # spolahliveho symbolu hlada aj podla nazvu v titulku (regex, bez ohladu
+    # na velkost pismen); prazdny vysledok nic nestoji.
+    "alpaca_news_symbols": ["ADAUSD"],
+    "news_keywords": [r"\bcardano\b", r"\$ADA\b"],
     # 2026-09-05: Marketaux pre tento ticker nevracia nic (7 dni: 0-4 %),
     # takze sken rozhodoval len z TA. Zdielane trhove titulky to doplnaju -
     # viz market_news_client.py. Zapnute zamerne len na 3 tickeroch.
@@ -240,6 +245,15 @@ NIGHT = {
     # naozivo 2026-07-31). "Midnight" + entity_types=cryptocurrency davaju ciste
     # relevantne vysledky (Cardano Midnight sidechain, Wanchain bridge hack a pod).
     "marketaux_query": {"search": "Midnight", "entity_types": "cryptocurrency"},
+    # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py. Ticker bez
+    # spolahliveho symbolu hlada aj podla nazvu v titulku (regex, bez ohladu
+    # na velkost pismen); prazdny vysledok nic nestoji.
+    "alpaca_news_symbols": ["NIGHTUSD"],
+    # NIKDY hole "midnight" - bezne anglicke slovo (rovnaky dovod ako v
+    # social_sentiment.py); len spojenia, ktore znamenaju projekt.
+    "news_keywords": [r"\bmidnight (network|token|blockchain|protocol|foundation|mainnet)\b",
+                      r"\bmidnight\b.*\bcardano\b", r"\bcardano\b.*\bmidnight\b",
+                      r"\$NIGHT\b", r"\bNIGHT token\b"],
     "effort": config.NIGHT_EFFORT,
 }
 
@@ -308,6 +322,12 @@ HYPE = {
     # NIKDY holé "HYPE" (bezne anglicke slovo) - viz social_sentiment.py/
     # marketaux_client rovnaky vzor ako NIGHT.
     "marketaux_query": {"search": "Hyperliquid", "entity_types": "cryptocurrency"},
+    # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py. Ticker bez
+    # spolahliveho symbolu hlada aj podla nazvu v titulku (regex, bez ohladu
+    # na velkost pismen); prazdny vysledok nic nestoji.
+    "alpaca_news_symbols": ["HYPEUSD"],
+    # NIKDY hole "hype" - bezne anglicke slovo.
+    "news_keywords": [r"\bhyperliquid\b", r"\$HYPE\b"],
     "effort": config.HYPE_EFFORT,
 }
 
@@ -358,6 +378,12 @@ SKHYNIX = {
     "trading_hours_start_utc": config.SKHYNIX_TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.SKHYNIX_TRADING_HOURS_END_UTC,
     "marketaux_query": {"search": "SK Hynix"},
+    # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py. Ticker bez
+    # spolahliveho symbolu hlada aj podla nazvu v titulku (regex, bez ohladu
+    # na velkost pismen); prazdny vysledok nic nestoji.
+    # Vlastny symbol na Benzinge nema (6 titulkov za 7 dni, otagovane na
+    # AAPL/AMD/EWY/DRAM...) - len podla nazvu.
+    "news_keywords": [r"\bhynix\b"],
     "effort": config.SKHYNIX_EFFORT,
 }
 
@@ -426,6 +452,12 @@ MINIMAX = {
     # nedava (MiniMax nie je cryptocurrency ani listovana equity, ziadna
     # Marketaux kategoria nesedi presne).
     "marketaux_query": {"search": "MiniMax Group"},
+    # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py. Ticker bez
+    # spolahliveho symbolu hlada aj podla nazvu v titulku (regex, bez ohladu
+    # na velkost pismen); prazdny vysledok nic nestoji.
+    # V agenturnom titulku "MiniMax" znamena firmu (na X je to aj pojem z
+    # teorie hier, preto tam viazane frazy).
+    "news_keywords": [r"\bminimax\b"],
     "effort": config.MINIMAX_EFFORT,
 }
 
@@ -460,6 +492,10 @@ ZHIPU = {
     # Viacslovna fraza (rovnaky dovod ako MINIMAX/NIGHT) - "Zhipu" samo osebe
     # by mohlo davat falosne zhody, "Zhipu AI" je jednoznacnejsie.
     "marketaux_query": {"search": "Zhipu AI"},
+    # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py. Ticker bez
+    # spolahliveho symbolu hlada aj podla nazvu v titulku (regex, bez ohladu
+    # na velkost pismen); prazdny vysledok nic nestoji.
+    "news_keywords": [r"\bzhipu\b", r"\bz\.ai\b", r"\bchatglm\b", r"\bGLM-\d"],
     "effort": config.ZHIPU_EFFORT,
 }
 
@@ -567,6 +603,10 @@ UNITREE = {
     # zive overene 2026-08-19 (holy aj viacslovny dopyt), oba cisto relevantne,
     # nulove falosne zhody, viacero clankov mladsich nez 25h (IPO prave dnes).
     "marketaux_query": {"search": "Unitree"},
+    # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py. Ticker bez
+    # spolahliveho symbolu hlada aj podla nazvu v titulku (regex, bez ohladu
+    # na velkost pismen); prazdny vysledok nic nestoji.
+    "news_keywords": [r"\bunitree\b"],
     "effort": config.UNITREE_EFFORT,
 }
 
@@ -596,6 +636,12 @@ NEAR = {
     "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "NEARUSD"},
+    # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py. Ticker bez
+    # spolahliveho symbolu hlada aj podla nazvu v titulku (regex, bez ohladu
+    # na velkost pismen); prazdny vysledok nic nestoji.
+    "alpaca_news_symbols": ["NEARUSD"],
+    # NIKDY hole "near" - bezne anglicke slovo.
+    "news_keywords": [r"\bnear (protocol|foundation)\b", r"\$NEAR\b"],
     # 2026-09-05: Marketaux pre tento ticker nevracia nic (7 dni: 0-4 %),
     # takze sken rozhodoval len z TA. Zdielane trhove titulky to doplnaju -
     # viz market_news_client.py. Zapnute zamerne len na 3 tickeroch.
@@ -699,6 +745,12 @@ PUMP = {
     # dal falosne zhody, rovnaky problem ako mal NIGHT. "PUMPUSD" je rovnaky
     # bezpecny tvar, aky uz pouziva NEAR (tiez bezne slovo).
     "marketaux_query": {"symbols": "PUMPUSD"},
+    # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py. Ticker bez
+    # spolahliveho symbolu hlada aj podla nazvu v titulku (regex, bez ohladu
+    # na velkost pismen); prazdny vysledok nic nestoji.
+    "alpaca_news_symbols": ["PUMPUSD"],
+    # NIKDY hole "pump" - bezne slovo aj "pump and dump".
+    "news_keywords": [r"\bpump\.fun\b", r"\bpumpfun\b", r"\$PUMP\b"],
     "effort": config.PUMP_EFFORT,
 }
 

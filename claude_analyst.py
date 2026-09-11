@@ -3215,18 +3215,19 @@ def _build_triage_prompt(asset: dict, ta: dict, cross_market: dict, session: dic
             "cenou (regulacia, burzy, siet, sektor, makro). Samotna pritomnost\n"
             "titulkov NIE JE dovod na ANO.\n" + lines + "\n")
 
-    # 2026-09-11 (na ziadost pouzivatela) - titulky Benzinga cez Alpaca, len pre
-    # tickery s pokrytim (viz alpaca_news_client.py). Na rozdiel od trhovych
-    # krypto titulkov vyssie su OTAGOVANE na tento nastroj (resp. jeho proxy -
-    # QQQ pre NAS100, GLD pre zlato, USO pre ropu). Vek sa pise v minutach, lebo
-    # pri skene rozhoduje, ci je sprava NOVSIA nez posledny plny pohlad.
+    # 2026-09-11 (na ziadost pouzivatela) - titulky Benzinga cez Alpaca (viz
+    # alpaca_news_client.py). Na rozdiel od trhovych krypto titulkov vyssie sa
+    # TYKAJU tohto nastroja - Benzinga ich otagovala jeho symbolom (resp. proxy:
+    # QQQ pre NAS100, GLD pre zlato, USO pre ropu) alebo ho spominaju nazvom v
+    # nadpise. Vek sa pise v minutach, lebo pri skene rozhoduje, ci je sprava
+    # NOVSIA nez posledny plny pohlad.
     alpaca_block = ""
     if alpaca_news:
         def _age(h):
             return f"{h * 60:.0f} min" if h < 1 else f"{h:.1f} h"
         lines = "\n".join(f"- [pred {_age(a['age_hours'])}] {a['title']}" for a in alpaca_news)
         alpaca_block = (
-            "\n## Cerstve titulky Benzinga (profesionalna agentura, otagovane na tento nastroj)\n"
+            "\n## Cerstve titulky Benzinga (profesionalna agentura, tykaju sa tohto nastroja)\n"
             "Len nadpisy. Rozhoduje, ci je nieco z toho NOVE od posledneho dokladneho pohladu\n"
             "a moze to pohnut cenou; rutinne titulky (ratingy, 'what's going on', prehlady\n"
             "trhu) samy o sebe NIE SU dovod na ANO.\n" + lines + "\n")
