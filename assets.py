@@ -140,7 +140,7 @@ ADA = {
     "news_keywords": [r"\bcardano\b", r"\$ADA\b"],
     # 2026-09-05: Marketaux pre tento ticker nevracia nic (7 dni: 0-4 %),
     # takze sken rozhodoval len z TA. Zdielane trhove titulky to doplnaju -
-    # viz market_news_client.py. Zapnute zamerne len na 3 tickeroch.
+    # viz market_news_client.py. Zapnute len tam, kde Marketaux nevracia nic.
     "market_news": True,
     # Volitelny effort test (viz config.ADA_EFFORT) - prazdne = bez zmeny.
     "effort": config.ADA_EFFORT,
@@ -254,6 +254,9 @@ NIGHT = {
     "news_keywords": [r"\bmidnight (network|token|blockchain|protocol|foundation|mainnet)\b",
                       r"\bmidnight\b.*\bcardano\b", r"\bcardano\b.*\bmidnight\b",
                       r"\$NIGHT\b", r"\bNIGHT token\b"],
+    # 2026-09-11: Marketaux 0 % za 7 dni (rovnaky dovod ako ADA/ZEC/NEAR od
+    # 5.9.) - vseobecne trhove krypto titulky, viz market_news_client.py.
+    "market_news": True,
     "effort": config.NIGHT_EFFORT,
 }
 
@@ -263,6 +266,9 @@ BTC = {
     "strike_symbol": config.STRIKE_BTC_SYMBOL,
     "yf_symbol": "BTC-USD",
     "yf_fallback": None,
+    # CoinMarketCal slug (2026-09-11) - BTC je v bezplatnom top-100 (rank 1),
+    # slug len chybal od zapojenia 19.8. Viz coinmarketcal_client.py.
+    "coinmarketcal_slug": "bitcoin",
     "sl_pct": config.BTC_SL_PCT,
     "tp_pct": config.BTC_TP_PCT,
     "leverage": config.BTC_LEVERAGE,
@@ -283,6 +289,9 @@ BTC = {
     "marketaux_query": {"symbols": "BTCUSD"},
     # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py
     "alpaca_news_symbols": ["BTCUSD"],
+    # Nazvy pre vyber z celych feedov (Benzinga aj krypto RSS), 2026-09-11 -
+    # viz news_match.py.
+    "news_keywords": [r"\bbitcoin\b", r"\$BTC\b"],
     "effort": config.BTC_EFFORT,
 }
 
@@ -532,9 +541,12 @@ ZEC = {
     "marketaux_query": {"search": "Zcash"},
     # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py
     "alpaca_news_symbols": ["ZECUSD"],
+    # Nazvy pre vyber z celych feedov (Benzinga aj krypto RSS), 2026-09-11 -
+    # viz news_match.py.
+    "news_keywords": [r"\bzcash\b", r"\$ZEC\b"],
     # 2026-09-05: Marketaux pre tento ticker nevracia nic (7 dni: 0-4 %),
     # takze sken rozhodoval len z TA. Zdielane trhove titulky to doplnaju -
-    # viz market_news_client.py. Zapnute zamerne len na 3 tickeroch.
+    # viz market_news_client.py. Zapnute len tam, kde Marketaux nevracia nic.
     "market_news": True,
     "effort": config.ZEC_EFFORT,
 }
@@ -616,6 +628,10 @@ NEAR = {
     "strike_symbol": config.STRIKE_NEAR_SYMBOL,
     "yf_symbol": "NEAR-USD",
     "yf_fallback": None,
+    # CoinMarketCal slug (2026-09-11) - "near", NIE "near-protocol" (neexistujuci
+    # slug vracia HTTP 200 a 0 udalosti, takze by to ticho nefungovalo). Ticker
+    # pribudol 21.8., po zapojeni CoinMarketCal, a slug dovtedy nikto nedoplnil.
+    "coinmarketcal_slug": "near",
     "sl_pct": config.NEAR_SL_PCT,
     "tp_pct": config.NEAR_TP_PCT,
     "leverage": config.NEAR_LEVERAGE,
@@ -644,7 +660,7 @@ NEAR = {
     "news_keywords": [r"\bnear (protocol|foundation)\b", r"\$NEAR\b"],
     # 2026-09-05: Marketaux pre tento ticker nevracia nic (7 dni: 0-4 %),
     # takze sken rozhodoval len z TA. Zdielane trhove titulky to doplnaju -
-    # viz market_news_client.py. Zapnute zamerne len na 3 tickeroch.
+    # viz market_news_client.py. Zapnute len tam, kde Marketaux nevracia nic.
     "market_news": True,
     "effort": config.NEAR_EFFORT,
 }
@@ -705,6 +721,11 @@ CRCL = {
     "marketaux_query": {"search": "Circle Internet"},
     # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py
     "alpaca_news_symbols": ["CRCL"],
+    # Nazvy pre vyber z celych feedov (Benzinga aj krypto RSS), 2026-09-11 -
+    # viz news_match.py.
+    # Circle je vydavatel USDC - spravy o USDC su priamy driver. "Circle K"
+    # (retazec benzinovych pumpy) zamerne vynechany.
+    "news_keywords": [r"\bcircle\b(?!\s*k\b)", r"\bUSDC\b"],
     "effort": config.CRCL_EFFORT,
 }
 
@@ -751,6 +772,9 @@ PUMP = {
     "alpaca_news_symbols": ["PUMPUSD"],
     # NIKDY hole "pump" - bezne slovo aj "pump and dump".
     "news_keywords": [r"\bpump\.fun\b", r"\bpumpfun\b", r"\$PUMP\b"],
+    # 2026-09-11: Marketaux 0 % za 7 dni (rovnaky dovod ako ADA/ZEC/NEAR od
+    # 5.9.) - vseobecne trhove krypto titulky, viz market_news_client.py.
+    "market_news": True,
     "effort": config.PUMP_EFFORT,
 }
 

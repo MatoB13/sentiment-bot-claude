@@ -187,8 +187,10 @@ def main():
                        id="sl_calibration")
     # Denne (2026-08-19, na ziadost pouzivatela) - CoinMarketCal krypto-projektovy
     # event kalendar (viz coinmarketcal_client.py) pre kazdy asset s nastavenym
-    # coinmarketcal_slug (ADA/ZEC/HYPE/NIGHT). Free plan ma kreditovy kvoten
-    # (resetuje sa ~13 dni), preto LEN raz denne, nikdy zivo pocas cyklu.
+    # coinmarketcal_slug (ADA/ZEC/HYPE/NIGHT/PUMP, od 11.9. aj BTC/NEAR). Free plan
+    # ma kreditovy kvoten (resetuje sa ~13 dni), preto LEN raz denne, nikdy zivo
+    # pocas cyklu. Raz za tyzden navyse overi, ci su slugy stale v plane
+    # (coinmarketcal_client.check_slugs - cas je v DB, redeploy ho neresetuje).
     scheduler.add_job(coinmarketcal_client.poll_events, "interval",
                        hours=24,
                        next_run_time=now + timedelta(minutes=2),

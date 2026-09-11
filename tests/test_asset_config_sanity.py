@@ -90,5 +90,46 @@ for name in ("ZHIPU", "MINIMAX", "UNITREE"):
     check(f"{name} nema binance OHLC", a.get("binance_ohlc_symbol"), None)
     check(f"{name} nema coingecko", a.get("coingecko_id"), None)
 
+print("\n6) KAZDY ticker (aj novo pridany) ma zapojene zdroje sprav")
+# 2026-09-11 (na ziadost pouzivatela: "ako budu do toho zapadat dalsie tickery").
+# Doteraz sa zdroj pri novom tickeri doplnal len vtedy, ked si na neho niekto
+# spomenul - a trikrat sa zabudol: social dopyt UNITREE/ZHIPU/CRCL (ticho padali
+# na NAS100 dopyt), CoinMarketCal slug NEAR (3 tyzdne), Benzinga 9 tickerov.
+# Tento test to zmeni na tvrdu podmienku: ticker bez zdroja neprejde sadou.
+# Vedome vynechanie zdroja = explicitne None s komentarom v assets.py.
+import re  # noqa: E402
+import news_match  # noqa: E402
+import social_sentiment  # noqa: E402
+for a in assets.ALL_ASSETS:
+    n = a["name"]
+    if not a.get("marketaux_query"):
+        check(f"{n} ma marketaux_query", a.get("marketaux_query"), "dopyt")
+    if not (a.get("alpaca_news_symbols") or a.get("news_keywords")):
+        check(f"{n} ma Benzinga symbol alebo news_keywords", None, "symbol/nazov")
+    if n not in social_sentiment.QUERIES:
+        check(f"{n} ma vlastny X dopyt (inak ticho NAS100)", False, True)
+    if a["asset_class"] == "crypto" and "coinmarketcal_slug" not in a:
+        check(f"{n} (krypto) ma coinmarketcal_slug alebo vedome None", False, True)
+    for p in a.get("news_keywords") or ():
+        try:
+            re.compile(p)
+        except re.error as e:
+            check(f"{n} regex {p!r} sa da skompilovat", str(e), "ok")
+
+# Hole bezne slova v news_keywords by zaplavili sken nesuvisiacimi titulkami
+# (vsetky tieto titulky su skutocne, z Benzingy 11.9.). Novy ticker s nazvom
+# typu "NIGHT"/"HYPE" musi dostat viazane frazy, nie hole slovo.
+TRAPS = ["Stocks rally past midnight deadline",
+         "Apptronik's Private Market Share Soars 3,600% on Humanoid Robot Hype",
+         "Modular Medical Secures National PBM Contract For Pivot Insulin Pump",
+         "S&P 500 trades near record high as yields ease",
+         "Circle K owner Couche-Tard reports earnings"]
+for a in assets.ALL_ASSETS:
+    for t in TRAPS:
+        if news_match.mentions(a, t):
+            check(f"{a['name']} nechyta bezny titulok {t[:30]!r}", True, False)
+check("pasca na hole slova sa realne testuje (CRCL chyti USDC)",
+      news_match.mentions(BY_NAME["CRCL"], "Circle mints $1B USDC"), True)
+
 print("\nVYSLEDOK:", "OK" if ok else "CHYBA")
 sys.exit(0 if ok else 1)

@@ -2204,6 +2204,22 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                             print(f"[{name}] Trhove titulky zlyhali (pokracujem): {e}")
                             market_news_status = {"ok": False, "errors": [str(e)[:80]],
                                                    "count": 0}
+                    # 2026-09-11 - z tych istych krypto webov titulky, ktore ticker
+                    # SPOMINAJU nazvom (assets.py "news_keywords") - pre kazdy ticker
+                    # s nazvami, nie len "market_news". Vseobecny zoznam sa o ne
+                    # skrati, aby ten isty titulok nebol v prompte dvakrat.
+                    named_news = None
+                    named_news_status = None
+                    if asset.get("news_keywords"):
+                        try:
+                            named_news = market_news_client.get_named_headlines(asset)
+                            named_news_status = {"count": len(named_news), "items": named_news}
+                            if market_news and named_news:
+                                named_titles = {n["title"] for n in named_news}
+                                market_news = [m for m in market_news if m["title"] not in named_titles]
+                        except Exception as e:
+                            print(f"[{name}] Krypto titulky podla nazvu zlyhali (pokracujem): {e}")
+                            named_news_status = {"count": 0, "error": str(e)[:80]}
                     # 2026-09-11 - titulky Benzinga cez Alpaca (viz alpaca_news_client.py).
                     # Zdielany zasobnik celeho feedu, ticker si vyberie svoje podla
                     # symbolu alebo nazvu - aj ked o nom dnes nikto nepise, zajtra
@@ -2222,6 +2238,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                         prev_assumptions, prev_cycle_time, marketaux_news,
                         market_news=market_news,
                         alpaca_news=alpaca_news,
+                        named_news=named_news,
                         hours_since_full=hours_since_full,
                         active_watch=_active_watch_context(symbol, session),
                         schedule=_schedule_context(asset, datetime.now(timezone.utc)),
@@ -2232,6 +2249,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                                       # Stav trhoveho feedu - aby sa jeho vypadok
                                       # dal ukazat na dashboarde, nie len v logu.
                                       "market_news": market_news_status,
+                                      "market_news_named": named_news_status,
                                       "alpaca_news": alpaca_news_status}
                     print(f"[{name}] Sken: worth_full_look={verdict.get('worth_full_look')} "
                           f"attention={verdict.get('attention')} - {verdict.get('reason')}")

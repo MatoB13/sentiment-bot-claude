@@ -33,6 +33,7 @@ from email.utils import parsedate_to_datetime
 import requests
 
 import config
+import news_match
 
 # Dva zdroje kvoli redundancii - ked jeden vypadne alebo rate-limituje, druhy
 # feed drzi sluzbu. Namerane 5.9.: CryptoSlate 10/10 poloziek do 25 h (najnovsi
@@ -101,6 +102,26 @@ def get_market_headlines() -> list[dict]:
     funguje presne ako doteraz, takze vypadok zdroja nesmie zhodit cyklus.
     Vysledok sa kesuje (aj prazdny), aby jeden vypadok neznamenal opakovane
     volanie pri kazdom tickeri v tom istom tiku."""
+    return _fresh_unique()[:config.MARKET_NEWS_MAX_ITEMS]
+
+
+def get_named_headlines(asset: dict) -> list[dict]:
+    """Titulky z CELEHO feedu (nie len top N), ktore spominaju ticker podla
+    nazvu - assets.py "news_keywords", rovnake regexy ako pri Benzinge
+    (2026-09-11, na ziadost pouzivatela). Na rozdiel od get_market_headlines
+    sa TYKAJU tohto tickera, preto idu do skenu pre KAZDY ticker s nazvami,
+    nie len pre tie s "market_news". Za 25 h namerane 11.9.: BTC 15, CRCL 1
+    (Circle/USDC), male alty 0 - prazdny vysledok nic nestoji."""
+    if not asset.get("news_keywords"):
+        return []
+    hits = [i for i in _fresh_unique() if news_match.mentions(asset, i["title"])]
+    return hits[:config.MARKET_NEWS_MAX_ITEMS]
+
+
+def _fresh_unique() -> list[dict]:
+    """Vsetky cerstve titulky zo vsetkych feedov, bez duplicit, od najnovsieho.
+    Stahuje sa najviac raz za MARKET_NEWS_CACHE_MINUTES - zdielane vsetkymi
+    tickermi aj oboma vybermi (vseobecne top N aj podla nazvu)."""
     global _cache
     if not config.MARKET_NEWS_ENABLED:
         return []
@@ -134,7 +155,9 @@ def get_market_headlines() -> list[dict]:
         seen.add(key)
         unique.append(i)
     result = unique[:config.MARKET_NEWS_MAX_ITEMS]
-    _cache = (now, result)
+    # Kesuje sa CELY cerstvy zoznam - vyber podla nazvu (get_named_headlines)
+    # hlada aj mimo top N.
+    _cache = (now, unique)
     global _last_status
     _last_status = {
         # ok=False az ked padli VSETKY feedy - jeden zivy staci, druhy je zaloha.
@@ -147,9 +170,9 @@ def get_market_headlines() -> list[dict]:
         "items": [{"title": i["title"], "age_hours": i["age_hours"],
                     "source": i["source"]} for i in result],
     }
-    print(f"[market_news] {len(result)} cerstvych titulkov "
+    print(f"[market_news] {len(unique)} cerstvych titulkov, do skenu top {len(result)} "
           f"(z {len(items)} stiahnutych, limit {config.MARKET_NEWS_MAX_AGE_HOURS} h)")
-    return result
+    return unique
 
 
 if __name__ == "__main__":

@@ -32,13 +32,13 @@ Alpaca povoluje len JEDNO WebSocket spojenie na ucet.
 NIKDY nevyhodi vynimku - pri zlyhani vrati prazdny zoznam a zapise stav, aby sa
 vypadok dal ukazat na dashboarde (rovnaky vzor ako market_news_client).
 """
-import re
 import time
 from datetime import datetime, timedelta, timezone
 
 import requests
 
 import config
+import news_match
 
 _URL = "https://data.alpaca.markets/v1beta1/news"
 _TIMEOUT_SECONDS = 10
@@ -55,7 +55,6 @@ _pool_fetched_at: float = 0.0
 _pool_status: dict = {"ok": None, "error": None, "size": 0}
 # {asset_name: stav posledneho vyberu} - ide do triage.alpaca_news pri cykle.
 _last_status: dict = {}
-_regex_cache: dict = {}
 
 
 def enabled() -> bool:
@@ -135,18 +134,11 @@ def _refresh_pool() -> None:
     _pool_status = {"ok": error is None, "error": error, "size": len(_pool)}
 
 
-def _keyword_regexes(asset: dict) -> list:
-    pats = tuple(asset.get("news_keywords") or ())
-    if pats not in _regex_cache:
-        _regex_cache[pats] = [re.compile(p, re.IGNORECASE) for p in pats]
-    return _regex_cache[pats]
-
-
 def _match(asset: dict, item: dict) -> str | None:
     """'symbol' / 'nazov' podla toho, co titulok priradilo tickeru, inak None."""
     if set(asset.get("alpaca_news_symbols") or ()) & set(item["symbols"]):
         return "symbol"
-    if any(r.search(item["title"]) for r in _keyword_regexes(asset)):
+    if news_match.mentions(asset, item["title"]):
         return "nazov"
     return None
 

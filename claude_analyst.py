@@ -3176,7 +3176,8 @@ def _build_triage_prompt(asset: dict, ta: dict, cross_market: dict, session: dic
                           active_watch: dict | None,
                           schedule: dict | None,
                           market_news: list[dict] | None = None,
-                          alpaca_news: list[dict] | None = None) -> str:
+                          alpaca_news: list[dict] | None = None,
+                          named_news: list[dict] | None = None) -> str:
     """User prompt pre lacny sken - podmnozina plneho promptu (bez makro pravidiel,
     bez historie obchodov, bez retrospektivy, bez snippetov clankov). Viz triage()."""
     instrument = asset["name"]
@@ -3214,6 +3215,19 @@ def _build_triage_prompt(asset: dict, ta: dict, cross_market: dict, session: dic
             "Vacsina sa ho NETYKA - ber do uvahy len to, co by realne pohlo jeho\n"
             "cenou (regulacia, burzy, siet, sektor, makro). Samotna pritomnost\n"
             "titulkov NIE JE dovod na ANO.\n" + lines + "\n")
+
+    # 2026-09-11 (na ziadost pouzivatela) - z tych istych krypto webov titulky,
+    # ktore tento nastroj SPOMINAJU NAZVOM (market_news_client.get_named_headlines).
+    # Samostatny blok, lebo na rozdiel od vseobecnych vyssie sa ho tykaju.
+    named_block = ""
+    if named_news:
+        lines = "\n".join(f"- [pred {m['age_hours']:.0f}h] {m['title']} ({m.get('source', '?')})"
+                          for m in named_news)
+        named_block = (
+            "\n## Krypto weby: titulky, ktore spominaju tento nastroj\n"
+            "Nasli sa podla nazvu v nadpise. Rozhoduje, ci je nieco NOVE od posledneho\n"
+            "dokladneho pohladu a moze to pohnut cenou; zmienka sama o sebe NIE JE dovod na ANO.\n"
+            + lines + "\n")
 
     # 2026-09-11 (na ziadost pouzivatela) - titulky Benzinga cez Alpaca (viz
     # alpaca_news_client.py). Na rozdiel od trhovych krypto titulkov vyssie sa
@@ -3266,7 +3280,7 @@ def _build_triage_prompt(asset: dict, ta: dict, cross_market: dict, session: dic
 {btc_block}
 ## Cerstve titulky (Marketaux - len nadpisy, plne spravy vidi az plna analyza)
 {news_block}
-{market_block}{alpaca_block}
+{market_block}{named_block}{alpaca_block}
 
 ## Kluc. predpoklady z posledneho dokladneho pohladu
 {prev_block}
@@ -3338,7 +3352,8 @@ def triage(asset: dict, ta: dict, cross_market: dict, session: dict,
             active_watch: dict | None = None,
             schedule: dict | None = None,
             market_news: list[dict] | None = None,
-            alpaca_news: list[dict] | None = None) -> tuple[dict, dict]:
+            alpaca_news: list[dict] | None = None,
+            named_news: list[dict] | None = None) -> tuple[dict, dict]:
     """LACNY SKEN pred plnym cyklom (2026-09-04, bod 6 auditu) - vrati
     (verdikt, usage). Bez web_search, kratky vlastny system prompt, effort low.
 
@@ -3353,7 +3368,7 @@ def triage(asset: dict, ta: dict, cross_market: dict, session: dict,
     prompt = _build_triage_prompt(asset, ta, cross_market, session, btc_proxy,
                                    prev_assumptions, prev_cycle_time, marketaux_news,
                                    hours_since_full, active_watch, schedule, market_news,
-                                   alpaca_news)
+                                   alpaca_news, named_news)
     verdict, usage = _call_triage(asset, prompt)
     verdict["worth_full_look"] = bool(verdict.get("worth_full_look"))
     _drop_already_met_watch(verdict, (ta or {}).get("last_price"), f" [{asset['name']} triage]")

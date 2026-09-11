@@ -150,7 +150,25 @@ check("ok=False az ked padnu VSETKY", mn.last_status()["ok"], False)
 print("\n7) Zapnute LEN na dohodnutych tickeroch")
 import assets  # noqa: E402
 on = sorted(a["name"] for a in assets.ALL_ASSETS if a.get("market_news"))
-check("zoznam tickerov", on, ["ADA", "NEAR", "ZEC"])
+# 2026-09-11: + NIGHT a PUMP (Marketaux 0 % za 7 dni, schvalene pouzivatelom).
+check("zoznam tickerov", on, ["ADA", "NEAR", "NIGHT", "PUMP", "ZEC"])
+
+print("\n7b) Titulky PODLA NAZVU z celeho feedu, nie len z top N (2026-09-11)")
+reset()
+config.MARKET_NEWS_MAX_ITEMS = 2
+stub([Resp(feed([("Ether ETF inflows", 1), ("Solana upgrade", 2), ("Stocks slip", 3),
+                 ("Blockstream refuses ransom for 600 BTC in bitcoin", 4),
+                 ("Circle's Noble shutdown moves $92M in USDC", 5),
+                 ("Stocks rally past midnight deadline", 6)]))])
+BY = {a["name"]: a for a in assets.ALL_ASSETS}
+check("vseobecne top N ostava", [g["title"] for g in mn.get_market_headlines()],
+      ["Ether ETF inflows", "Solana upgrade"])
+check("BTC najde titulok mimo top N", [g["title"][:11] for g in mn.get_named_headlines(BY["BTC"])],
+      ["Blockstream"])
+check("CRCL najde Circle/USDC", len(mn.get_named_headlines(BY["CRCL"])), 1)
+check("NIGHT nechyta hole 'midnight'", mn.get_named_headlines(BY["NIGHT"]), [])
+check("ticker bez nazvov nic", mn.get_named_headlines(BY["NVDA"]), [])
+config.MARKET_NEWS_MAX_ITEMS = 8
 
 print("\n8) Prompt skenu: blok sa objavi len ked su titulky")
 import claude_analyst  # noqa: E402
@@ -167,6 +185,13 @@ check("titulok je v prompte", "Zcash flaw" in p_s, True)
 check("prompt varuje, ze titulky NIE su o tickeri", "NETYKA" in p_s, True)
 check("a ze samotna pritomnost nie je dovod na ANO",
       "NIE JE dovod na ANO" in p_s, True)
+p_n = claude_analyst._build_triage_prompt(A, TA, {}, {"session": "US"}, None, None,
+                                           None, None, None, None, None,
+                                           named_news=[{"title": "Cardano {node} 11.2", "age_hours": 2,
+                                                        "source": "decrypt.co"}])
+check("blok podla nazvu sa vlozi", "titulky, ktore spominaju tento nastroj" in p_n, True)
+check("  so zdrojom a zatvorkami v titulku", "Cardano {node} 11.2 (decrypt.co)" in p_n, True)
+check("  a bez vseobecneho bloku", "Trhove krypto titulky" in p_n, False)
 
 print("\nVYSLEDOK:", "OK" if ok else "CHYBA")
 sys.exit(0 if ok else 1)

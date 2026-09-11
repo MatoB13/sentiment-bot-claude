@@ -23,14 +23,93 @@ API detaily (overene naozivo 2026-08-19 s realnym kluucom pouzivatela):
   midnight-3 (NIGHT, symbol "night") - MINIMAX nie je pokryty vobec (mimo
   top 100), ziadny nas ini ticker (NAS100/NVDA/GOLD/WTI/AAOI/GOOGL/SKHYNIX)
   nie je krypto-specificky, teda sa sem netyka."""
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import requests
 
 import config
-from db import CoinMarketCalEvent, get_session
+from db import CoinMarketCalEvent, CoinMarketCalSlugStatus, get_session
 
 _BASE_URL = "https://api.coinmarketcal.com/v2/events"
+_COINS_URL = "https://api.coinmarketcal.com/v2/coins"
+# Kontrola pokrytia slugov (2026-09-11) - raz za tyzden, viz check_slugs().
+_SLUG_CHECK_DAYS = 7
+_COINS_MAX_PAGES = 5  # free plan = 100 coinov = 2 strany po 50
+
+
+def _fetch_covered_coins() -> dict:
+    """{slug: rank} vsetkych coinov, ktore bezplatny plan pokryva. Vynimku necha prejst."""
+    out, cursor = {}, None
+    for _ in range(_COINS_MAX_PAGES):
+        resp = requests.get(
+            _COINS_URL,
+            headers={"x-api-key": config.COINMARKETCAL_API_KEY, "Accept": "application/json"},
+            params={"cursor": cursor} if cursor else {},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        body = resp.json()
+        for c in body.get("data") or []:
+            if c.get("slug"):
+                out[c["slug"]] = c.get("rank")
+        cursor = (body.get("meta") or {}).get("cursor")
+        if not cursor:
+            break
+    return out
+
+
+def check_slugs(session, force: bool = False) -> None:
+    """Overi, ci je slug kazdeho tickera stale v bezplatnom plane (2026-09-11,
+    na ziadost pouzivatela). PRECO: /v2/events pre neexistujuci alebo nepokryty
+    slug vracia HTTP 200 a 0 udalosti - presne to iste ako "ziadne udalosti" -
+    takze keby coin vypadol z top-100 (Midnight je 91.), ticker by ticho prestal
+    dostavat kalendar a nikto by si to nevsimol.
+
+    Vola sa z poll_events (ten bezi pri kazdom nasadeni aj denne), ale realne
+    klope na API len raz za _SLUG_CHECK_DAYS, alebo ked sa slug zmenil /
+    pribudol / posledna kontrola zlyhala - cas je v DB, takze redeploy ho
+    neresetuje (poucenie z ATR kalibracie, ktora pri redeployoch nebezala nikdy)."""
+    import assets  # lokalny import - rovnaky dovod ako v poll_events
+
+    configured = {a["strike_symbol"]: a["coinmarketcal_slug"]
+                  for a in assets.ALL_ASSETS if a.get("coinmarketcal_slug")}
+    rows = {r.symbol: r for r in session.query(CoinMarketCalSlugStatus).all()}
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=_SLUG_CHECK_DAYS)
+
+    def _fresh(sym, slug):
+        r = rows.get(sym)
+        if r is None or r.slug != slug or r.error or r.covered is None:
+            return False
+        checked = r.checked_at if r.checked_at.tzinfo else r.checked_at.replace(tzinfo=timezone.utc)
+        return checked > cutoff
+
+    for sym in set(rows) - set(configured):
+        session.delete(rows.pop(sym))  # ticker uz slug nema
+    if not force and all(_fresh(s, g) for s, g in configured.items()):
+        session.commit()
+        return
+
+    try:
+        covered, error = _fetch_covered_coins(), None
+    except Exception as e:
+        covered, error = None, f"{type(e).__name__}: {str(e)[:150]}"
+        print(f"[coinmarketcal_client] kontrola slugov zlyhala (skusim pri dalsom polle): {error}")
+    for sym, slug in configured.items():
+        row = rows.get(sym) or CoinMarketCalSlugStatus(symbol=sym)
+        if row.slug != slug:
+            row.covered, row.rank = None, None
+        row.slug, row.checked_at, row.error = slug, now, error
+        if covered is not None:
+            row.covered, row.rank = slug in covered, covered.get(slug)
+            if not row.covered:
+                print(f"[coinmarketcal_client] POZOR: {sym} slug '{slug}' NIE JE v bezplatnom "
+                      f"plane - ticker nedostava kalendar udalosti.")
+        session.merge(row)
+    session.commit()
+    if covered is not None:
+        print(f"[coinmarketcal_client] kontrola slugov: {sum(1 for g in configured.values() if g in covered)}"
+              f"/{len(configured)} pokrytych (plan ma {len(covered)} coinov).")
 
 
 def _parse_dt(raw: str | None) -> datetime | None:
@@ -67,6 +146,11 @@ def poll_events() -> None:
     print(f"\n=== [coinmarketcal_client] poll_events {datetime.now(timezone.utc).isoformat()} ===")
     session = get_session()
     try:
+        try:
+            check_slugs(session)
+        except Exception as e:
+            session.rollback()
+            print(f"[coinmarketcal_client] kontrola slugov spadla (neblokujuce): {e}")
         for asset in assets.ALL_ASSETS:
             slug = asset.get("coinmarketcal_slug")
             if not slug:

@@ -1015,6 +1015,23 @@ class CoinMarketCalEvent(Base):
     fetched_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
+class CoinMarketCalSlugStatus(Base):
+    """Je slug tickera stale v bezplatnom plane CoinMarketCal? (2026-09-11, na
+    ziadost pouzivatela). Neexistujuci alebo nepokryty slug vracia HTTP 200 a
+    0 udalosti - rovnako ako "ziadne udalosti" - takze vypadok by bol TICHY.
+    Midnight je v top-100 na 91. mieste a moze z neho vypadnut. Kontroluje
+    sa raz za tyzden (coinmarketcal_client.check_slugs), dashboard pri
+    covered=False ukaze varovanie."""
+    __tablename__ = "coinmarketcal_slug_status"
+
+    symbol = Column(String, primary_key=True)  # nas strike_symbol
+    slug = Column(String, nullable=False)
+    covered = Column(Boolean, nullable=True)  # None = este sa nepodarilo overit
+    rank = Column(Integer, nullable=True)
+    checked_at = Column(DateTime, nullable=False)
+    error = Column(String, nullable=True)
+
+
 def _ensure_columns(engine) -> None:
     """create_all() vytvori len chybajuce TABULKY, nikdy nepridá stlpec do uz
     existujucej tabulky. Toto je poor-man's migration: pri kazdom starte
