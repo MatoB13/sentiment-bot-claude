@@ -1857,6 +1857,43 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                 f"plytké (typický knôt, pár desatín ATR alebo návrat dnu) - vtedy je správna "
                 f"odpoveď none + watch úroveň ďalej od ceny, nie vstup.\n"
             )
+        # 2026-09-11 (na ziadost pouzivatela) - PLNY kontext cyklu, ktory watch
+        # nastavil (cela uvaha + predpoklady + stav trhu vtedy vs teraz), a
+        # SYMETRICKA konfrontacia. Povodny text chcel zdovodnenie LEN pri zmene
+        # planu ("Ak TERAZ volis iny smer...") - dokazne bremeno teda lezalo na
+        # zmene a vykonanie planu zdovodnovat netreba, co strukturalne tlaci k
+        # jeho dotiahnutiu. Pri WTI #217 a NIGHT #218 Claude pisal presne
+        # "podmienka z minuleho cyklu je splnena" a vstupil na okraji 48h rozpatia.
+        # Namerane pri tom: watch cyklus vstupi len v 12 % pripadov, takze nejde
+        # o to, ze by vstupoval vzdy - ide o to, ako vazi plan voci novym datam.
+        prior_reasoning = (wsc.get("reasoning") or "").strip()
+        prior_block = ""
+        if prior_reasoning:
+            prior_block = (f"Tvoja CELÁ úvaha z toho cyklu:\n\"\"\"{prior_reasoning}\"\"\"\n")
+        if wsc.get("key_assumptions"):
+            prior_block += f"Tvoje vtedajšie predpoklady: \"{wsc['key_assumptions']}\"\n"
+        then_now = ""
+        tt = wsc.get("ta_then") or {}
+        tn = ta or {}
+        tn_ext = dict(tn.get("extension")) if isinstance(tn.get("extension"), dict) else {}
+        if tn_ext.get("ema20_distance_atr") is None:
+            # Zalozny dopocet (rovnaky ako pre "vtedy" v trade_cycle._ta_snapshot_for_compare),
+            # keby TA pole extension z nejakeho dovodu chybalo.
+            tn_ext["ema20_distance_atr"] = market_data.ema20_distance_atr(
+                tn.get("last_price"), tn.get("ema20"), tn.get("atr14"))
+        rows_cmp = []
+        for label, a, b in (
+                ("cena", tt.get("last_price"), tn.get("last_price")),
+                ("RSI14 (1h)", tt.get("rsi14"), tn.get("rsi14")),
+                ("zmena za 24 h %", tt.get("change_24h_pct"), tn.get("change_24h_pct")),
+                ("vzdialenosť od EMA20 (ATR)", tt.get("ema20_distance_atr"), tn_ext.get("ema20_distance_atr")),
+                ("poloha v 48h rozpätí %", tt.get("range48h_position_pct"), tn_ext.get("range48h_position_pct")),
+                ("trend", tt.get("trend"), tn.get("trend"))):
+            if a is None and b is None:
+                continue
+            rows_cmp.append(f"  {label}: vtedy {a if a is not None else '?'} → teraz {b if b is not None else '?'}")
+        if rows_cmp:
+            then_now = "Vtedy vs. teraz:\n" + "\n".join(rows_cmp) + "\n"
         watch_set_context_block = (
             f"\n## Toto rozhodnutie bolo vyvolané TVOJOU VLASTNOU watch podmienkou"
             f"{f' (pred {elapsed_min} min)' if elapsed_min is not None else ''}\n"
@@ -1867,9 +1904,13 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
             + crossed_line
             + break_line
             + f"{rationale_line}\n"
-            f"Ak TERAZ voliš iný smer/confidence než vtedy, v reasoningu VÝSLOVNE napíš, čo konkrétne "
-            f"sa oproti tomuto dôvodu čakania zmenilo (nová cenová akcia, potvrdenie/vyvrátenie "
-            f"signálu a pod.) - nezopakuj len novú analýzu bez odkazu na predchádzajúce rozhodnutie.\n"
+            + prior_block
+            + then_now
+            + f"Konfrontuj túto vtedajšiu úvahu s dnešnou situáciou. Pôvodný plán NIE JE záväzok - "
+            f"splnená podmienka znamená len to, že nastal čas ho prehodnotiť s novými dátami. "
+            f"V reasoningu výslovne napíš, čo z vtedajšej úvahy stále platí a čo sa odvtedy zmenilo "
+            f"(pozri porovnanie vtedy vs. teraz) - a to ROVNAKO vtedy, keď plán vykonávaš, ako keď ho meníš. "
+            f"Rozhodni sa tak, ako by si sa rozhodol pri dnešných dátach, aj keby si ten plán nikdy nemal.\n"
             f"OSOBITNE POZOR, ak chceš ísť PROTI smeru, ktorý táto úroveň mala potvrdiť (napr. úroveň "
             f"bola nastavená ako potvrdenie prielomu nahor, cena ju prekonala, a ty by si teraz "
             f"shortoval): to je legitímne LEN vtedy, ak vieš pomenovať konkrétny dôvod, prečo prielom "

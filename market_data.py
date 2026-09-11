@@ -667,9 +667,59 @@ def get_funding_snapshot(symbol: str, session, recent_hours: int = FUNDING_RECEN
     }
 
 
+def ema20_distance_atr(price, ema20, atr) -> float | None:
+    """O kolko ATR(14h) je cena nad (+) / pod (-) EMA20. Zdielane s
+    performance_facts a trade_cycle, aby 'natiahnutie' znamenalo vsade presne
+    to iste cislo (inak by statistika vo faktoch a hodnota v TA nesedeli)."""
+    try:
+        price, ema20, atr = float(price), float(ema20), float(atr)
+    except (TypeError, ValueError):
+        return None
+    if atr <= 0:
+        return None
+    return round((price - ema20) / atr, 2)
+
+
+def range48h_position_pct(recent_candles, price) -> float | None:
+    """Kde je cena v rozpati poslednych sviecok (0 = minimum, 100 = maximum).
+    recent_candles = [[o, h, l, c(, v)], ...] z compute_indicators."""
+    try:
+        highs = [float(c[1]) for c in recent_candles]
+        lows = [float(c[2]) for c in recent_candles]
+        price = float(price)
+    except (TypeError, ValueError, IndexError):
+        return None
+    if not highs:
+        return None
+    hi, lo = max(highs), min(lows)
+    if hi <= lo:
+        return None
+    return round(min(100.0, max(0.0, (price - lo) / (hi - lo) * 100)), 0)
+
+
+# 2026-09-11 (na ziadost pouzivatela, po WTI #217 a NIGHT #218) - Claude mal EMA20
+# a ATR len ako surove cisla a vzdialenost si nepocital: WTI kupil 4.3 ATR nad
+# EMA20 na maxime 48h rozpatia. performance_facts ukazuje, ako vstupy podla tejto
+# vzdialenosti dopadali - toto je hodnota pre AKTUALNU situaciu, aby sa v tej
+# tabulke vedel najst. Opis, nie pravidlo - ziadny prah sa tu neuvadza.
+_EXTENSION_NOTE = (
+    "ema20_distance_atr = o koľko ATR(14h) je cena nad (+) alebo pod (−) EMA20; "
+    "range48h_position_pct = kde je cena v rozpätí posledných 48 hodín (0 = minimum, 100 = maximum). "
+    "Ako dopadali doterajšie vstupy podľa vzdialenosti od EMA20, nájdeš vo faktoch o tvojej výkonnosti."
+)
+
+
 def get_market_snapshot(asset: dict, session) -> dict:
     df = get_price_history(asset, session)
     snapshot = compute_indicators(df, include_volume=asset.get("include_volume", False))
+    try:
+        dist = ema20_distance_atr(snapshot.get("last_price"), snapshot.get("ema20"), snapshot.get("atr14"))
+        pos = range48h_position_pct(snapshot.get("recent_candles") or [], snapshot.get("last_price"))
+        if dist is not None or pos is not None:
+            snapshot["extension"] = {"ema20_distance_atr": dist, "range48h_position_pct": pos,
+                                     "note": _EXTENSION_NOTE}
+    except Exception as e:
+        print(f"[market_data] Vypocet natiahnutia (EMA20/48h) zlyhal (pokracujem bez neho): {e}")
     funding = get_funding_snapshot(asset["strike_symbol"], session)
     if funding is not None:
         snapshot["funding"] = funding

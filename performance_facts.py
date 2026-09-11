@@ -43,6 +43,47 @@ def _naive_utc(dt: datetime) -> datetime:
     return dt.astimezone(timezone.utc).replace(tzinfo=None) if dt.tzinfo else dt
 
 
+# 2026-09-11 (na ziadost pouzivatela, po WTI #217 / NIGHT #218) - rozpis podla
+# toho, ako daleko bola cena od EMA20 V SMERE obchodu. Dovod: jediny riadok, ktory
+# sa natiahnutia tykal ("vstup v smere 4h pohybu +0.12 R, proti -0.36 R"), tlacil
+# Clauda k tomu, co sa pokazilo - neodlisuje zaciatok pohybu od konca. Namerane
+# za 30 dni: 1.5-3 ATR +0.18 R (n=100), >=3 ATR -0.09 R (n=48; takmer vsetky
+# zaroven s RSI v extreme, tie -0.20 R). Ukazuje sa CELY rozpis, nie jedna
+# hranica - hranice 1.5/3 su zvolene z dat, tak nech Claude vidi postupnost,
+# nie magicke cislo. Slovo "chase" sa zamerne nepouziva (viz hlavicka modulu).
+EXTENSION_BUCKETS = (
+    ("against", "cena na opačnej strane EMA20 než smer obchodu"),
+    ("early", "v smere, menej ako 1.5 ATR od EMA20"),
+    ("mid", "v smere, 1.5 až 3 ATR od EMA20"),
+    ("far", "v smere, 3 a viac ATR od EMA20"),
+)
+
+
+def _extension_in_direction(ta: dict, direction: str) -> float | None:
+    """Vzdialenost ceny od EMA20 v ATR, kladna = natiahnute V SMERE obchodu
+    (long nad EMA20, short pod). Rovnaky vypocet ako TA pole extension."""
+    ext = ta.get("extension") if isinstance(ta.get("extension"), dict) else None
+    dist = ext.get("ema20_distance_atr") if ext else None
+    if dist is None:
+        import market_data  # lokalne - performance_facts sa importuje aj bez TA stacku
+        dist = market_data.ema20_distance_atr(ta.get("last_price"), ta.get("ema20"), ta.get("atr14"))
+    if dist is None or direction not in ("long", "short"):
+        return None
+    return dist if direction == "long" else -dist
+
+
+def _extension_bucket(ext: float | None) -> str | None:
+    if ext is None:
+        return None
+    if ext < 0:
+        return "against"
+    if ext < 1.5:
+        return "early"
+    if ext < 3:
+        return "mid"
+    return "far"
+
+
 def _load_rows(session, now: datetime) -> list[dict]:
     """Jeden riadok na uzavrety obchod v okne: symbol, smer, R, vyhra, ADX pri
     vstupe, zdroj triggeru, 4h momentum, confidence, casy."""
@@ -75,10 +116,12 @@ def _load_rows(session, now: datetime) -> list[dict]:
         cl = logs.get(t.id)
         adx = None
         src = None
+        ext = None
         if cl is not None:
             ta = cl.ta if isinstance(cl.ta, dict) else {}
             adx = ta.get("adx14")
             src = cl.trigger_source or ("watch" if cl.triggered_by_watch else None) or "scheduled"
+            ext = _extension_in_direction(ta, (t.direction or "").lower())
         h0 = _naive_utc(t.opened_at).replace(minute=0, second=0, microsecond=0)
         rows.append({
             "symbol": t.symbol,
@@ -93,6 +136,7 @@ def _load_rows(session, now: datetime) -> list[dict]:
             "closed_at": _naive_utc(t.closed_at) if t.closed_at else None,
             "h0": h0,
             "mom": None,
+            "ext": ext,
         })
 
     # 4h pohyb pred vstupom - len potrebne bary, jednym dotazom
@@ -172,6 +216,8 @@ def compute(session, symbol: str, now: datetime | None = None) -> dict | None:
         "direction": {k: sub(lambda r, k=k: r["dir"] == k) for k in ("long", "short")},
         "momentum": {"with": sub(lambda r: r["mom"] is True), "against": sub(lambda r: r["mom"] is False)},
         "source": {k: sub(lambda r, k=k: r["src"] == k) for k in ("watch", "scheduled")},
+        "extension": {k: sub(lambda r, k=k: _extension_bucket(r.get("ext")) == k)
+                      for k, _ in EXTENSION_BUCKETS},
         "recent": _stat([r for r in rows if r["closed_at"] and r["closed_at"] >= now_n - timedelta(hours=RECENT_HOURS)]),
         "ticker": _stat([r for r in rows if r["symbol"] == symbol]),
     }
@@ -214,6 +260,10 @@ def format_text(facts: dict | None, asset_name: str) -> str | None:
         ln = _line(lab, facts["source"][k], MIN_ROW)
         if ln:
             lines.append("  " + ln)
+    ext_lines = [ln for ln in (_line(lab, facts["extension"][k], MIN_ROW) for k, lab in EXTENSION_BUCKETS) if ln]
+    if ext_lines:
+        lines.append("  podľa vzdialenosti ceny od EMA20 pri vstupe (tvoju aktuálnu nájdeš v TA, pole extension):")
+        lines.extend("    " + ln for ln in ext_lines)
     rc = facts["recent"]
     if rc["n"] >= MIN_RECENT:
         lines.append(f"  posledných {RECENT_HOURS} h: {rc['n']} obchodov, win {rc['win_pct']:.0f} %, PnL {rc['pnl']:+.0f} $")

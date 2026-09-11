@@ -613,6 +613,35 @@ def _get_watch_set_context(symbol: str, session) -> dict | None:
         # prielom nahor oblepeny textom obhajujucim short - a short otvoril.
         "watch_price_2": log.watch_price_2, "watch_direction_2": log.watch_direction_2,
         "watch_rationale": log.watch_rationale,
+        # 2026-09-11 (na ziadost pouzivatela) - PLNY kontext cyklu, ktory watch
+        # nastavil: cela uvaha, predpoklady a stav trhu vtedy. Doteraz watch cyklus
+        # videl len jednovetovy watch_rationale, takze nemal ako porovnat, CO si
+        # vtedy myslel a v akej situacii, s tym, co je teraz (napr. WTI #217:
+        # plan "vstup nad 102" vznikol pri inom RSI a inej vzdialenosti od EMA20,
+        # nez aka bola vo chvili, ked sa podmienka splnila).
+        "reasoning": log.reasoning,
+        "key_assumptions": log.key_assumptions,
+        "ta_then": _ta_snapshot_for_compare(log.ta),
+    }
+
+
+def _ta_snapshot_for_compare(ta) -> dict | None:
+    """Par cisel z TA, ktore sa daju porovnat 'vtedy vs teraz'. extension
+    (vzdialenost od EMA20 v ATR, poloha v 48h rozpati) maju len cykly od
+    11.9.2026 - pre starsie sa dopocita z ulozenych last_price/ema20/atr14."""
+    if not isinstance(ta, dict):
+        return None
+    ext = ta.get("extension") if isinstance(ta.get("extension"), dict) else None
+    dist = ext.get("ema20_distance_atr") if ext else None
+    if dist is None:
+        dist = market_data.ema20_distance_atr(ta.get("last_price"), ta.get("ema20"), ta.get("atr14"))
+    return {
+        "last_price": ta.get("last_price"),
+        "rsi14": ta.get("rsi14"),
+        "change_24h_pct": ta.get("change_24h_pct"),
+        "trend": ta.get("trend"),
+        "ema20_distance_atr": dist,
+        "range48h_position_pct": ext.get("range48h_position_pct") if ext else None,
     }
 
 
