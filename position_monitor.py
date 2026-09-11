@@ -120,6 +120,13 @@ def _closing_fills(fills: list[dict], entry_order_id, close_side: str | None) ->
 # rizika falosnej zhody so vzdialenejsou SL/TP urovnou druhej strany.
 _CLOSE_PRICE_TOLERANCE = 0.003
 
+# Kontrola uplnosti zatvaracich fills (2026-09-11, viz _lookup_exact_close):
+# 0.999 - tolerancia na zaokruhlenie velkosti, nie na chybajuci fill (najmensi
+# chybajuci fill pri #214 bol 2.3 % pozicie). 30 min - Strike doindexuje fills
+# radovo za sekundy az minuty; dlhsie cakanie by uz len blokovalo reflexiu.
+_CLOSE_SIZE_COMPLETE_FRACTION = 0.999
+_INCOMPLETE_CLOSE_GIVE_UP_MINUTES = 30
+
 
 def _reclassify_by_close_price(trade: Trade, close_price: float) -> str | None:
     """Ak nasa TP/SL bracket noha chyba v /v2/history/order (staleness, viz
@@ -236,6 +243,36 @@ def _lookup_exact_close(trade: Trade) -> dict | None:
     close_agg = _aggregate_fills(matched_closing)
     if entry_agg is None or close_agg is None:
         return None
+
+    # 2026-09-11 (audit na ziadost pouzivatela) - zatvaracie fills musia pokryt
+    # CELU velkost pozicie, inak su data z burzy este neuplne.
+    #
+    # POVOD: trade #214 (ADA short, timeout 10.9.) - zatvaracia market objednavka
+    # sa vykonala v 8 fills, ale Strike ich mal v case nasho dotazu zaindexovane
+    # len 3 (2 723 z 20 858 ADA = 13 %). Bez tejto kontroly sme to vzali ako
+    # konecne: DB PnL $3.38 namiesto skutocnych $35.27. Rovnako #134 (NEAR,
+    # 29.8., -$4.64 namiesto -$9.00). Audit vsetkych 216 obchodov nasiel prave
+    # tieto dva - vsetky ostatne sedeli s burzou na cent.
+    #
+    # None tu znamena "skus znova" - _backfill_missing_exact_data vyberie obchod
+    # s pnl_usd IS NULL pri dalsom tiku (kazdu minutu). Reflexia a notifikacia
+    # su na PnL zavisle, takze pridu o chvilu neskor, ale uz so spravnym cislom
+    # (pri #214 Claude reflektoval nad chybnymi $3.38).
+    #
+    # Poistka: po _INCOMPLETE_CLOSE_GIVE_UP_MINUTES sa vezme, co je, aby ziaden
+    # obchod neostal navzdy bez PnL, reflexie a notifikacie (napr. keby fill
+    # historia mala viac nez `limit` zaznamov alebo zvysok niekto zatvoril mimo okna).
+    if close_agg["size"] < entry_agg["size"] * _CLOSE_SIZE_COMPLETE_FRACTION:
+        age_min = (datetime.now(timezone.utc) - closed_at).total_seconds() / 60
+        covered = close_agg["size"] / entry_agg["size"] * 100 if entry_agg["size"] else 0
+        if age_min < _INCOMPLETE_CLOSE_GIVE_UP_MINUTES:
+            print(f"[position_monitor] Trade {trade.id}: zatvaracie fills pokryvaju len "
+                  f"{covered:.1f} % pozicie ({close_agg['size']} z {entry_agg['size']}) - "
+                  f"burza este neindexovala vsetko, cakam ({age_min:.0f} min od zatvorenia).")
+            return None
+        print(f"[position_monitor] VAROVANIE Trade {trade.id}: ani po {age_min:.0f} min "
+              f"zatvaracie fills nepokryvaju celu poziciu ({covered:.1f} %) - zapisujem, "
+              f"co je k dispozicii. PnL moze byt NEUPLNE, over rucne voci Strike.")
 
     # 2026-08-21 (na ziadost pouzivatela, ZEC "dust" nalez) - dovod zatvorenia
     # CELEJ pozicie urcujeme podla toho, KTORY TYP objednavky (TP/SL) zodpoveda
