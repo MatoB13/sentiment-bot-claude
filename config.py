@@ -257,6 +257,18 @@ MARKET_NEWS_MAX_ITEMS = _int("MARKET_NEWS_MAX_ITEMS", 8)
 # raz za ticker. 20 min je hlboko pod frekvenciou, akou tie feedy pribudaju.
 MARKET_NEWS_CACHE_MINUTES = _float("MARKET_NEWS_CACHE_MINUTES", 20.0)
 
+# Alpaca / Benzinga titulky pre SKEN (2026-09-11, na ziadost pouzivatela) - viz
+# alpaca_news_client.py. Kluce si pouzivatel nastavuje sam (Railway aj lokalny
+# .env); bez nich je zdroj ticho vypnuty a sken bezi ako doteraz.
+ALPACA_API_KEY_ID = os.getenv("ALPACA_API_KEY_ID", "")
+ALPACA_API_SECRET_KEY = os.getenv("ALPACA_API_SECRET_KEY", "")
+ALPACA_NEWS_ENABLED = _bool("ALPACA_NEWS_ENABLED", "true")
+# 12 h (nie 25 ako Marketaux): sken bezi kazde 2-12 h a jeho uloha je zachytit,
+# co je NOVE od posledneho pohladu - starsie titulky su pre neho uz sum.
+ALPACA_NEWS_MAX_AGE_HOURS = _float("ALPACA_NEWS_MAX_AGE_HOURS", 12.0)
+ALPACA_NEWS_MAX_ITEMS = _int("ALPACA_NEWS_MAX_ITEMS", 8)
+ALPACA_NEWS_CACHE_MINUTES = _float("ALPACA_NEWS_CACHE_MINUTES", 5.0)
+
 
 # treba premerat znova. Nastavenie oboch na 0 branu vypne.
 WATCH_DEAD_BAND_MIN_24H_PCT = _float("WATCH_DEAD_BAND_MIN_24H_PCT", 3.0)

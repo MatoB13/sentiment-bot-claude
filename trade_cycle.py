@@ -25,6 +25,7 @@ import macro_calendar
 import market_data
 import marketaux_client
 import market_news_client
+import alpaca_news_client
 import performance_facts
 import retrospective
 import risk_manager
@@ -2203,10 +2204,23 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                             print(f"[{name}] Trhove titulky zlyhali (pokracujem): {e}")
                             market_news_status = {"ok": False, "errors": [str(e)[:80]],
                                                    "count": 0}
+                    # 2026-09-11 - titulky Benzinga cez Alpaca (viz alpaca_news_client.py),
+                    # len pre tickery s pokrytim (assets.py "alpaca_news_symbols").
+                    # Neblokujuce rovnako ako trhove titulky vyssie.
+                    alpaca_news = None
+                    alpaca_news_status = None
+                    if asset.get("alpaca_news_symbols") and alpaca_news_client.enabled():
+                        try:
+                            alpaca_news = alpaca_news_client.get_headlines(asset["alpaca_news_symbols"])
+                            alpaca_news_status = alpaca_news_client.last_status(asset["alpaca_news_symbols"])
+                        except Exception as e:
+                            print(f"[{name}] Alpaca titulky zlyhali (pokracujem): {e}")
+                            alpaca_news_status = {"ok": False, "error": str(e)[:80], "count": 0}
                     verdict, triage_usage = claude_analyst.triage(
                         asset, ta, cross_market, market_session, btc_proxy,
                         prev_assumptions, prev_cycle_time, marketaux_news,
                         market_news=market_news,
+                        alpaca_news=alpaca_news,
                         hours_since_full=hours_since_full,
                         active_watch=_active_watch_context(symbol, session),
                         schedule=_schedule_context(asset, datetime.now(timezone.utc)),
@@ -2216,7 +2230,8 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                                       "usage": triage_usage,
                                       # Stav trhoveho feedu - aby sa jeho vypadok
                                       # dal ukazat na dashboarde, nie len v logu.
-                                      "market_news": market_news_status}
+                                      "market_news": market_news_status,
+                                      "alpaca_news": alpaca_news_status}
                     print(f"[{name}] Sken: worth_full_look={verdict.get('worth_full_look')} "
                           f"attention={verdict.get('attention')} - {verdict.get('reason')}")
                 except Exception as e:

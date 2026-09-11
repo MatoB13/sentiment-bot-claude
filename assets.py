@@ -77,6 +77,8 @@ NAS100 = {
     "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "QQQ"},
+    # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py
+    "alpaca_news_symbols": ["QQQ"],
     "effort": config.NAS100_EFFORT,
 }
 
@@ -101,6 +103,8 @@ NVDA = {
     "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "NVDA"},
+    # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py
+    "alpaca_news_symbols": ["NVDA"],
     "effort": config.NVDA_EFFORT,
 }
 
@@ -163,6 +167,8 @@ GOLD = {
     "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "GLD"},
+    # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py
+    "alpaca_news_symbols": ["GLD"],
     "effort": config.GOLD_EFFORT,
 }
 
@@ -192,6 +198,8 @@ WTI = {
     "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "USO"},
+    # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py
+    "alpaca_news_symbols": ["USO"],
     "effort": config.WTI_EFFORT,
     "needs_eia_data": True,
 }
@@ -259,6 +267,8 @@ BTC = {
     "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "BTCUSD"},
+    # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py
+    "alpaca_news_symbols": ["BTCUSD"],
     "effort": config.BTC_EFFORT,
 }
 
@@ -374,6 +384,8 @@ AAOI = {
     "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "AAOI"},
+    # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py
+    "alpaca_news_symbols": ["AAOI"],
     "effort": config.AAOI_EFFORT,
 }
 
@@ -482,6 +494,8 @@ ZEC = {
     # (najnovsi 78 dni stary), kym search "Zcash" vracia relevantne cenove
     # analyzy ("Zcash Reverses From 883.00 Resistance").
     "marketaux_query": {"search": "Zcash"},
+    # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py
+    "alpaca_news_symbols": ["ZECUSD"],
     # 2026-09-05: Marketaux pre tento ticker nevracia nic (7 dni: 0-4 %),
     # takze sken rozhodoval len z TA. Zdielane trhove titulky to doplnaju -
     # viz market_news_client.py. Zapnute zamerne len na 3 tickeroch.
@@ -511,6 +525,8 @@ GOOGL = {
     "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "GOOGL"},
+    # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py
+    "alpaca_news_symbols": ["GOOGL"],
     "effort": config.GOOGL_EFFORT,
 }
 
@@ -609,6 +625,8 @@ AAPL = {
     "trading_hours_start_utc": config.TRADING_HOURS_START_UTC,
     "trading_hours_end_utc": config.TRADING_HOURS_END_UTC,
     "marketaux_query": {"symbols": "AAPL"},
+    # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py
+    "alpaca_news_symbols": ["AAPL"],
     "effort": config.AAPL_EFFORT,
 }
 
@@ -639,6 +657,8 @@ CRCL = {
     # aj clanky o samotnej firme, aj o regulacii stablecoinov (Circle je
     # vydavatel USDC, teda priamy driver).
     "marketaux_query": {"search": "Circle Internet"},
+    # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py
+    "alpaca_news_symbols": ["CRCL"],
     "effort": config.CRCL_EFFORT,
 }
 
@@ -712,6 +732,8 @@ TSLA = {
     # symbols=TSLA vratil 6 cerstvych clankov do 24 h, vsetky o Tesle samotnej
     # (predaje v Cine, robotaxi, akcia) - ziadne falosne zhody ako pri NIGHT/PUMP.
     "marketaux_query": {"symbols": "TSLA"},
+    # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py
+    "alpaca_news_symbols": ["TSLA"],
     "effort": config.TSLA_EFFORT,
 }
 
