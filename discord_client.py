@@ -152,6 +152,30 @@ def notify_tp_runner_locked(symbol: str, direction: str, tp: float, new_stop: fl
     return _post_webhook(payload, "Notifikacia o predlzenom TP")
 
 
+def notify_tp_runner_regime(symbol: str, direction: str, why: str, tp: float) -> bool:
+    """2026-09-12 (variant D) - trh je v smere otvorenej pozicie v akcnom rezime:
+    bot odsunul TP na burze, na TP sa pozicia nezatvori, ale zamkne zisk. Bez
+    @everyone - informacia, nie anomalia."""
+    if not config.DISCORD_WEBHOOK_URL:
+        return False
+    headline = f"AKCNY REZIM {_short_ticker(symbol)} - TP sa predlzi"
+    payload = {
+        "content": headline,
+        "embeds": [{
+            "title": headline,
+            "description": ("Trh sa hybe prudko v smere pozicie. Normalny TP na burze bol odsunuty - "
+                            "ked cena dosiahne TP, bot zamkne zisk a necha poziciu bezat za cenou."),
+            "color": _PNL_COLOR["win"],
+            "fields": [
+                {"name": "Smer", "value": str(direction), "inline": True},
+                {"name": "Spustac", "value": str(why), "inline": False},
+                {"name": "TP (sleduje bot)", "value": str(tp), "inline": True},
+            ],
+        }]
+    }
+    return _post_webhook(payload, "Notifikacia o akcnom rezime")
+
+
 def notify_extreme_alarm(symbol: str, direction: str, move_1h_atr: float | None,
                          move_4h_atr: float | None, move_4h_pct: float | None) -> bool:
     """2026-09-12 - alarm na extremny pohyb spustil mimoriadny cyklus (viz

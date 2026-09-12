@@ -82,6 +82,8 @@ pm._lookup_exact_close = lambda t: ({"close_reason": exact["reason"], "entry_fil
                                       "close_fill_price": 0.0, "fees_usd": 0.0, "pnl_usd": 1.0}
                                      if exact["reason"] else None)
 
+DEFAULTS = (config.TP_RUNNER_ENABLED, config.TP_RUNNER_LOCK_MAX_FRACTION, config.TP_RUNNER_FAST_MINUTES,
+            config.TP_RUNNER_FAST_ATR, config.TP_RUNNER_FAST_MIN_PCT, config.TP_RUNNER_DAY_PCT)
 config.TP_RUNNER_MAX_HOURS, config.TP_RUNNER_LOCK_ATR, config.TP_RUNNER_LOCK_MAX_FRACTION = 48, 1.0, 0.5
 config.TP_RUNNER_TRAIL_ATR, config.TP_RUNNER_TRAIL_MAX_FRACTION, config.TP_RUNNER_MIN_STEP_ATR = 2.0, 1.0, 0.25
 config.TP_RUNNER_EXCHANGE_TP_MULT, config.POSITION_MAX_HOURS = 10.0, 24
@@ -225,14 +227,14 @@ calls.clear()
 pm._check_and_reheal_bracket_legs(t2, {"size": 10})
 check("REGRESIA: obe nohy na burze -> ziadny zasah", names(), [])
 
-print("\n10) Otvorenie pozicie (trade_cycle._setup_tp_runner)")
+print("\n10) Otvorenie pozicie (trade_cycle._setup_tp_runner) - variant D: TP VZDY na burze")
 sized = {"direction": "Long", "entry_price": 100.0, "take_profit_price": 104.0, "stop_loss_price": 97.0}
 tt = Trade()
 config.TP_RUNNER_ENABLED = True
 ex = trade_cycle._setup_tp_runner(tt, sized, {"order_tick_price": "0.01"}, {"atr14": 1.5})
-check("na burzu ide havarijny TP 140", ex, 140.0)
-check("obchod: runner, havarijny TP, SL, ATR", (tt.tp_mode, tt.tp_exchange_price, tt.active_stop_price, tt.entry_atr),
-      ("runner", 140.0, 97.0, 1.5))
+check("ZAPNUTE: na burzu ide NORMALNY TP 104 (nie havarijny)", ex, 104.0)
+check("obchod: armed, bez havarijneho TP, SL povodny, ATR", (tt.tp_mode, tt.tp_exchange_price, tt.active_stop_price, tt.entry_atr),
+      ("armed", None, None, 1.5))
 config.TP_RUNNER_ENABLED = False
 tt2 = Trade()
 ex = trade_cycle._setup_tp_runner(tt2, sized, {"order_tick_price": "0.01"}, {"atr14": 1.5})
@@ -240,7 +242,8 @@ check("VYPNUTE: na burzu ide klasicky TP 104", ex, 104.0)
 check("VYPNUTE: obchod bez akychkolvek novych poli", (tt2.tp_mode, tt2.tp_exchange_price, tt2.active_stop_price), (None, None, None))
 config.TP_RUNNER_ENABLED = True
 ex = trade_cycle._setup_tp_runner(Trade(), sized, None, None)
-check("bez market_meta/ta nespadne", ex, 140.0)
+check("bez market_meta/ta nespadne", ex, 104.0)
+check("predvolby: zapnute, zamok 0.25, 15 min / 2 ATR / 1.5 %, 24 h 8 %", DEFAULTS, (True, 0.25, 15, 2.0, 1.5, 8.0))
 
 print("\n11) Cely tik position_monitor.check_open_trades")
 for t in s.query(Trade).filter(Trade.status == "open").all():
@@ -317,6 +320,157 @@ op["runner_note"] = None
 p = claude_analyst._build_user_prompt(A, {"last_price": 106, "atr14": 1}, {}, {"session": "US"}, [], None, None,
                                       None, None, None, None, None, None, open_position=op)
 check("REGRESIA klasicka pozicia: ziadna zmienka", "PREDĹŽENÝ" in p, False)
+
+print("\n14) VARIANT D - pripraveny obchod (ARMED) a akcny rezim")
+import price_buffer  # noqa: E402
+from db import PriceBar  # noqa: E402
+strike_client.get_markets = lambda: state["markets"]
+discord_client.notify_tp_runner_regime = lambda *a, **k: discord_msgs.append(("regime", a)) or True
+config.TP_RUNNER_FAST_MINUTES, config.TP_RUNNER_FAST_ATR, config.TP_RUNNER_FAST_MIN_PCT = 15, 2.0, 1.5
+config.TP_RUNNER_DAY_PCT, config.TP_RUNNER_SWITCH_RETRY_MINUTES = 8.0, 10
+rh = tp_runner.regime_hit
+check("rychly spustac long: +3 % a 3 ATR za 15 min", rh("Long", 103, 100, None, 1.0) is not None, True)
+check("pod prahom ATR (1.5 ATR) -> nie", rh("Long", 101.5, 100, None, 1.0), None)
+check("dost ATR, malo % (2 ATR, ale 1 %) -> nie", rh("Long", 101, 100, None, 0.5), None)
+check("pohyb PROTI smeru (long, cena -3 %) -> nie", rh("Long", 97, 100, None, 1.0), None)
+check("short: pad -3 % za 15 min -> ano", rh("Short", 97, 100, None, 1.0) is not None, True)
+check("24 h +8.7 % -> ano (postupny trend)", rh("Long", 100, None, 92, 1.0) is not None, True)
+check("24 h +5 % -> nie", rh("Long", 105, None, 100, 1.0), None)
+check("short: 24 h rast +10 % (proti smeru) -> nie", rh("Short", 110, None, 100, 1.0), None)
+check("bez referencii (restart) -> nie", rh("Long", 110, None, None, 1.0), None)
+
+for t in s.query(Trade).filter(Trade.status == "open").all():
+    t.status = "archiv"
+s.commit()
+
+
+def mk_armed(tid, sym, direction="Long", entry=100.0, sl=97.0, tp=104.0):
+    t = mk(tid, sym, direction=direction, mode="armed", entry=entry, sl=sl, tp=tp)
+    t.tp_exchange_price, t.active_stop_price = None, None
+    s.commit()
+    return t
+
+
+price_buffer._buffer.clear()
+a1 = mk_armed(30, "ARM-USD")
+calls.clear(); discord_msgs.clear()
+for px in (99.0, 102.0, 105.0):
+    r = tp_runner.manage(a1, {"size": 10}, px, 0.01, s, now)
+check("CHOP/bezny TP: bez akcneho rezimu ZIADNY zasah (TP riesi burza)", (names(), a1.tp_mode, r["orders_changed"]),
+      ([], "armed", False))
+check("  ani nad TP sa nic nezamyka (klasicky obchod)", a1.tp_locked_at, None)
+
+price_buffer.record_price("ARM-USD", now - timedelta(minutes=15), 100.0)
+calls.clear()
+r = tp_runner.manage(a1, {"size": 10}, 103.0, 0.01, s, now); s.commit()
+check("rychly pohyb -> PREPNUTIE: zrus, ten isty SL 97, havarijny TP 140", [(c[0], c[1][3] if len(c[1]) > 3 else None) for c in calls],
+      [("cancel_all_orders", None), ("place_stop_order", 97.0), ("place_take_profit_order", 140.0)])
+check("obchod: runner, havarijny TP 140, SL 97, zatial nezamknuty", (a1.tp_mode, a1.tp_exchange_price, a1.active_stop_price,
+      a1.tp_locked_at), ("runner", 140.0, 97.0, None))
+check("oprava noh v tomto tiku preskocena", r["orders_changed"], True)
+check("Discord: akcny rezim", discord_msgs[-1][0], "regime")
+check("dennik: regime", [e.kind for e in s.query(TpRunnerEvent).filter_by(trade_id=30)], ["regime"])
+check("expiracia ostava 24 h, kym TP nepadne", a1.expires_at, a1.opened_at + timedelta(hours=24))
+calls.clear()
+tp_runner.manage(a1, {"size": 10}, 104.3, 0.01, s, now); s.commit()
+check("potom pri TP: zamknutie zisku 103, pozicia bezi", (a1.active_stop_price, a1.tp_locked_at is not None, a1.status),
+      (103.0, True, "open"))
+check("dennik: regime, lock", [e.kind for e in s.query(TpRunnerEvent).filter_by(trade_id=30)], ["regime", "lock"])
+
+a2 = mk_armed(31, "ARM2-USD", direction="Short", sl=103.0, tp=96.0)
+price_buffer.record_price("ARM2-USD", now - timedelta(minutes=15), 100.0)
+calls.clear()
+tp_runner.manage(a2, {"size": -10}, 103.0, 0.01, s, now)
+check("short + prudky RAST (proti smeru) -> ziadne prepnutie", (names(), a2.tp_mode), ([], "armed"))
+tp_runner.manage(a2, {"size": -10}, 97.0, 0.01, s, now); s.commit()
+check("short + prudky PAD -> prepnutie, havarijny TP 60", (a2.tp_mode, a2.tp_exchange_price), ("runner", 60.0))
+
+a3 = mk_armed(32, "ARM3-USD")
+hs = NOWN.replace(minute=0, second=0, microsecond=0) - timedelta(hours=24)
+s.add(PriceBar(symbol="ARM3-USD", hour_start=hs, open=92.0, high=92.5, low=91.5, close=92.0)); s.commit()
+calls.clear()
+tp_runner.manage(a3, {"size": 10}, 100.5, 0.01, s, now); s.commit()
+check("postupny trend: 24 h +9 % -> prepnutie aj bez rychleho pohybu", a3.tp_mode, "runner")
+
+print("\n15) VARIANT D - bezpecnost prepnutia (burza obcas straca prikazy)")
+a4 = mk_armed(33, "ARM4-USD")
+price_buffer.record_price("ARM4-USD", now - timedelta(minutes=15), 100.0)
+state["fail_stop"] = 2
+calls.clear(); discord_msgs.clear()
+r = tp_runner.manage(a4, {"size": 10}, 103.0, 0.01, s, now); s.commit()
+check("SL odmietnuty 2x -> prepnutie sa VRATI: armed, bez havarijneho TP", (a4.tp_mode, a4.tp_exchange_price), ("armed", None))
+check("  pozicia sa NEzatvara (nie sme nad TP)", ("close_position_market" in names(), a4.status), (False, "open"))
+check("  oprava noh sa v tomto tiku NEpreskoci", r["orders_changed"], False)
+check("  dennik: switch_fail, ziadny Discord o rezime", ([e.kind for e in s.query(TpRunnerEvent).filter_by(trade_id=33)],
+      [m for m in discord_msgs if m[0] == "regime"]), (["switch_fail"], []))
+state["open_orders"] = [{"Status": "open", "Type": "take_profit_limit", "OriginType": "take_profit_limit"}]  # havarijny TP, bez SL
+calls.clear()
+pm._check_and_reheal_bracket_legs(a4, {"size": 10})
+check("oprava noh doplni SL 97 a KLASICKY TP 104 (nie havarijny)",
+      ([c[1][3] for c in calls if c[0] == "place_stop_order"], [c[1][3] for c in calls if c[0] == "place_take_profit_order"]),
+      ([97.0], [104.0]))
+calls.clear()
+tp_runner.manage(a4, {"size": 10}, 103.5, 0.01, s, now)
+check("dalsi pokus o prepnutie az po 10 min (ziadne volania teraz)", names(), [])
+state["open_orders"] = []
+calls.clear()
+pm._check_and_reheal_bracket_legs(mk_armed(34, "ARM5-USD"), {"size": 10})
+check("oprava noh ARMED obchodu: SL 97 a TP 104 ako klasicky",
+      ([c[1][3] for c in calls if c[0] == "place_stop_order"], [c[1][3] for c in calls if c[0] == "place_take_profit_order"]),
+      ([97.0], [104.0]))
+calls.clear()
+pm._check_and_reheal_bracket_legs(a2, {"size": -10})
+check("oprava noh PREPNUTEHO obchodu: SL 103 a HAVARIJNY TP 60",
+      ([c[1][3] for c in calls if c[0] == "place_stop_order"], [c[1][3] for c in calls if c[0] == "place_take_profit_order"]),
+      ([103.0], [60.0]))
+
+print("\n16) VARIANT D - cely tik position_monitor")
+for t in s.query(Trade).filter(Trade.status == "open").all():
+    t.status = "archiv"
+s.commit()
+price_buffer._buffer.clear()
+calm = mk_armed(40, "CALM-USD")                   # pokojny trh
+fast = mk_armed(41, "FAST-USD")                   # prudky rast v smere
+price_buffer.record_price("CALM-USD", now - timedelta(minutes=15), 100.5)
+price_buffer.record_price("FAST-USD", now - timedelta(minutes=15), 100.0)
+state["positions"] = [{"symbol": "CALM-USD", "size": 10}, {"symbol": "FAST-USD", "size": 10}]
+state["markets"] = [market("CALM-USD", 101.0), market("FAST-USD", 103.2)]
+state["open_orders"] = [{"Status": "open", "Type": "stop", "Size": "10", "Filled": "0"},
+                        {"Status": "open", "Type": "take_profit_limit", "OriginType": "take_profit_limit"}]
+calls.clear(); discord_msgs.clear()
+pm.check_open_trades()
+s.expire_all()
+calm, fast = s.get(Trade, 40), s.get(Trade, 41)
+check("CALM: ostava armed, ziadne volania na jeho symbol", (calm.tp_mode, [c for c in calls if "CALM-USD" in c[1]]), ("armed", []))
+check("FAST: prepnuty do akcneho rezimu v jednom tiku", (fast.tp_mode, fast.tp_exchange_price), ("runner", 140.0))
+check("ziadna falosna REPAIR notifikacia", [m for m in discord_msgs if m[0] == "repair"], [])
+check("monitor zapisal minutove ceny (pre rychly spustac)", price_buffer.price_at("CALM-USD", now + timedelta(seconds=5)), 101.0)
+# ARMED obchod zatvoreny burzou na TP -> klasicky take_profit, ziadna udalost predlzenia
+state["positions"] = [{"symbol": "FAST-USD", "size": 10}]
+exact["reason"] = "take_profit"
+pm.check_open_trades()
+s.expire_all()
+check("REGRESIA: armed obchod zatvoreny na TP = klasicky take_profit",
+      (s.get(Trade, 40).status, s.get(Trade, 40).close_reason), ("closed_by_exchange", "take_profit"))
+check("  bez udalosti predlzeneho TP", s.query(TpRunnerEvent).filter_by(trade_id=40).count(), 0)
+# prepnuty (nezamknuty) obchod zatvoreny SL -> klasicky stop_loss, ale v denniku close
+state["positions"] = []
+exact["reason"] = "stop_loss"
+pm.check_open_trades()
+s.expire_all()
+check("prepnuty nezamknuty obchod na SL = stop_loss", s.get(Trade, 41).close_reason, "stop_loss")
+check("  dennik: regime ... close", [e.kind for e in s.query(TpRunnerEvent).filter_by(trade_id=41)], ["regime", "close"])
+
+print("\n17) Prompt: akcny rezim pred TP vs pripraveny obchod")
+class _T:  # noqa: E701
+    take_profit_price, active_stop_price, tp_locked_at, expires_at = 104.0, 97.0, None, NOWN
+_T.tp_mode = "runner"
+check("prepnuty pred TP: poznamka AKČNÝ REŽIM", (trade_cycle._runner_note(_T) or "").startswith("AKČNÝ REŽIM"), True)
+_T.tp_mode = "armed"
+check("pripraveny (armed): ziadna poznamka - obchod je klasicky", trade_cycle._runner_note(_T), None)
+_T.tp_locked_at = NOWN
+check("zamknuty: poznamka PREDĹŽENÝ TP", (trade_cycle._runner_note(_T) or "").startswith("PREDĹŽENÝ TP"), True)
+check("obchod bez novych stlpcov (stary objekt) nespadne", trade_cycle._runner_note(object()), None)
 
 s.close()
 print("\nVYSLEDOK:", "OK" if ok else "CHYBA")

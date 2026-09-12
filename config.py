@@ -151,13 +151,27 @@ POSITION_MAX_HOURS = _float("POSITION_MAX_HOURS", 24)
 # LOCK_MAX_FRACTION x vzdialenost TP)), dalej sa posuva za cenou o
 # min(TRAIL_ATR x ATR, TRAIL_MAX_FRACTION x vzdialenost TP) a pozicia smie bezat
 # do MAX_HOURS od otvorenia. Kym TP nepadne, plati vsetko ako doteraz (24 h).
-# Backtest 12.9. (221 obchodov, s nakladmi): +454 $ vs +51 $ / 1000 $ notional,
-# crash 10.10.2025 v spravnom smere +159 R vs +67 R, v zlom bez zmeny. Plati
-# LEN pre pozicie otvorene po zapnuti; vypnutie = TP_RUNNER_ENABLED=false.
+# Plati LEN pre pozicie otvorene po zapnuti; vypnutie = TP_RUNNER_ENABLED=false.
+#
+# 2026-09-12 vecer - VARIANT D (pouzivatel: "potrebujem mat istotu TP na burze"):
+# predlzenie sa NEzapina pre kazdy obchod. Na burze je normalny TP; az ked je trh
+# V SMERE obchodu v akcnom rezime (rychly pohyb za FAST_MINUTES alebo DAY_PCT za
+# 24 h), monitor TP na burze odsunie a plati vyssie. Backtest (1-min data, 98
+# krypto obchodov): +315 $ vs V0 +232 $, chop ako V0; crash 10.10. s opatovnym
+# vstupom +327 R vs +206 R (bez neho +119 vs +68). Zamok 0.25 vzdialenosti TP
+# (test: lepsi nez 0.5 v trende aj v chope).
 TP_RUNNER_ENABLED = _bool("TP_RUNNER_ENABLED", "true")
 TP_RUNNER_MAX_HOURS = _float("TP_RUNNER_MAX_HOURS", 48)
 TP_RUNNER_LOCK_ATR = _float("TP_RUNNER_LOCK_ATR", 1.0)
-TP_RUNNER_LOCK_MAX_FRACTION = _float("TP_RUNNER_LOCK_MAX_FRACTION", 0.5)
+TP_RUNNER_LOCK_MAX_FRACTION = _float("TP_RUNNER_LOCK_MAX_FRACTION", 0.25)
+# Akcny rezim (spustac prepnutia): za FAST_MINUTES >= FAST_ATR x ATR a zaroven
+# >= FAST_MIN_PCT %, ALEBO za 24 h >= DAY_PCT % - vzdy v smere obchodu.
+TP_RUNNER_FAST_MINUTES = _int("TP_RUNNER_FAST_MINUTES", 15)
+TP_RUNNER_FAST_ATR = _float("TP_RUNNER_FAST_ATR", 2.0)
+TP_RUNNER_FAST_MIN_PCT = _float("TP_RUNNER_FAST_MIN_PCT", 1.5)
+TP_RUNNER_DAY_PCT = _float("TP_RUNNER_DAY_PCT", 8.0)
+# Po neuspesnom prepnuti (SL sa nepodarilo polozit) sa dalsi pokus robi az o tolkoto minut.
+TP_RUNNER_SWITCH_RETRY_MINUTES = _int("TP_RUNNER_SWITCH_RETRY_MINUTES", 10)
 TP_RUNNER_TRAIL_ATR = _float("TP_RUNNER_TRAIL_ATR", 2.0)
 TP_RUNNER_TRAIL_MAX_FRACTION = _float("TP_RUNNER_TRAIL_MAX_FRACTION", 1.0)
 # SL sa na burze posunie, az ked sa zlepsi aspon o tolkoto ATR - nie kazdu minutu

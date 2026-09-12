@@ -23,41 +23,25 @@ z hodinovych sviecok price_bars (otvaracia cena hodiny, ktora zacala pred 1-2 h,
 resp. 4-5 h - okno je o chvilu sirsie, alarm teda nie je slepy ani hned po
 nasadeni).
 """
-from collections import deque
 from datetime import datetime, timedelta, timezone
 
 import assets
 import config
 import discord_client
+import price_buffer
 import strike_client
 import trade_cycle
 from db import AlarmTrigger, PriceBar, Trade, get_session
 
-_BUFFER_MINUTES = 300
-_buffer: dict[str, deque] = {}
+# Minutove vzorky su v price_buffer.py (zdiela ich aj tp_runner) - tu len aliasy.
+_buffer = price_buffer._buffer
+record_price = price_buffer.record_price
+_price_at = price_buffer.price_at
 _atr_cache: dict[str, tuple] = {}
 
 
 def _naive(dt: datetime) -> datetime:
     return dt.astimezone(timezone.utc).replace(tzinfo=None) if dt.tzinfo else dt
-
-
-def record_price(symbol: str, now: datetime, price: float) -> None:
-    buf = _buffer.setdefault(symbol, deque(maxlen=_BUFFER_MINUTES + 30))
-    buf.append((now, price))
-
-
-def _price_at(symbol: str, target: datetime, tolerance_min: float = 5) -> float | None:
-    """Posledna minutova vzorka nie neskorsia nez `target` a nie starsia nez tolerancia."""
-    best = None
-    for t, p in _buffer.get(symbol, ()):
-        if t <= target:
-            best = (t, p)
-        else:
-            break
-    if best and (target - best[0]) <= timedelta(minutes=tolerance_min):
-        return best[1]
-    return None
 
 
 def _hour_start(now: datetime, hours_back: int) -> datetime:

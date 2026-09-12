@@ -1,20 +1,31 @@
 """PREDLZOVANY TP ("nechat vyhry bezat") - 2026-09-12, schvalene pouzivatelom v
 ramci strategie "chop prezit, v silnom trende/crashi naplno zarobit".
 
-ROZDIEL OPROTI DOTERAJSKU: skutocny TP nie je na burze. Na burze je SL a len
-HAVARIJNY TP (config.TP_RUNNER_EXCHANGE_TP_MULT x dalej) - vstup tak ide tym istym
-overenym bracket prikazom ako doteraz. Bot kazdu minutu (position_monitor) pozera
-mark cenu; ked dosiahne TP:
+VARIANT D (2026-09-12 vecer, pouzivatel: "potrebujem mat istotu TP na burze"):
+obchod sa otvara s NORMALNYM TP na burze (tp_mode = ARMED - "pripraveny").
+Kym trh nie je v akcnom rezime, obchod je uplne klasicky (TP aj SL na burze,
+vypadok bota nic nestoji). Monitor kazdu minutu pozera, ci je trh V SMERE
+obchodu v akcnom rezime:
+  - za TP_RUNNER_FAST_MINUTES >= FAST_ATR x ATR a zaroven >= FAST_MIN_PCT %
+    (rychly spustac - crash/vystrel), ALEBO
+  - za 24 h >= TP_RUNNER_DAY_PCT % (postupny silny trend).
+Ked ano, PREPNE (tp_mode = RUNNER): cancel_all + ten isty SL + HAVARIJNY TP
+(TP_RUNNER_EXCHANGE_TP_MULT x dalej). Rezim sa uz spat neprepina. Povodny
+variant A (predlzenie pre kazdy obchod, TP na burze nikdy) pouzivatel odmietol.
+
+V REZIME RUNNER: skutocny TP nie je na burze, len HAVARIJNY TP. Bot kazdu
+minutu (position_monitor) pozera mark cenu; ked dosiahne TP:
   1. pozicia sa NEZATVORI,
   2. SL na burze sa posunie na zamknuty zisk:
        TP - min(LOCK_ATR x ATR, LOCK_MAX_FRACTION x vzdialenost TP)
      (v crashi je ATR vacsi nez vzdialenost TP - bez druheho clena by zamok vysiel
-     pod vstup; tak je zisk VZDY aspon polovica cesty k TP),
+     pod vstup; tak je zisk VZDY aspon 3/4 cesty k TP),
   3. dalej sa SL posuva za najlepsou cenou o min(TRAIL_ATR x ATR, 1 x vzdialenost TP),
      na burze az ked sa zlepsi aspon o MIN_STEP_ATR x ATR,
   4. pozicia smie bezat do TP_RUNNER_MAX_HOURS od otvorenia (bez TP ostava 24 h).
 
-Backtest (12.9., 221 obchodov + crash 10.10.2025) viz pamat trend_mechanics_tested.
+Backtest (12.9., 1-min data, 98 krypto obchodov + crash 10.10.2025 s opatovnym
+vstupom) viz pamat trend_mechanics_tested.
 
 BEZPECNOST (na ziadost pouzivatela - burza obcas "straca" SL/TP nohy):
 - Posun SL ide cez cancel_all_orders + nove SL + havarijny TP (jediny nastroj,
@@ -24,6 +35,10 @@ BEZPECNOST (na ziadost pouzivatela - burza obcas "straca" SL/TP nohy):
 - Aktualny SL je v Trade.active_stop_price - oprava stratenych noh obnovi PRAVE
   jeho (zamknuty zisk), nie povodny SL.
 - Kazda udalost ide do tp_runner_events + Discord pri zamknuti.
+- PREPNUTIE: ked sa pri nom nepodari polozit SL, tp_exchange_price sa vrati na
+  None (obchod ostava ARMED) a oprava noh v tom istom tiku doplni SL aj
+  KLASICKY TP - pozicia nikdy neostane bez SL ani bez TP na burze. Dalsi pokus
+  o prepnutie az o TP_RUNNER_SWITCH_RETRY_MINUTES.
 
 NIKDY nevola burzu v testoch (strike_client._request ma zamok).
 """
@@ -31,10 +46,13 @@ from datetime import datetime, timedelta, timezone
 
 import config
 import discord_client
+import price_buffer
 import strike_client
-from db import CycleLog, TpRunnerEvent
+from db import CycleLog, PriceBar, TpRunnerEvent
 
-RUNNER = "runner"
+ARMED = "armed"     # normalny TP na burze, caka na akcny rezim
+RUNNER = "runner"   # akcny rezim - havarijny TP na burze, skutocny TP sleduje bot
+MANAGED_MODES = {ARMED, RUNNER}
 # Novy dovod zatvorenia - "nebol to klasicky TP, ale predlzovany".
 REASON_STOP = "tp_runner_stop"          # zamknuty/posunuty SL po zasahu TP
 REASON_TIMEOUT = "tp_runner_timeout"    # dobehol TP_RUNNER_MAX_HOURS
@@ -72,6 +90,43 @@ def lock_and_trail(direction: str, entry: float, tp: float, atr: float | None) -
     lock_off = min(config.TP_RUNNER_LOCK_ATR * a, config.TP_RUNNER_LOCK_MAX_FRACTION * dist)
     trail = min(config.TP_RUNNER_TRAIL_ATR * a, config.TP_RUNNER_TRAIL_MAX_FRACTION * dist)
     return tp - sg * lock_off, trail
+
+
+def regime_hit(direction: str, price: float, ref_fast: float | None, ref_day: float | None,
+               atr: float | None) -> str | None:
+    """Cista funkcia: je trh V SMERE obchodu v akcnom rezime? Vrati popis spustaca
+    (do logu/Discordu) alebo None. Pohyb proti smeru obchodu sa nepocita nikdy."""
+    if not price or price <= 0:
+        return None
+    sg = _sign(direction)
+    if ref_fast and atr and atr > 0:
+        pct = sg * (price / ref_fast - 1) * 100
+        in_atr = sg * (price - ref_fast) / atr
+        if in_atr >= config.TP_RUNNER_FAST_ATR and pct >= config.TP_RUNNER_FAST_MIN_PCT:
+            return (f"rychly pohyb {pct:+.2f} % ({in_atr:.1f} ATR) za "
+                    f"{config.TP_RUNNER_FAST_MINUTES} min")
+    if ref_day:
+        pct = sg * (price / ref_day - 1) * 100
+        if pct >= config.TP_RUNNER_DAY_PCT:
+            return f"pohyb {pct:+.1f} % za 24 h"
+    return None
+
+
+def _day_ref(session, symbol: str, now) -> float | None:
+    """Cena pred ~24 h: otvaracia cena hodinovej sviecky, ktora zacala 24 h pred
+    aktualnou hodinou (okno 24-25 h - pre spustac staci)."""
+    n = now.astimezone(timezone.utc).replace(tzinfo=None) if now.tzinfo else now
+    start = n.replace(minute=0, second=0, microsecond=0) - timedelta(hours=24)
+    row = session.query(PriceBar.open).filter(PriceBar.symbol == symbol, PriceBar.hour_start == start).first()
+    return float(row[0]) if row and row[0] else None
+
+
+def _recent_switch_fail(session, trade, now) -> bool:
+    n = now.astimezone(timezone.utc).replace(tzinfo=None) if now.tzinfo else now
+    since = n - timedelta(minutes=config.TP_RUNNER_SWITCH_RETRY_MINUTES)
+    return session.query(TpRunnerEvent.id).filter(
+        TpRunnerEvent.trade_id == trade.id, TpRunnerEvent.kind == "switch_fail",
+        TpRunnerEvent.at >= since).first() is not None
 
 
 def runner_close_reason(trade, reason: str | None) -> str | None:
@@ -135,7 +190,7 @@ def manage(trade, live: dict, mark_price: float | None, tick: float | None, sess
     tiku preskoci oprava noh (openOrders by este nemuseli ukazat prave polozene
     objednavky a spustila by sa falosna "oprava" s REPAIR notifikaciou)."""
     out = {"orders_changed": False, "closed": False}
-    if trade.tp_mode != RUNNER or trade.take_profit_price is None or mark_price is None:
+    if trade.tp_mode not in MANAGED_MODES or trade.take_profit_price is None or mark_price is None:
         return out
     sg = _sign(trade.direction)
     entry = trade.entry_fill_price or trade.entry_price
@@ -143,6 +198,9 @@ def manage(trade, live: dict, mark_price: float | None, tick: float | None, sess
     atr = _entry_atr(trade, session)
     lock_stop, trail = lock_and_trail(trade.direction, entry, tp, atr)
     live_size = abs(float(live["size"]))
+
+    if trade.tp_mode == ARMED:
+        return _maybe_switch(trade, live_size, mark_price, tick, atr, session, now, out)
 
     if trade.tp_locked_at is None:
         if not ((mark_price >= tp) if sg > 0 else (mark_price <= tp)):
@@ -180,6 +238,35 @@ def manage(trade, live: dict, mark_price: float | None, tick: float | None, sess
             return out
         trade.active_stop_price = cand
         log_event(session, trade, "trail", mark_price, cand, f"najlepsia cena {best}")
+    return out
+
+
+def _maybe_switch(trade, live_size, mark_price, tick, atr, session, now, out) -> dict:
+    """ARMED -> RUNNER, ked je trh v smere obchodu v akcnom rezime."""
+    ref_fast = price_buffer.price_at(trade.symbol, now - timedelta(minutes=config.TP_RUNNER_FAST_MINUTES),
+                                     tolerance_min=2)
+    why = regime_hit(trade.direction, mark_price, ref_fast, _day_ref(session, trade.symbol, now), atr)
+    if why is None or _recent_switch_fail(session, trade, now):
+        return out
+    entry = trade.entry_fill_price or trade.entry_price
+    stop = trade.active_stop_price if trade.active_stop_price is not None else trade.stop_loss_price
+    trade.tp_exchange_price = exchange_tp_price(trade.direction, entry, trade.take_profit_price, tick)
+    ok = _replace_stop(trade, live_size, stop)
+    if not ok:
+        # SL nie je na burze - vratit klasicky TP a nechat opravu noh v TOMTO
+        # tiku doplnit SL aj TP (orders_changed ostava False, oprava sa nepreskoci).
+        trade.tp_exchange_price = None
+        log_event(session, trade, "switch_fail", mark_price, stop,
+                  f"{why} - SL sa nepodarilo polozit, ostava klasicky TP (dalsi pokus o "
+                  f"{config.TP_RUNNER_SWITCH_RETRY_MINUTES} min)")
+        return out
+    out["orders_changed"] = True
+    trade.tp_mode = RUNNER
+    trade.active_stop_price = stop
+    log_event(session, trade, "regime", mark_price, stop,
+              f"akcny rezim: {why} - TP na burze odsunuty na {trade.tp_exchange_price}, "
+              f"pri TP {trade.take_profit_price} sa zisk zamkne")
+    discord_client.notify_tp_runner_regime(trade.symbol, trade.direction, why, trade.take_profit_price)
     return out
 
 

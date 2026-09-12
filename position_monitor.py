@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import assets
 import config
 import discord_client
+import price_buffer
 import risk_overrides
 import sl_grid_backtest
 import strike_client
@@ -1028,14 +1029,23 @@ def check_open_trades():
         # 2026-09-12 - predlzovany TP (tp_runner.py) potrebuje mark cenu a tick
         # tickera; jedno bulk volanie /v2/markets, len ked taky obchod existuje.
         # Zlyhanie = tento tik sa predlzovanie len preskoci (SL na burze plati dalej).
+        # Variant D: aj "pripravene" obchody (ARMED) - kontrola akcneho rezimu
+        # potrebuje mark cenu a minutove vzorky (price_buffer) pre rychly spustac.
         markets_by_symbol = {}
-        if any(t.tp_mode == tp_runner.RUNNER for t in open_trades):
+        now = datetime.now(timezone.utc)
+        if any(t.tp_mode in tp_runner.MANAGED_MODES for t in open_trades):
             try:
                 markets_by_symbol = {m.get("symbol"): m for m in strike_client.get_markets()}
             except Exception as e:
                 print(f"[position_monitor] /v2/markets pre predlzovany TP zlyhalo (skusim o minutu): {e}")
+            for t in open_trades:
+                try:
+                    p = float((markets_by_symbol.get(t.symbol) or {}).get("mark_price") or 0)
+                except (TypeError, ValueError):
+                    p = 0
+                if p > 0:
+                    price_buffer.record_price(t.symbol, now, p)
 
-        now = datetime.now(timezone.utc)
         for trade in open_trades:
             try:
                 # Bot drzi vzdy najviac 1 poziciu naraz (viz has_open_position v trade_cycle.py),
@@ -1064,7 +1074,7 @@ def check_open_trades():
                     trade.status = "closed_by_exchange"
                     trade.closed_at = now
                     _apply_exact_close(trade, "not_found_in_open_positions (TP/SL/liquidation)")
-                    if trade.tp_locked_at:
+                    if trade.tp_mode == tp_runner.RUNNER:
                         tp_runner.log_event(session, trade, "close", trade.close_fill_price,
                                             trade.active_stop_price, f"zatvorene burzou ({trade.close_reason})")
                     session.add(trade)
@@ -1096,7 +1106,7 @@ def check_open_trades():
                     trade.closed_at = now
                     _apply_exact_close(trade, tp_runner.REASON_TIMEOUT if trade.tp_locked_at
                                        else f"max_hold_{config.POSITION_MAX_HOURS}h_reached")
-                    if trade.tp_locked_at:
+                    if trade.tp_mode == tp_runner.RUNNER:
                         tp_runner.log_event(session, trade, "close", trade.close_fill_price,
                                             trade.active_stop_price, f"dobehol limit {max_h} h")
                     session.add(trade)
@@ -1111,7 +1121,7 @@ def check_open_trades():
                     # potom posuvanie SL (viz tp_runner.py). Chyba tu nesmie
                     # zastavit zvysok kontroly pozicie.
                     runner = {"orders_changed": False, "closed": False}
-                    if trade.tp_mode == tp_runner.RUNNER and markets_by_symbol:
+                    if trade.tp_mode in tp_runner.MANAGED_MODES and markets_by_symbol:
                         market = markets_by_symbol.get(trade.symbol) or {}
                         try:
                             mark = float(market["mark_price"]) if market.get("mark_price") else None

@@ -1403,26 +1403,41 @@ def _carry_forward_position_watch(session, open_trade: Trade) -> dict:
 
 
 def _setup_tp_runner(trade, sized: dict, market_meta: dict | None, ta: dict | None) -> float:
-    """2026-09-12 - PREDLZOVANY TP (viz tp_runner.py). Vrati TP, ktory ide NA
-    BURZU: pri zapnutom rezime havarijny (daleky) TP a obchod dostane tp_mode,
-    inak klasicky TP bez akejkolvek zmeny obchodu (tp_mode None)."""
+    """2026-09-12 - PREDLZOVANY TP, variant D (viz tp_runner.py). Vrati TP, ktory
+    ide NA BURZU - VZDY normalny TP (pouzivatel: "potrebujem mat istotu TP na
+    burze"). Pri zapnutom predlzovani obchod dostane tp_mode ARMED a ATR pri
+    vstupe; TP na burze odsunie az monitor, ked trh prejde do akcneho rezimu.
+    Pri vypnutom je obchod uplne klasicky (tp_mode None)."""
     if not config.TP_RUNNER_ENABLED:
         return sized["take_profit_price"]
-    try:
-        tick = float((market_meta or {}).get("order_tick_price") or 0) or None
-    except (TypeError, ValueError, AttributeError):
-        tick = None
-    exchange_tp = tp_runner.exchange_tp_price(sized["direction"], sized["entry_price"],
-                                             sized["take_profit_price"], tick)
-    trade.tp_mode = tp_runner.RUNNER
-    trade.tp_exchange_price = exchange_tp
-    trade.active_stop_price = sized["stop_loss_price"]
+    trade.tp_mode = tp_runner.ARMED
+    trade.tp_exchange_price = None
+    trade.active_stop_price = None
     try:
         atr = float((ta or {}).get("atr14") or 0)
         trade.entry_atr = atr if atr > 0 else None
     except (TypeError, ValueError):
         trade.entry_atr = None
-    return exchange_tp
+    return sized["take_profit_price"]
+
+
+def _runner_note(open_trade) -> str | None:
+    """Poznamka do promptu o predlzovanom TP (viz tp_runner.py). Po zasahu TP
+    Claude musi vediet, ze SL na burze uz nie je povodny, ale zamknuty zisk (inak
+    by hodnotil poziciu, ktora "prestrelila TP" a SL je daleko); v akcnom rezime
+    pred TP, ze sa pozicia na TP nezatvori. stop_loss_price zostava povodny -
+    pouziva ho mechanicka eskalacia pri STRATE. getattr - testy stavaju obchod
+    aj bez tychto stlpcov."""
+    if getattr(open_trade, "tp_locked_at", None):
+        return (f"PREDĹŽENÝ TP: take-profit {open_trade.take_profit_price} už bol dosiahnutý, pozícia sa "
+                f"zámerne nezatvorila a beží ďalej so zamknutým ziskom. SL na burze je teraz "
+                f"{open_trade.active_stop_price} (posúva sa za cenou, nikdy späť), pozícia smie bežať "
+                f"najneskôr do {open_trade.expires_at:%d.%m. %H:%M} UTC.")
+    if getattr(open_trade, "tp_mode", None) == tp_runner.RUNNER:
+        return (f"AKČNÝ REŽIM: trh sa prudko hýbe v smere pozície, preto sa na take-profite "
+                f"{open_trade.take_profit_price} pozícia nezatvorí - bot tam zamkne zisk a nechá ju "
+                f"bežať za cenou. SL na burze je stále {open_trade.active_stop_price}.")
+    return None
 
 
 def _alarm_note(alarm: dict | None) -> str | None:
@@ -1595,12 +1610,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         # burze uz nie je povodny, ale zamknuty zisk (inak by hodnotil pozíciu,
         # ktora "prestrelila TP" a SL je daleko). stop_loss_price zostava povodny -
         # pouziva ho mechanicka eskalacia pri STRATE, ktora tu nehrozi.
-        "runner_note": (
-            f"PREDĹŽENÝ TP: take-profit {open_trade.take_profit_price} už bol dosiahnutý, pozícia sa "
-            f"zámerne nezatvorila a beží ďalej so zamknutým ziskom. SL na burze je teraz "
-            f"{open_trade.active_stop_price} (posúva sa za cenou, nikdy späť), pozícia smie bežať "
-            f"najneskôr do {open_trade.expires_at:%d.%m. %H:%M} UTC."
-            if open_trade.tp_locked_at else None),
+        "runner_note": _runner_note(open_trade),
     }
 
     escalation = _mechanical_health_escalation(asset, ta, open_position, macro_event)
@@ -2601,10 +2611,9 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             entry_price_range=(ta or {}).get("price_range"),
         )
 
-        # 2026-09-12 - PREDLZOVANY TP (viz tp_runner.py): na burzu ide HAVARIJNY TP
-        # (desatnasobok vzdialenosti) v tom istom bracket prikaze ako doteraz;
-        # skutocny TP (take_profit_price) sleduje position_monitor. Obchody
-        # otvorene pred zapnutim/po vypnuti idu klasicky (tp_mode None).
+        # 2026-09-12 - PREDLZOVANY TP, variant D (viz tp_runner.py): na burzu ide
+        # normalny TP; obchod je len "pripraveny" (tp_mode ARMED) a TP odsunie
+        # position_monitor az v akcnom rezime. Po vypnuti klasicky (tp_mode None).
         exchange_tp = _setup_tp_runner(trade, sized, market_meta, ta)
 
         if config.DRY_RUN:
