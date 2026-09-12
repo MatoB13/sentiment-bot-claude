@@ -1015,6 +1015,35 @@ class CoinMarketCalEvent(Base):
     fetched_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
+class BinanceOiBar(Base):
+    """5-min open interest + cena z Binance USDT-M futures (2026-09-12, na ziadost
+    pouzivatela) - vstup pre likvidacnu heatmapu na dashboarde (liq_heatmap.py).
+    DO ROZHODOVANIA BOTA NEVSTUPUJE - test 12.9. nenasiel predikcnu hodnotu.
+    Binance dava OI historiu len ~30 dni dozadu, preto sa uklada sama: po case
+    tu bude dlhsia historia, na ktorej sa to da otestovat poriadne."""
+    __tablename__ = "binance_oi_bars"
+
+    symbol = Column(String, primary_key=True)          # nas strike_symbol
+    t = Column(DateTime, primary_key=True)             # zaciatok 5-min periody (UTC)
+    oi = Column(Float, nullable=False)                 # v base-asset jednotkach
+    o = Column(Float, nullable=False)
+    h = Column(Float, nullable=False)
+    l = Column(Float, nullable=False)
+    c = Column(Float, nullable=False)
+
+
+class LiqHeatmap(Base):
+    """Posledna vypocitana likvidacna heatmapa pre ticker (JSON pre dashboard) +
+    stav posledneho behu - zapisuje sa VZDY, aj pri zlyhani."""
+    __tablename__ = "liq_heatmaps"
+
+    symbol = Column(String, primary_key=True)
+    computed_at = Column(DateTime, nullable=False)
+    ok = Column(Boolean, nullable=False)
+    error = Column(String, nullable=True)
+    payload = Column(JSON, nullable=True)
+
+
 class CoinMarketCalSlugStatus(Base):
     """Je slug tickera stale v bezplatnom plane CoinMarketCal? (2026-09-11, na
     ziadost pouzivatela). Neexistujuci alebo nepokryty slug vracia HTTP 200 a

@@ -10,6 +10,7 @@ import config
 import funding_tracker
 import heartbeat_check
 import deribit_options_poller
+import liq_heatmap
 import long_short_poller
 import position_monitor
 import price_poller
@@ -175,6 +176,14 @@ def main():
                        hours=1,
                        next_run_time=now + timedelta(minutes=5),
                        id="deribit_options_poller")
+    # Kazdych 15 min (2026-09-12, na ziadost pouzivatela) - likvidacna heatmapa
+    # pre dashboard z Binance 5-min OI (viz liq_heatmap.py). LEN ZOBRAZENIE, do
+    # rozhodovania nevstupuje (test 12.9. bez predikcnej hodnoty). Prvy beh po
+    # nasadeni stiahne ~29 dni (asi 115 verejnych GET-ov), potom len nove bary.
+    scheduler.add_job(liq_heatmap.poll_all, "interval",
+                       minutes=15,
+                       next_run_time=now + timedelta(minutes=6),
+                       id="liq_heatmap")
     # 2026-09-06 - next_run_time bolo +24h, takze prvy beh nastal az DEN po
     # starte procesu. Kazdy Railway redeploy proces restartuje a odpocet zacal
     # odznova - pri viacerych nasadeniach denne sa job nespustil NIKDY. Realny

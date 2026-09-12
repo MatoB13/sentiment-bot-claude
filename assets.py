@@ -137,6 +137,9 @@ ADA = {
     # spolahliveho symbolu hlada aj podla nazvu v titulku (regex, bez ohladu
     # na velkost pismen); prazdny vysledok nic nestoji.
     "alpaca_news_symbols": ["ADAUSD"],
+    # Likvidacna heatmapa na dashboarde (liq_heatmap.py, 2026-09-12) - LEN
+    # zobrazenie, do rozhodovania nevstupuje. Binance USDT-M perpetual.
+    "binance_liq_symbol": "ADAUSDT",
     "news_keywords": [r"\bcardano\b", r"\$ADA\b"],
     # 2026-09-05: Marketaux pre tento ticker nevracia nic (7 dni: 0-4 %),
     # takze sken rozhodoval len z TA. Zdielane trhove titulky to doplnaju -
@@ -249,6 +252,9 @@ NIGHT = {
     # spolahliveho symbolu hlada aj podla nazvu v titulku (regex, bez ohladu
     # na velkost pismen); prazdny vysledok nic nestoji.
     "alpaca_news_symbols": ["NIGHTUSD"],
+    # Likvidacna heatmapa na dashboarde (liq_heatmap.py, 2026-09-12) - LEN
+    # zobrazenie, do rozhodovania nevstupuje. Binance USDT-M perpetual.
+    "binance_liq_symbol": "NIGHTUSDT",
     # NIKDY hole "midnight" - bezne anglicke slovo (rovnaky dovod ako v
     # social_sentiment.py); len spojenia, ktore znamenaju projekt.
     "news_keywords": [r"\bmidnight (network|token|blockchain|protocol|foundation|mainnet)\b",
@@ -289,6 +295,9 @@ BTC = {
     "marketaux_query": {"symbols": "BTCUSD"},
     # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py
     "alpaca_news_symbols": ["BTCUSD"],
+    # Likvidacna heatmapa na dashboarde (liq_heatmap.py, 2026-09-12) - LEN
+    # zobrazenie, do rozhodovania nevstupuje. Binance USDT-M perpetual.
+    "binance_liq_symbol": "BTCUSDT",
     # Nazvy pre vyber z celych feedov (Benzinga aj krypto RSS), 2026-09-11 -
     # viz news_match.py.
     "news_keywords": [r"\bbitcoin\b", r"\$BTC\b"],
@@ -335,6 +344,9 @@ HYPE = {
     # spolahliveho symbolu hlada aj podla nazvu v titulku (regex, bez ohladu
     # na velkost pismen); prazdny vysledok nic nestoji.
     "alpaca_news_symbols": ["HYPEUSD"],
+    # Likvidacna heatmapa na dashboarde (liq_heatmap.py, 2026-09-12) - LEN
+    # zobrazenie, do rozhodovania nevstupuje. Binance USDT-M perpetual.
+    "binance_liq_symbol": "HYPEUSDT",
     # NIKDY hole "hype" - bezne anglicke slovo.
     "news_keywords": [r"\bhyperliquid\b", r"\$HYPE\b"],
     "effort": config.HYPE_EFFORT,
@@ -541,6 +553,9 @@ ZEC = {
     "marketaux_query": {"search": "Zcash"},
     # Benzinga cez Alpaca (sken) - viz alpaca_news_client.py
     "alpaca_news_symbols": ["ZECUSD"],
+    # Likvidacna heatmapa na dashboarde (liq_heatmap.py, 2026-09-12) - LEN
+    # zobrazenie, do rozhodovania nevstupuje. Binance USDT-M perpetual.
+    "binance_liq_symbol": "ZECUSDT",
     # Nazvy pre vyber z celych feedov (Benzinga aj krypto RSS), 2026-09-11 -
     # viz news_match.py.
     "news_keywords": [r"\bzcash\b", r"\$ZEC\b"],
