@@ -288,6 +288,9 @@ def format_stats_for_prompt(stats: dict) -> str:
                 reason_note = " - SL, teda MAXIMALNA definovana strata na tomto obchode, nie nahodny bod"
             elif o.get("close_reason") == "take_profit":
                 reason_note = " - TP, teda maximalny definovany zisk na tomto obchode"
+            elif (o.get("close_reason") or "").startswith("tp_runner"):
+                # 2026-09-12 - predlzovany TP: TP bol dosiahnuty a pozicia bezala dalej
+                reason_note = " - predlzeny TP: TP dosiahnuty, pozicia bezala dalej so zamknutym ziskom"
             lines.append(
                 f"  ({o['direction']}, conf {o['confidence']}: {pct:+.0f}% z risknutej marze{reason_note})"
             )

@@ -133,6 +133,59 @@ class Trade(Base):
     # a teda by sa z fade obchodov nemali ako poucit.
     entry_price_range = Column(JSON, nullable=True)
 
+    # 2026-09-12 - PREDLZOVANY TP (viz tp_runner.py, config.TP_RUNNER_*).
+    # tp_mode="runner" = na burze je len HAVARIJNY TP (tp_exchange_price, daleko),
+    # skutocny take_profit_price sleduje bot. Po jeho zasahu tp_locked_at != NULL
+    # a SL na burze drzi active_stop_price (zamknuty zisk, dalej sa posuva).
+    # active_stop_price pouziva AJ oprava stratenych noh (_check_and_reheal_
+    # bracket_legs) - keby burza SL po zamknuti "stratila", obnovi sa zamknuta
+    # uroven, nie povodny SL. stop_loss_price ostava povodny (riziko obchodu v R).
+    tp_mode = Column(String, nullable=True)
+    tp_exchange_price = Column(Float, nullable=True)
+    tp_locked_at = Column(DateTime, nullable=True)
+    active_stop_price = Column(Float, nullable=True)
+    trail_best_price = Column(Float, nullable=True)
+    entry_atr = Column(Float, nullable=True)
+
+
+class TpRunnerEvent(Base):
+    """Dennik predlzovaneho TP (2026-09-12, na ziadost pouzivatela: "vsetky tieto
+    aktivity ked prebehnu, chcem vediet, ze k nim doslo"). kind: lock (TP
+    dosiahnuty, zisk zamknuty) / trail (SL posunuty za cenou) / lock_missed (cena
+    sa od TP vratila skor, nez bot stihol zamknut - zatvorene trhovo) / repair_fail
+    (posun SL na burze zlyhal) / close (pozicia v predlzovanom rezime zatvorena)."""
+    __tablename__ = "tp_runner_events"
+
+    id = Column(Integer, primary_key=True)
+    trade_id = Column(Integer, nullable=False, index=True)
+    symbol = Column(String, nullable=False)
+    at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    kind = Column(String, nullable=False)
+    price = Column(Float, nullable=True)        # cena v case udalosti
+    stop_price = Column(Float, nullable=True)   # novy SL na burze
+    note = Column(String, nullable=True)
+
+
+class AlarmTrigger(Base):
+    """Dennik alarmov na extremny pohyb (2026-09-12, viz extreme_alarm.py).
+    Zapisuje sa PRED spustenim cyklu (poistka proti platenej slucke - cooldown
+    sa pocita odtialto, prezije aj restart). dispatched=False = alarm by vystrelil,
+    ale zastavil ho strop/prebiehajuci beh (note hovori preco)."""
+    __tablename__ = "alarm_triggers"
+
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False, index=True)
+    triggered_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    direction = Column(String, nullable=False)   # up / down
+    price = Column(Float, nullable=True)
+    move_1h_atr = Column(Float, nullable=True)
+    move_4h_atr = Column(Float, nullable=True)
+    move_1h_pct = Column(Float, nullable=True)
+    move_4h_pct = Column(Float, nullable=True)
+    atr14 = Column(Float, nullable=True)
+    dispatched = Column(Boolean, default=True)
+    note = Column(String, nullable=True)
+
 
 class CycleLog(Base):
     """Zaznam KAZDEHO analytickeho cyklu - aj tych, kde sa neotvorila pozicia

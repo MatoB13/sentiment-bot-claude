@@ -1588,6 +1588,12 @@ _CLOSE_REASON_PROMPT_LABELS = {
     # tak vobec neriesila TO, co sa realne stalo (vlastne predcasne rozhodnutie
     # zatvorit), len vseobecnu SL-timing otazku.
     "ai_early_close": "TY SÁM si túto pozíciu predčasne zatvoril (vysoká istota consider_closing)",
+    # 2026-09-12 - predlzovany TP (tp_runner.py): pozicia TP dosiahla, NEZATVORILA
+    # sa a bezala dalej so zamknutym ziskom.
+    "tp_runner_stop": "predĺžený TP - TP dosiahnutý, pozícia bežala ďalej a zavrel ju posunutý (zamknutý) SL",
+    "tp_runner_timeout": "predĺžený TP - TP dosiahnutý, pozícia bežala ďalej až do max. doby držania",
+    "tp_runner_far_tp": "predĺžený TP - TP dosiahnutý, pozícia bežala ďalej až po vzdialený havarijný TP",
+    "tp_runner_emergency_close": "predĺžený TP - po dosiahnutí TP zatvorené trhovo (SL sa nepodarilo posunúť)",
 }
 
 
@@ -1632,7 +1638,8 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                         close_verdict: dict | None = None,
                         coinmarketcal_events: list[dict] | None = None,
                         recent_trades_context: list[dict] | None = None,
-                        portfolio_exposure: list[dict] | None = None) -> str:
+                        portfolio_exposure: list[dict] | None = None,
+                        alarm_note: str | None = None) -> str:
     instrument = asset["name"]
     social_block = "\n".join(
         f"- ({p.get('likes')}♥/{p.get('retweets')}rt) {p.get('text')}"
@@ -2166,6 +2173,20 @@ vyhodnotením.
 
 """
 
+    # 2026-09-12 - ALARM NA EXTREMNY POHYB (extreme_alarm.py). Zamerne vyvazene:
+    # pri extremoch cena castejsie pokracovala (test 12.9.), ale nie vzdy - aj
+    # likvidacna kaskada, ktora sa vrati, vyzera v prvej minute rovnako.
+    if alarm_note:
+        macro_event_block += f"""## Mimoriadny cyklus: extrémny pohyb ceny
+{alarm_note}
+Systém ťa zobudil mimo plánu, lebo pohyb je výrazne nad bežnou volatilitou. Nie je to signál na vstup
+ani na čakanie - posúď rovnako otvorene obe možnosti: začiatok silného pohybu (správa, udalosť,
+kaskáda, ktorá pokračuje) aj špičku/likvidačnú kaskádu, ktorá sa vráti. Cez web_search zisti PRÍČINU
+(dotaz s názvom nástroja a dnešným dátumom). Ak vstupuješ, rozhoduj na aktuálnej cene, nie na tej
+pred pohybom.
+
+"""
+
     if open_position:
         op = open_position
         direction_label = "LONG" if (op["direction"] or "").lower() == "long" else "SHORT"
@@ -2210,7 +2231,7 @@ vyhodnotením.
         position_block = f"""## OTVORENÁ POZÍCIA (toto NIE JE rozhodnutie o novom obchode - hodnotíš EXISTUJÚCU pozíciu)
 Smer: {direction_label} | Vstup: {op['entry_price']} | Aktuálna cena: {op['live_price']}
 Stop-loss: {op['stop_loss_price']} | Take-profit: {op['take_profit_price']} | Leverage: {op['leverage']}x
-Otvorená: {op['opened_at_str']} ({op['hours_held']:.1f}h dozadu)
+{(op['runner_note'] + chr(10)) if op.get('runner_note') else ''}Otvorená: {op['opened_at_str']} ({op['hours_held']:.1f}h dozadu)
 Nerealizované PnL: {sign}${op['unrealized_pnl_usd']:.2f} ({sign}{op['unrealized_pnl_pct']:.2f}% z marže)
 {best_price_line}{cooldown_bypass_line}
 Zhodnoť, či pôvodné kľúčové predpoklady (vyššie) stále platia, alebo sa niečo podstatné zmenilo -
@@ -2508,7 +2529,8 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
             watch_retrigger_streak: dict | None = None,
             watch_set_context: dict | None = None,
             recent_trades_context: list[dict] | None = None,
-            portfolio_exposure: list[dict] | None = None) -> tuple[dict, list[dict], dict]:
+            portfolio_exposure: list[dict] | None = None,
+            alarm_note: str | None = None) -> tuple[dict, list[dict], dict]:
     """Vrati (decision, web_search_log, usage). web_search_log je zoznam
     {"query": str, "sources": [{"title", "url", "page_age"}]} pre kazde
     vyhladavanie, ktore Claude spravil - sluzi na audit (co realne citas,
@@ -2543,7 +2565,8 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
                                       close_verdict=close_verdict,
                                       coinmarketcal_events=coinmarketcal_events,
                                       recent_trades_context=recent_trades_context,
-                                      portfolio_exposure=portfolio_exposure)
+                                      portfolio_exposure=portfolio_exposure,
+                                      alarm_note=alarm_note)
     decision, web_search_log, usage = _call_claude(asset, system_blocks, user_prompt,
                                                      DECISION_TOOL, "submit_trade_decision")
     try:

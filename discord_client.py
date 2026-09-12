@@ -119,7 +119,55 @@ _CLOSE_REASON_LABELS = {
     "liquidation": "Likvidacia",
     "force_closed_by_bot": "Timeout (max. doba drzania)",
     "ai_early_close": "AI predcasne zatvorenie (vysoka istota)",
+    # 2026-09-12 - predlzovany TP (viz tp_runner.py)
+    "tp_runner_stop": "PREDLZENY TP - posunuty SL po zasahu TP",
+    "tp_runner_timeout": "PREDLZENY TP - max. doba drzania",
+    "tp_runner_far_tp": "PREDLZENY TP - havarijny TP na burze",
+    "tp_runner_emergency_close": "PREDLZENY TP - nudzove zatvorenie (SL sa nepodarilo polozit)",
 }
+
+
+def notify_tp_runner_locked(symbol: str, direction: str, tp: float, new_stop: float, expires_at) -> bool:
+    """2026-09-12 (na ziadost pouzivatela) - pozicia dosiahla TP, ale NEZATVORILA
+    sa (predlzovany TP): zisk je zamknuty SL-kom a pozicia bezi dalej. Bez
+    @everyone - je to dobra sprava, nie anomalia."""
+    if not config.DISCORD_WEBHOOK_URL:
+        return False
+    headline = f"TP+ {_short_ticker(symbol)} - TP dosiahnuty, pozicia bezi dalej"
+    payload = {
+        "content": headline,
+        "embeds": [{
+            "title": headline,
+            "description": ("Namiesto zatvorenia na TP bot zamkol zisk posunutim SL a necha "
+                            "poziciu bezat za cenou (predlzovany TP)."),
+            "color": _PNL_COLOR["win"],
+            "fields": [
+                {"name": "Smer", "value": str(direction), "inline": True},
+                {"name": "TP (dosiahnuty)", "value": str(tp), "inline": True},
+                {"name": "Zamknuty SL", "value": str(new_stop), "inline": True},
+                {"name": "Najneskor do", "value": f"{expires_at:%d.%m. %H:%M} UTC", "inline": True},
+            ],
+        }]
+    }
+    return _post_webhook(payload, "Notifikacia o predlzenom TP")
+
+
+def notify_extreme_alarm(symbol: str, direction: str, move_1h_atr: float | None,
+                         move_4h_atr: float | None, move_4h_pct: float | None) -> bool:
+    """2026-09-12 - alarm na extremny pohyb spustil mimoriadny cyklus (viz
+    extreme_alarm.py). Bez @everyone - obchod z toho moze a nemusi byt."""
+    if not config.DISCORD_WEBHOOK_URL:
+        return False
+    arrow = "nahor" if direction == "up" else "nadol"
+    headline = f"ALARM {_short_ticker(symbol)} - extremny pohyb {arrow}, spustam cyklus"
+    fields = []
+    if move_1h_atr is not None:
+        fields.append({"name": "Za 1 h", "value": f"{move_1h_atr:+.1f} ATR", "inline": True})
+    if move_4h_atr is not None:
+        fields.append({"name": "Za 4 h", "value": f"{move_4h_atr:+.1f} ATR"
+                       + (f" ({move_4h_pct:+.1f} %)" if move_4h_pct is not None else ""), "inline": True})
+    payload = {"content": headline, "embeds": [{"title": headline, "color": 15105570, "fields": fields}]}
+    return _post_webhook(payload, "Notifikacia o alarme")
 
 
 def notify_trade_closed(symbol: str, closed_trade: dict) -> bool:

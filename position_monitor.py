@@ -8,6 +8,7 @@ import discord_client
 import risk_overrides
 import sl_grid_backtest
 import strike_client
+import tp_runner
 import trade_cycle
 import watch_monitor
 from db import (AtrCalibration, CycleLog, SlTpBacktestCandidate, Trade,
@@ -37,7 +38,7 @@ _CLOSE_REASON_BY_TYPE = {"stop": "stop_loss", "take_profit_limit": "take_profit"
 # okamziteho re-entry) je takto vyriesenej - bot moze znova vstupit len pri
 # najblizsom BEZNOM cykle, nikdy ako priama reakcia na stop-out.
 _TRIGGER_REVIEW_REASONS = {"take_profit", "force_closed_by_bot", "manual_kill_switch",
-                            "stop_loss", "liquidation", "ai_early_close"}
+                            "stop_loss", "liquidation", "ai_early_close"} | tp_runner.RUNNER_REASONS
 
 # Podmnozina vyssie - tieto dovody spustaju review LEN na vyhodnotenie (viz
 # _build_closed_trade_context nizsie, ktora tento flag vlozi do closed_trade
@@ -64,7 +65,10 @@ _EVALUATION_ONLY_CLOSE_REASONS = {"stop_loss", "liquidation", "ai_early_close"}
 # vyvolal sam, netreba mu to pripominat). Nezavisle od _TRIGGER_REVIEW_REASONS
 # vyssie - iny ucel, iny filter (SL/likvidacia tu SU zahrnute, hoci review ich
 # vedome vynechava).
-_NOTIFY_CLOSE_REASONS = {"take_profit", "stop_loss", "liquidation", "force_closed_by_bot", "ai_early_close"}
+# 2026-09-12 - + dovody predlzovaneho TP (tp_runner.RUNNER_REASONS): ziskovy
+# vystup ako TP, review aj notifikacia ako pri TP (nie "len vyhodnotenie").
+_NOTIFY_CLOSE_REASONS = {"take_profit", "stop_loss", "liquidation", "force_closed_by_bot",
+                         "ai_early_close"} | tp_runner.RUNNER_REASONS
 
 # Kolko minut NAVYSE po POSITION_MAX_HOURS sa cakalo pred SL/TP grid-search
 # prepoctom (2026-08-19, na ziadost pouzivatela) - vid _check_and_queue_recompute
@@ -367,7 +371,9 @@ def _apply_exact_close(trade: Trade, fallback_close_reason: str) -> None:
         # LEN v pripade, ze ani TP ani SL nezodpoveda vacsine zatvoreneho
         # objemu (viz jej komentar o ZEC "dust" naleze) - takze tu uz VZDY
         # bez podmienky pouzijeme, co vratila.
-        trade.close_reason = exact["close_reason"]
+        # 2026-09-12 - obchod v predlzovanom TP rezime dostane vlastny dovod
+        # (tp_runner_stop/...), aby nebol zamenitelny s klasickym TP/SL.
+        trade.close_reason = tp_runner.runner_close_reason(trade, exact["close_reason"])
         trade.entry_fill_price = exact["entry_fill_price"]
         trade.close_fill_price = exact["close_fill_price"]
         trade.fees_usd = exact["fees_usd"]
@@ -879,19 +885,26 @@ def _check_and_reheal_bracket_legs(trade: Trade, live: dict) -> None:
         return
 
     close_side = "sell" if trade.direction == "Long" else "buy"
+    # 2026-09-12 - predlzovany TP (tp_runner.py): na burze je HAVARIJNY TP
+    # (tp_exchange_price), nie skutocny - obnovit treba ten, inak by oprava
+    # vratila na burzu klasicky TP a predlzovanie by ticho zrusila. A SL je po
+    # zasahu TP zamknuty zisk (active_stop_price) - pri silnom trende by obnova
+    # povodneho SL mohla stat cely zisk (upozornenie pouzivatela 12.9.).
+    tp_price = trade.tp_exchange_price or trade.take_profit_price
+    sl_price = trade.active_stop_price if trade.active_stop_price is not None else trade.stop_loss_price
 
-    if trade.take_profit_price:
+    if tp_price:
         try:
-            strike_client.place_take_profit_order(trade.symbol, close_side, live_size, trade.take_profit_price)
-            discord_client.notify_bracket_leg_restored(trade.symbol, "TP", trade.take_profit_price)
+            strike_client.place_take_profit_order(trade.symbol, close_side, live_size, tp_price)
+            discord_client.notify_bracket_leg_restored(trade.symbol, "TP", tp_price)
         except Exception as e:
             print(f"[position_monitor] Trade {trade.id} [{trade.symbol}]: obnovenie TP zlyhalo "
                   f"(skusim znova o {config.WATCH_INTERVAL_MINUTES} min): {e}")
 
-    if trade.stop_loss_price:
+    if sl_price:
         try:
-            strike_client.place_stop_order(trade.symbol, close_side, live_size, trade.stop_loss_price)
-            discord_client.notify_bracket_leg_restored(trade.symbol, "SL", trade.stop_loss_price)
+            strike_client.place_stop_order(trade.symbol, close_side, live_size, sl_price)
+            discord_client.notify_bracket_leg_restored(trade.symbol, "SL", sl_price)
         except Exception as e:
             print(f"[position_monitor] Trade {trade.id} [{trade.symbol}]: obnovenie SL zlyhalo "
                   f"(skusim znova o {config.WATCH_INTERVAL_MINUTES} min): {e}")
@@ -1012,6 +1025,16 @@ def check_open_trades():
             return
         live_by_symbol = {p.get("symbol"): p for p in live_positions}
 
+        # 2026-09-12 - predlzovany TP (tp_runner.py) potrebuje mark cenu a tick
+        # tickera; jedno bulk volanie /v2/markets, len ked taky obchod existuje.
+        # Zlyhanie = tento tik sa predlzovanie len preskoci (SL na burze plati dalej).
+        markets_by_symbol = {}
+        if any(t.tp_mode == tp_runner.RUNNER for t in open_trades):
+            try:
+                markets_by_symbol = {m.get("symbol"): m for m in strike_client.get_markets()}
+            except Exception as e:
+                print(f"[position_monitor] /v2/markets pre predlzovany TP zlyhalo (skusim o minutu): {e}")
+
         now = datetime.now(timezone.utc)
         for trade in open_trades:
             try:
@@ -1041,6 +1064,9 @@ def check_open_trades():
                     trade.status = "closed_by_exchange"
                     trade.closed_at = now
                     _apply_exact_close(trade, "not_found_in_open_positions (TP/SL/liquidation)")
+                    if trade.tp_locked_at:
+                        tp_runner.log_event(session, trade, "close", trade.close_fill_price,
+                                            trade.active_stop_price, f"zatvorene burzou ({trade.close_reason})")
                     session.add(trade)
                     _check_and_queue_review(trade, session, pending_reviews)
                     _check_and_queue_close_notification(trade, pending_notifications)
@@ -1056,7 +1082,8 @@ def check_open_trades():
                     expires_at = expires_at.replace(tzinfo=timezone.utc)
 
                 if now >= expires_at:
-                    print(f"[position_monitor] Trade {trade.id} presiahol {config.POSITION_MAX_HOURS}h, zatvaram.")
+                    max_h = config.TP_RUNNER_MAX_HOURS if trade.tp_locked_at else config.POSITION_MAX_HOURS
+                    print(f"[position_monitor] Trade {trade.id} presiahol {max_h}h, zatvaram.")
                     try:
                         strike_client.cancel_all_orders(trade.symbol)  # zrusi visiace TP/SL objednavky
                         # abs() - viz komentar pri _check_and_reheal_bracket_legs (Strike "size"
@@ -1067,7 +1094,11 @@ def check_open_trades():
                         continue
                     trade.status = "closed_by_timeout"
                     trade.closed_at = now
-                    _apply_exact_close(trade, f"max_hold_{config.POSITION_MAX_HOURS}h_reached")
+                    _apply_exact_close(trade, tp_runner.REASON_TIMEOUT if trade.tp_locked_at
+                                       else f"max_hold_{config.POSITION_MAX_HOURS}h_reached")
+                    if trade.tp_locked_at:
+                        tp_runner.log_event(session, trade, "close", trade.close_fill_price,
+                                            trade.active_stop_price, f"dobehol limit {max_h} h")
                     session.add(trade)
                     _check_and_queue_review(trade, session, pending_reviews)
                     _check_and_queue_close_notification(trade, pending_notifications)
@@ -1076,10 +1107,35 @@ def check_open_trades():
                 else:
                     print(f"[position_monitor] Trade {trade.id} stale otvoreny "
                           f"(expiruje {expires_at.isoformat()}).")
+                    # 2026-09-12 - predlzovany TP: zasah TP -> zamknutie zisku,
+                    # potom posuvanie SL (viz tp_runner.py). Chyba tu nesmie
+                    # zastavit zvysok kontroly pozicie.
+                    runner = {"orders_changed": False, "closed": False}
+                    if trade.tp_mode == tp_runner.RUNNER and markets_by_symbol:
+                        market = markets_by_symbol.get(trade.symbol) or {}
+                        try:
+                            mark = float(market["mark_price"]) if market.get("mark_price") else None
+                            tick = float(market["order_tick_price"]) if market.get("order_tick_price") else None
+                            runner = tp_runner.manage(trade, live, mark, tick, session, now)
+                        except Exception as e:
+                            print(f"[position_monitor] Trade {trade.id} [{trade.symbol}]: predlzovany TP "
+                                  f"zlyhal (SL na burze plati dalej, skusim o minutu): {e}")
+                    if runner["closed"]:
+                        _apply_exact_close(trade, trade.close_reason or tp_runner.REASON_EMERGENCY)
+                        session.add(trade)
+                        _check_and_queue_review(trade, session, pending_reviews)
+                        _check_and_queue_close_notification(trade, pending_notifications)
+                        _check_and_queue_recompute(trade)
+                        watch_monitor.mark_hot(trade.symbol)
+                        continue
+                    session.add(trade)
                     if not _maybe_sweep_dust_position(trade, live, now, session,
                                                        pending_reviews, pending_notifications,
                                                        pending_recompute):
-                        _check_and_reheal_bracket_legs(trade, live)
+                        # Ked predlzovany TP v tomto tiku prave prekreslil objednavky,
+                        # openOrders by ich este nemuseli ukazat - oprava by bola falosna.
+                        if not runner["orders_changed"]:
+                            _check_and_reheal_bracket_legs(trade, live)
             except Exception as e:
                 # 2026-08-16 stress-test nalez: bez tejto izolacie by neocakavana
                 # vynimka pri SPRACOVANI JEDNEHO obchodu (napr. nezvycajny tvar

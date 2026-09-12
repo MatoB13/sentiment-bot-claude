@@ -56,6 +56,11 @@ def main() -> int:
             print(f"  ZLYHAL {name:<28} {took:5.1f}s")
             tail = [ln for ln in (r.stdout + r.stderr).splitlines()
                     if "CHYBA" in ln or "Error" in ln or "assert" in ln.lower()]
+            # Bez zachyteneho riadku (napr. natívny pad procesu bez tracebacku)
+            # aspon navratovy kod a koniec vystupu - inak nie je co hladat.
+            if not tail:
+                print(f"         navratovy kod {r.returncode}")
+                tail = (r.stdout + r.stderr).splitlines()
             for ln in tail[-4:]:
                 print(f"         {ln.strip()[:110]}")
 

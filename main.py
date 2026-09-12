@@ -10,6 +10,7 @@ import config
 import funding_tracker
 import heartbeat_check
 import deribit_options_poller
+import extreme_alarm
 import liq_heatmap
 import long_short_poller
 import position_monitor
@@ -120,6 +121,14 @@ def main():
                        minutes=config.WATCH_INTERVAL_MINUTES,
                        next_run_time=now + timedelta(minutes=config.WATCH_INTERVAL_MINUTES),
                        id="watch_monitor")
+    # 2026-09-12 (schvalene pouzivatelom) - alarm na EXTREMNY pohyb (viz
+    # extreme_alarm.py): okamzity plny cyklus bez ohladu na plan/watch. Lacny tik
+    # (1 GET /v2/markets + DB), platene je len samotne spustenie - to ma cooldown
+    # a globalny hodinovy strop. EXTREME_ALARM_ENABLED=false = vypnute.
+    scheduler.add_job(extreme_alarm.check_extreme_moves, "interval",
+                       minutes=config.WATCH_INTERVAL_MINUTES,
+                       next_run_time=now + timedelta(minutes=config.WATCH_INTERVAL_MINUTES),
+                       id="extreme_alarm")
     # "Hot watch" (2026-08-16, viz watch_monitor.mark_hot docstring) - beh kazdu
     # POST_CLOSE_HOT_WATCH_SECONDS, ale skoro vzdy je NOOP (ziaden "hot" symbol =
     # okamzity return bez DB/API volania). Aktivuje sa len na kratke okno hned po

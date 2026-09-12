@@ -144,6 +144,49 @@ WATCH_INTERVAL_MINUTES = _float("WATCH_INTERVAL_MINUTES", 1)
 POST_CLOSE_HOT_WATCH_SECONDS = _int("POST_CLOSE_HOT_WATCH_SECONDS", 10)
 POST_CLOSE_HOT_WATCH_MINUTES = _float("POST_CLOSE_HOT_WATCH_MINUTES", 5)
 POSITION_MAX_HOURS = _float("POSITION_MAX_HOURS", 24)
+
+# 2026-09-12 (schvalene pouzivatelom, strategia "chop prezit, trend naplno") -
+# PREDLZOVANY TP ("nechat vyhry bezat"), viz tp_runner.py. Na TP sa pozicia
+# NEZATVORI: SL sa posunie na zamknuty zisk (TP - min(LOCK_ATR x ATR,
+# LOCK_MAX_FRACTION x vzdialenost TP)), dalej sa posuva za cenou o
+# min(TRAIL_ATR x ATR, TRAIL_MAX_FRACTION x vzdialenost TP) a pozicia smie bezat
+# do MAX_HOURS od otvorenia. Kym TP nepadne, plati vsetko ako doteraz (24 h).
+# Backtest 12.9. (221 obchodov, s nakladmi): +454 $ vs +51 $ / 1000 $ notional,
+# crash 10.10.2025 v spravnom smere +159 R vs +67 R, v zlom bez zmeny. Plati
+# LEN pre pozicie otvorene po zapnuti; vypnutie = TP_RUNNER_ENABLED=false.
+TP_RUNNER_ENABLED = _bool("TP_RUNNER_ENABLED", "true")
+TP_RUNNER_MAX_HOURS = _float("TP_RUNNER_MAX_HOURS", 48)
+TP_RUNNER_LOCK_ATR = _float("TP_RUNNER_LOCK_ATR", 1.0)
+TP_RUNNER_LOCK_MAX_FRACTION = _float("TP_RUNNER_LOCK_MAX_FRACTION", 0.5)
+TP_RUNNER_TRAIL_ATR = _float("TP_RUNNER_TRAIL_ATR", 2.0)
+TP_RUNNER_TRAIL_MAX_FRACTION = _float("TP_RUNNER_TRAIL_MAX_FRACTION", 1.0)
+# SL sa na burze posunie, az ked sa zlepsi aspon o tolkoto ATR - nie kazdu minutu
+# (menej zasahov do objednavok = mensia sanca, ze burza nieco "strati").
+TP_RUNNER_MIN_STEP_ATR = _float("TP_RUNNER_MIN_STEP_ATR", 0.25)
+# Na burze ostava HAVARIJNY TP tolkokrat dalej nez skutocny TP - vstup ide tym
+# istym overenym bracket prikazom (SL+TP) ako doteraz, a keby bot pri silnom
+# pohybe nebezal, zisk ma aspon strop. Skutocny TP sleduje bot sam.
+TP_RUNNER_EXCHANGE_TP_MULT = _float("TP_RUNNER_EXCHANGE_TP_MULT", 10.0)
+
+# 2026-09-12 (schvalene pouzivatelom) - ALARM NA EXTREMNY POHYB, viz
+# extreme_alarm.py. Bez ohladu na plan a watch spusti okamzity plny cyklus, ked
+# sa cena pohne o >= 1H_ATR x ATR14(1h) za hodinu alebo >= 4H_ATR x ATR za 4 h.
+# Test 12.9. (1 rok krypto + 2 roky akcie): pri tychto extremoch cena pokracovala
+# v 54-63 % pripadov (+1 az +2.7 ATR do 24 h); pri beznych spickach (3 ATR) nie.
+# Rozhoduje stale Claude. Cooldown na ticker a globalny hodinovy strop su
+# poistka proti platenej slucke (kazdy alarm = platene Claude volanie).
+EXTREME_ALARM_ENABLED = _bool("EXTREME_ALARM_ENABLED", "true")
+EXTREME_ALARM_1H_ATR = _float("EXTREME_ALARM_1H_ATR", 4.0)
+EXTREME_ALARM_4H_ATR = _float("EXTREME_ALARM_4H_ATR", 7.0)
+# A ZAROVEN aspon tolko percent - akcie na Strike obchoduju nonstop, v noci sa
+# takmer nehybu, takze hodinovy ATR je maly a bezny otvaraci pohyb burzy (1:00
+# UTC Azia, 13:00 UTC USA) by vyzeral ako extrem. Namerane na Strike (6 tyzdnov):
+# samotne 4/7 ATR = 12 alarmov/tyzden, vacsina pri otvoreni burz; s minimom
+# 3 %/1 h alebo 5 %/4 h = 6/tyzden, median pohybu akcie ~5 %.
+EXTREME_ALARM_MIN_1H_PCT = _float("EXTREME_ALARM_MIN_1H_PCT", 3.0)
+EXTREME_ALARM_MIN_4H_PCT = _float("EXTREME_ALARM_MIN_4H_PCT", 5.0)
+EXTREME_ALARM_COOLDOWN_HOURS = _float("EXTREME_ALARM_COOLDOWN_HOURS", 12)
+EXTREME_ALARM_MAX_PER_HOUR = _int("EXTREME_ALARM_MAX_PER_HOUR", 10)
 # Bezpecnostna poistka pri zhluku makro udalosti (viz macro_calendar.py +
 # watch_monitor._check_macro_events) - max. kolko mimoriadnych "vsetky assety"
 # behov sa spusti za poslednu hodinu. "Pauza po poslednom" netreba samostatnu

@@ -32,6 +32,7 @@ import risk_manager
 import risk_overrides
 import social_sentiment
 import strike_client
+import tp_runner
 from db import (AssetConfigLive, CycleLog, DailyRetrospective, FlaggedMacroEvent,
                  PriceBar, RollingRetrospective, Trade, get_session)
 
@@ -1401,7 +1402,45 @@ def _carry_forward_position_watch(session, open_trade: Trade) -> dict:
     }
 
 
-def _trigger_source(macro_event=None, watch_triggered=False, closed_trade=None) -> str:
+def _setup_tp_runner(trade, sized: dict, market_meta: dict | None, ta: dict | None) -> float:
+    """2026-09-12 - PREDLZOVANY TP (viz tp_runner.py). Vrati TP, ktory ide NA
+    BURZU: pri zapnutom rezime havarijny (daleky) TP a obchod dostane tp_mode,
+    inak klasicky TP bez akejkolvek zmeny obchodu (tp_mode None)."""
+    if not config.TP_RUNNER_ENABLED:
+        return sized["take_profit_price"]
+    try:
+        tick = float((market_meta or {}).get("order_tick_price") or 0) or None
+    except (TypeError, ValueError, AttributeError):
+        tick = None
+    exchange_tp = tp_runner.exchange_tp_price(sized["direction"], sized["entry_price"],
+                                             sized["take_profit_price"], tick)
+    trade.tp_mode = tp_runner.RUNNER
+    trade.tp_exchange_price = exchange_tp
+    trade.active_stop_price = sized["stop_loss_price"]
+    try:
+        atr = float((ta or {}).get("atr14") or 0)
+        trade.entry_atr = atr if atr > 0 else None
+    except (TypeError, ValueError):
+        trade.entry_atr = None
+    return exchange_tp
+
+
+def _alarm_note(alarm: dict | None) -> str | None:
+    """Popis extremneho pohybu pre prompt (viz extreme_alarm.py)."""
+    if not alarm:
+        return None
+    arrow = "NAHOR" if alarm.get("direction") == "up" else "NADOL"
+    parts = []
+    if alarm.get("move_1h_atr") is not None:
+        parts.append(f"za ~1 h {alarm['move_1h_atr']:+.1f} ATR(1h)"
+                     + (f" ({alarm['move_1h_pct']:+.1f} %)" if alarm.get("move_1h_pct") is not None else ""))
+    if alarm.get("move_4h_atr") is not None:
+        parts.append(f"za ~4 h {alarm['move_4h_atr']:+.1f} ATR"
+                     + (f" ({alarm['move_4h_pct']:+.1f} %)" if alarm.get("move_4h_pct") is not None else ""))
+    return f"Cena sa pohla {arrow}: {', '.join(parts)}. Aktuálna cena pri alarme: {alarm.get('price')}."
+
+
+def _trigger_source(macro_event=None, watch_triggered=False, closed_trade=None, alarm=None) -> str:
     """CO tento cyklus vyvolalo - zapisuje sa do CycleLog.trigger_source
     (2026-09-03, na ziadost pouzivatela; viz db.py pre definiciu hodnot).
     Hodnota "fast_health" (minutovy health poller, 31.8.-4.9.) uz nevznika -
@@ -1415,6 +1454,9 @@ def _trigger_source(macro_event=None, watch_triggered=False, closed_trade=None) 
         return "macro"
     if closed_trade:
         return "post_close"
+    if alarm:
+        # 2026-09-12 - alarm na extremny pohyb (extreme_alarm.py)
+        return "alarm"
     if watch_triggered:
         return "watch"
     return "scheduled"
@@ -1549,6 +1591,16 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         "unrealized_pnl_pct": pnl_pct * 100,
         "best_price_since_open": best_price_since_open,
         "best_price_hours_ago": best_price_hours_ago,
+        # 2026-09-12 - predlzovany TP: po zasahu TP Claude musi vediet, ze SL na
+        # burze uz nie je povodny, ale zamknuty zisk (inak by hodnotil pozíciu,
+        # ktora "prestrelila TP" a SL je daleko). stop_loss_price zostava povodny -
+        # pouziva ho mechanicka eskalacia pri STRATE, ktora tu nehrozi.
+        "runner_note": (
+            f"PREDĹŽENÝ TP: take-profit {open_trade.take_profit_price} už bol dosiahnutý, pozícia sa "
+            f"zámerne nezatvorila a beží ďalej so zamknutým ziskom. SL na burze je teraz "
+            f"{open_trade.active_stop_price} (posúva sa za cenou, nikdy späť), pozícia smie bežať "
+            f"najneskôr do {open_trade.expires_at:%d.%m. %H:%M} UTC."
+            if open_trade.tp_locked_at else None),
     }
 
     escalation = _mechanical_health_escalation(asset, ta, open_position, macro_event)
@@ -1925,7 +1977,8 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                          skip_due_check: bool = False,
                          closed_trade: dict | None = None,
                          macro_event: str | None = None,
-                         watch_triggered: bool = False) -> None:
+                         watch_triggered: bool = False,
+                         alarm: dict | None = None) -> None:
     """Kompletny cyklus pre JEDEN asset - vlastna DB session/commit, aby chyba
     v jednom assete neponechala nedokoncenu transakciu pre dalsi.
 
@@ -1987,7 +2040,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 symbol=symbol,
                 config_snapshot=_config_snapshot(asset),
                 outcome="skipped_concurrent_cycle",
-                trigger_source=_trigger_source(macro_event, watch_triggered, closed_trade),
+                trigger_source=_trigger_source(macro_event, watch_triggered, closed_trade, alarm),
                 reject_reason="iny beh pre tento symbol uz prebieha",
             ))
             skip_session.commit()
@@ -2049,7 +2102,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 symbol=symbol,
                 config_snapshot=_config_snapshot(asset),
                 outcome="error", reject_reason=f"market_data_fetch_failed: {e}",
-                trigger_source=_trigger_source(macro_event, watch_triggered, closed_trade),
+                trigger_source=_trigger_source(macro_event, watch_triggered, closed_trade, alarm),
             ))
             session.commit()
             return
@@ -2176,7 +2229,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
         triage_payload = None
         if (config.TRIAGE_MODE in ("shadow", "active")
                 and not closed_trade and not macro_event and not watch_triggered
-                and new_stats_text is None):
+                and not alarm and new_stats_text is None):
             hours_since_full = None
             try:
                 hours_since_full = _hours_since_full_cycle(
@@ -2268,7 +2321,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                         config_snapshot=_config_snapshot(asset),
                         direction="none", outcome=_TRIAGE_SKIP_OUTCOME,
                         trigger_source=_trigger_source(macro_event, watch_triggered,
-                                                        closed_trade),
+                                                        closed_trade, alarm),
                         reasoning=triage_payload.get("reason"),
                         data_issue=triage_payload.get("data_issue"),
                         # Watch zo skenu MUSI ist do DB - je to jediny sposob, ako
@@ -2307,6 +2360,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 watch_set_context=watch_set_context,
                 recent_trades_context=recent_trades_context,
                 portfolio_exposure=portfolio_exposure,
+                alarm_note=_alarm_note(alarm),
             )
         except Exception as e:
             print(f"[{name}] Claude analyza zlyhala, preskakujem cyklus: {e}")
@@ -2315,7 +2369,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 session_data=market_session,
                 config_snapshot=_config_snapshot(asset),
                 outcome="error", reject_reason=str(e),
-                trigger_source=_trigger_source(macro_event, watch_triggered, closed_trade),
+                trigger_source=_trigger_source(macro_event, watch_triggered, closed_trade, alarm),
                 triage=triage_payload,
                 **_source_usage_fields(asset, marketaux_news, social, coinmarketcal_events),
             ))
@@ -2369,7 +2423,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             session_data=market_session,
             config_snapshot=_config_snapshot(asset),
             direction=decision.get("direction"), confidence=decision.get("confidence"),
-            trigger_source=_trigger_source(macro_event, watch_triggered, closed_trade),
+            trigger_source=_trigger_source(macro_event, watch_triggered, closed_trade, alarm),
             stop_loss_price=decision.get("stop_loss_price"), take_profit_price=decision.get("take_profit_price"),
             reasoning=decision.get("reasoning"),
             web_search_log=web_search_log,
@@ -2547,6 +2601,12 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             entry_price_range=(ta or {}).get("price_range"),
         )
 
+        # 2026-09-12 - PREDLZOVANY TP (viz tp_runner.py): na burzu ide HAVARIJNY TP
+        # (desatnasobok vzdialenosti) v tom istom bracket prikaze ako doteraz;
+        # skutocny TP (take_profit_price) sleduje position_monitor. Obchody
+        # otvorene pred zapnutim/po vypnuti idu klasicky (tp_mode None).
+        exchange_tp = _setup_tp_runner(trade, sized, market_meta, ta)
+
         if config.DRY_RUN:
             print(f"[{name}] DRY_RUN=true - obchod sa NEODOSLAL na Strike, iba zalogovany do DB.")
         else:
@@ -2556,7 +2616,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                     size=sized["size"],
                     leverage=sized["leverage"],
                     stop_loss_price=sized["stop_loss_price"],
-                    take_profit_price=sized["take_profit_price"],
+                    take_profit_price=exchange_tp,
                     symbol=symbol,
                 )
             except Exception as e:
@@ -2665,7 +2725,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                     config_snapshot=_config_snapshot(asset),
                     outcome="error",
                     trigger_source=_trigger_source(macro_event, watch_triggered,
-                                                    closed_trade),
+                                                    closed_trade, alarm),
                     reject_reason=(
                         # Pri MalformedDecision je stop_reason to NAJDOLEZITEJSIE:
                         # "max_tokens" = odpoved bola orezana a povinne polia sa
@@ -2696,7 +2756,8 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
 
 
 def run_triggered_check(asset: dict, closed_trade: dict | None = None,
-                         macro_event: str | None = None, watch_triggered: bool = False) -> None:
+                         macro_event: str | None = None, watch_triggered: bool = False,
+                         alarm: dict | None = None) -> None:
     """Mimoriadny cyklus LEN pre jeden asset, mimo bezneho zdielaneho hodinoveho
     tiku - vola ho watch_monitor.py (watch_price/watch_direction podmienka
     splnena ALEBO macro_event - viz nizsie) alebo position_monitor.py
@@ -2717,6 +2778,8 @@ def run_triggered_check(asset: dict, closed_trade: dict | None = None,
         trigger_label = "post-close review (len vyhodnotenie)"
     elif closed_trade:
         trigger_label = "post-close review"
+    elif alarm:
+        trigger_label = f"ALARM extremny pohyb {alarm.get('direction')}"
     else:
         trigger_label = "watch trigger"
     print(f"[trade_cycle] [{name}] mimoriadny beh ({trigger_label})")
@@ -2742,7 +2805,7 @@ def run_triggered_check(asset: dict, closed_trade: dict | None = None,
 
     run_cycle_for_asset(asset, cross_market, market_session, btc_proxy, fred_macro,
                          skip_due_check=True, closed_trade=closed_trade, macro_event=macro_event,
-                         watch_triggered=watch_triggered)
+                         watch_triggered=watch_triggered, alarm=alarm)
 
 
 # Symboly s momentalne beziacim mimoriadnym (background-thread) behom - viz
