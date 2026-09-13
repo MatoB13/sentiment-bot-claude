@@ -38,8 +38,19 @@ _CLOSE_REASON_BY_TYPE = {"stop": "stop_loss", "take_profit_limit": "take_profit"
 # promptovou instrukciou. Povodny dovod vylucenia SL (revenge-trading riziko
 # okamziteho re-entry) je takto vyriesenej - bot moze znova vstupit len pri
 # najblizsom BEZNOM cykle, nikdy ako priama reakcia na stop-out.
-_TRIGGER_REVIEW_REASONS = {"take_profit", "force_closed_by_bot", "manual_kill_switch",
-                            "stop_loss", "liquidation", "ai_early_close"} | tp_runner.RUNNER_REASONS
+#
+# 2026-09-13 (schvalene pouzivatelom) - okamzity review po SL/likvidacii/AI
+# zatvoreni ZRUSENY. Namerane od 15.8.: 93 reviewov za $18.85, watch z nich sa
+# spustil 34x, k obchodu viedol 5x (-144.60 $, win 20 %, -3.4 R; od 4.9. ani
+# raz). Poucenie nesie ODLOZENY VERDIKT (trade_cycle._pending_close_verdict,
+# 4-36 h po zatvoreni v beznom cykle, bez platby navyse) - dostal ho kazdy SL/AI
+# obchod od 4.9.; okamzita reflexia 2 min po zatvoreni bola aj tak skreslena
+# ("dobre timeovane"). Rychly navrat pri crashi/vystrele zabezpecuje alarm na
+# extremy (extreme_alarm.py). Review po TP / timeoute / predlzenom TP OSTAVA -
+# z neho sa da hned vstupit v rovnakom aj opacnom smere (pri crashi s
+# opatovnym vstupom klucovy). Hot-watch po zatvoreni (mark_hot) bezi dalej.
+_TRIGGER_REVIEW_REASONS = {"take_profit", "force_closed_by_bot",
+                            "manual_kill_switch"} | tp_runner.RUNNER_REASONS
 
 # Podmnozina vyssie - tieto dovody spustaju review LEN na vyhodnotenie (viz
 # _build_closed_trade_context nizsie, ktora tento flag vlozi do closed_trade
@@ -47,6 +58,9 @@ _TRIGGER_REVIEW_REASONS = {"take_profit", "force_closed_by_bot", "manual_kill_sw
 # trade_cycle._maybe_ai_early_close) je tu z rovnakeho dovodu ako SL/likvidacia -
 # vyhne sa impulzivnemu okamzitemu re-entry priamo po tom, co bot sam proaktivne
 # usudil, ze povodna teza je vyvratena.
+# 2026-09-13: tieto dovody uz review NESPUSTAJU (viz vyssie) - mnozina ostava ako
+# poistka: keby sa niekedy vratili do _TRIGGER_REVIEW_REASONS, cyklus z nich
+# stale nesmie otvorit poziciu.
 _EVALUATION_ONLY_CLOSE_REASONS = {"stop_loss", "liquidation", "ai_early_close"}
 
 # 2026-09-04 (bod 5 auditu, schvalene pouzivatelom): minutovy HEALTH-CHECK dispatch
