@@ -2635,7 +2635,7 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
               f"output_tokens={usage.get('output_tokens')} "
               f"prisle kluce={sorted(decision.keys())}")
         raise MalformedDecision(str(e), usage=usage, web_search_log=web_search_log,
-                                 present_keys=sorted(decision.keys())) from e
+                                 present_keys=sorted(decision.keys()), decision=decision) from e
     # ta["last_price"] je cena, s ktorou Claude v tomto cykle pracoval
     _drop_already_met_watch(decision, (ta or {}).get("last_price"), f" [{asset['name']}]")
     return decision, web_search_log, usage
@@ -2692,7 +2692,17 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                                       benzinga_since=benzinga_since)
     decision, web_search_log, usage = _call_claude(asset, system_blocks, user_prompt,
                                                      POSITION_HEALTH_TOOL, "submit_position_health_check")
-    _validate_health_decision(decision)
+    try:
+        _validate_health_decision(decision)
+    except ValueError as e:
+        # 2026-09-14 - ten isty kontext ako v analyze(): zaplatene tokeny, stop_reason,
+        # prisle kluce a neuplna odpoved (viz MalformedDecision).
+        print(f"[claude_analyst] [{asset['name']}] NEPOUZITELNY health check: {e} | "
+              f"stop_reason={usage.get('stop_reason')} "
+              f"output_tokens={usage.get('output_tokens')} "
+              f"prisle kluce={sorted(decision.keys())}")
+        raise MalformedDecision(str(e), usage=usage, web_search_log=web_search_log,
+                                 present_keys=sorted(decision.keys()), decision=decision) from e
     _drop_already_met_watch(decision, (open_position or {}).get("live_price"),
                              f" [{asset['name']} health]")
     return decision, web_search_log, usage
@@ -3185,11 +3195,14 @@ class MalformedDecision(ValueError):
     3 za 17 dni. `stop_reason == "max_tokens"` to pri dalsom vyskyte potvrdi
     alebo vyvrati bez hadania."""
 
-    def __init__(self, message, usage=None, web_search_log=None, present_keys=None):
+    def __init__(self, message, usage=None, web_search_log=None, present_keys=None, decision=None):
         super().__init__(message)
         self.usage = usage
         self.web_search_log = web_search_log
         self.present_keys = present_keys or []
+        # 2026-09-14 (WTI - chybal len `direction`) - neuplne rozhodnutie, aby sa
+        # dala ulozit aspon uvaha. Bez nej sa nedalo zistit, preco smer chybal.
+        self.decision = decision or {}
 
 
 def _validate_decision(decision: dict) -> None:

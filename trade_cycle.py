@@ -372,6 +372,42 @@ def _source_usage_fields(asset: dict, marketaux_news, social, coinmarketcal_even
     }
 
 
+def _failed_analysis_fields(exc: Exception) -> dict:
+    """CycleLog polia pre ZAPLATENU, ale zahodenu analyzu (claude_analyst.MalformedDecision).
+
+    2026-09-14 (WTI 16:17 - Claude vynechal len `direction`): tato vetva doteraz
+    zapisala iba text chyby. Za tokeny sme zaplatili (~0.25 $), no cyklus vyzeral
+    ako bezplatny a nebolo vidno ani stop_reason, ani uvahu - preco smer chybal,
+    sa tak zistit nedalo. Pri inych chybach (429, siet) exc usage nenesie -> {}.
+    Uvaha ide do `reasoning` s oznacenim ZAHODENE; key_assumptions sa ZAMERNE
+    neukladaju - z neuplneho rozhodnutia ich nesmie prebrat dalsi cyklus."""
+    usage = getattr(exc, "usage", None)
+    if not usage:
+        return {}
+    out = {
+        "usage_input_tokens": usage.get("input_tokens"),
+        "usage_cache_write_tokens": usage.get("cache_write_tokens"),
+        "usage_cache_write_1h_tokens": usage.get("cache_write_1h_tokens"),
+        "usage_cache_read_tokens": usage.get("cache_read_tokens"),
+        "usage_output_tokens": usage.get("output_tokens"),
+        "effort": usage.get("effort"),
+        "web_search_log": getattr(exc, "web_search_log", None),
+    }
+    text = (getattr(exc, "decision", None) or {}).get("reasoning")
+    if isinstance(text, str) and text.strip():
+        out["reasoning"] = "[ZAHODENE - neuplne rozhodnutie] " + text.strip()
+    return out
+
+
+def _failed_analysis_reason(exc: Exception, prefix: str = "") -> str:
+    """Text chyby + stop_reason a kluce, ktore v odpovedi naozaj prisli."""
+    msg = f"{prefix}{exc}"
+    usage = getattr(exc, "usage", None)
+    if usage is not None and hasattr(exc, "present_keys"):
+        msg += f" [stop_reason={usage.get('stop_reason')}, prisle kluce={exc.present_keys}]"
+    return msg[:2000]
+
+
 def _config_snapshot(asset: dict) -> dict:
     """Aktualne aktivne trading/risk nastavenia pre dany asset - uklada sa s
     kazdym cyklom, aby dashboard vzdy zobrazoval presne to, s cim bot naozaj
@@ -1500,11 +1536,12 @@ def _last_full_look_at(symbol: str, session) -> datetime | None:
 
     Riadky lacneho skenu (outcome=triage_skip) sa NErataju - inak by sken sam
     seba udrziaval "cerstvym" a plny cyklus by uz nikdy nemusel prist. Mechanicka
-    kontrola pozicie tokeny nema, takze sa nerata tiez."""
+    kontrola pozicie tokeny nema, takze sa nerata tiez. Zahodena analyza
+    (outcome=error, od 14.9. s ulozenym usage) tiez nie - jej zavery sa nepouzili."""
     log = (
         session.query(CycleLog.created_at)
         .filter(CycleLog.symbol == symbol,
-                CycleLog.outcome != _TRIAGE_SKIP_OUTCOME,
+                CycleLog.outcome.notin_([_TRIAGE_SKIP_OUTCOME, "error"]),
                 CycleLog.usage_output_tokens.isnot(None),
                 CycleLog.usage_output_tokens > 0)
         .order_by(CycleLog.created_at.desc())
@@ -1884,10 +1921,12 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         session.add(CycleLog(
             symbol=symbol, live_price=live_price, ta=ta, cross_market=cross_market,
             session_data=market_session, config_snapshot=_config_snapshot(asset),
-            outcome="error", reject_reason=f"health_check_failed: {e}", trade_id=open_trade.id,
+            outcome="error", reject_reason=_failed_analysis_reason(e, "health_check_failed: "),
+            trade_id=open_trade.id,
             trigger_source=_trigger_source(macro_event, watch_triggered),
             benzinga_news=benzinga_status,
             **_source_usage_fields(asset, marketaux_news, social, coinmarketcal_events),
+            **_failed_analysis_fields(e),
         ))
         session.commit()
         return
@@ -2430,11 +2469,12 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 symbol=symbol, live_price=live_price, ta=ta, cross_market=cross_market,
                 session_data=market_session,
                 config_snapshot=_config_snapshot(asset),
-                outcome="error", reject_reason=str(e),
+                outcome="error", reject_reason=_failed_analysis_reason(e),
                 trigger_source=_trigger_source(macro_event, watch_triggered, closed_trade, alarm),
                 triage=triage_payload,
                 benzinga_news=full_benzinga_status,
                 **_source_usage_fields(asset, marketaux_news, social, coinmarketcal_events),
+                **_failed_analysis_fields(e),
             ))
             session.commit()
             return
