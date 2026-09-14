@@ -186,6 +186,41 @@ check("long v akcnom rezime, cena lepsia -> SL 98.5 + HAVARIJNY TP 140 (nie 104)
       [(c[0], c[1][3] if len(c[1]) > 3 else None) for c in calls],
       [("cancel_all_orders", None), ("place_stop_order", 98.5), ("place_take_profit_order", 140.0)])
 
+print("\n4b) Rucne zatvorenie (kill-switch) pocas cakania - otazka pouzivatela")
+t16 = mk(16, "F16-USD"); ai_close.start_pending(t16, 95.78, 60, s, NOW); s.commit()
+t16.manual_close_requested_at = NOWN + timedelta(minutes=10); s.commit()
+calls.clear()
+r = ai_close.resolve(t16, LIVE, 96.5, 0.01, s, NOW + timedelta(minutes=15)); s.commit()
+check("ziadost o rucne zatvorenie: AI nic nezatvara ani nemeni", (names(), r, t16.status),
+      ([], {"closed": False, "orders_changed": False}, "open"))
+check("  cakanie zrusene, dennik to zapise", (t16.ai_close_pending_at, ev(16)[-1]), (None, "ai_close"))
+t17 = mk(17, "F17-USD", manual_close_requested_at=NOWN)
+check("nove AI odporucanie pri cakajucom rucnom zatvoreni: preskocene (a volajuci nezatvara)",
+      (ai_close.start_pending(t17, 95.0, 70, s, NOW), t17.ai_close_pending_at), (True, None))
+import watch_monitor  # noqa: E402
+for t in s.query(Trade).filter(Trade.status == "open").all():
+    t.status = "archiv"
+s.commit()
+t18 = mk(18, "G18-USD"); ai_close.start_pending(t18, 95.78, 60, s, NOW - timedelta(minutes=20))
+t18.manual_close_requested_at = NOWN; s.commit()
+state["positions"] = [{"symbol": "G18-USD", "size": -5}]
+state["markets"] = [{"symbol": "G18-USD", "mark_price": "96.5", "order_tick_price": "0.01"}]
+calls.clear()
+pm.check_open_trades()                 # minutovy tik monitora (AI potvrdenie by bolo na rade)
+s2 = get_session()
+watch_monitor._check_manual_close_requests(s2)   # kill-switch v tej istej minute
+s2.close()
+s.expire_all()
+t18 = s.get(Trade, 18)
+check("cely tik: zatvori kill-switch s dovodom manual_kill_switch (nie AI)",
+      (t18.status, t18.close_reason), ("closed_by_user", "manual_kill_switch"))
+check("  na burzu islo JEDNO zatvorenie", names().count("close_position_market"), 1)
+state["positions"] = []
+pm.check_open_trades()
+s.expire_all()
+check("  dalsi tik: ziadna slucka, obchod ostava zatvoreny rucne", (s.get(Trade, 18).status, s.get(Trade, 18).close_reason),
+      ("closed_by_user", "manual_kill_switch"))
+
 print("\n5) Dovod zatvorenia, oprava noh, predlzeny TP")
 check("ochranny SL zasiahnuty -> ai_protect_stop", ai_close.close_reason(t9, "stop_loss"), "ai_protect_stop")
 check("REGRESIA bez ochrany -> stop_loss", ai_close.close_reason(mk(14, "D14-USD"), "stop_loss"), "stop_loss")

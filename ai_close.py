@@ -49,6 +49,10 @@ def start_pending(trade, price: float | None, conf, session, now) -> bool:
     """Volane z trade_cycle._maybe_ai_early_close. True = zatvorenie odlozene
     (volajuci nezatvara); False = potvrdenie vypnute alebo chyba cena
     (volajuci zatvori hned ako predtym)."""
+    if getattr(trade, "manual_close_requested_at", None) is not None:
+        # Rucne zatvorenie uz caka na kill-switch (watch_monitor) - AI nic nerobi.
+        print(f"[ai_close] Trade {trade.id}: ziadost o rucne zatvorenie uz existuje - AI zatvorenie preskakujem.")
+        return True
     if config.AI_CLOSE_CONFIRM_MINUTES <= 0 or not price or price <= 0:
         return False
     if trade.ai_close_pending_at is not None:
@@ -107,6 +111,15 @@ def resolve(trade, live: dict, mark_price: float | None, tick: float | None, ses
     zatvorenim. Vrati {"closed": bool, "orders_changed": bool}."""
     out = {"closed": False, "orders_changed": False}
     if trade.ai_close_pending_at is None:
+        return out
+    # 2026-09-14 (otazka pouzivatela) - RUCNE ZATVORENIE MA PREDNOST. Ked medzitym
+    # prisla ziadost z dashboardu (kill-switch), AI potvrdenie sa zrusi a zatvorenie
+    # necha na watch_monitor - inak by v tej istej minute zavrelo AI a obchod by
+    # dostal dovod ai_early_close namiesto manual_kill_switch.
+    if getattr(trade, "manual_close_requested_at", None) is not None:
+        trade.ai_close_pending_at = None
+        tp_runner.log_event(session, trade, "ai_close", trade.ai_close_pending_price, None,
+                            "AI potvrdenie zrusene - pouzivatel poziciu zatvara rucne")
         return out
     pending_at = _aware(trade.ai_close_pending_at)
     due = pending_at + timedelta(minutes=config.AI_CLOSE_CONFIRM_MINUTES)
