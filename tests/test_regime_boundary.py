@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 os.environ["DATABASE_URL"] = "sqlite:///" + os.environ["TEMP"].replace("\\", "/") + "/rb.db"
 sys.path.insert(0, _ROOT)
 
+import config  # noqa: E402
 import trade_cycle  # noqa: E402
 
 ok = True
@@ -63,19 +64,20 @@ print()
 print("=" * 96)
 print("3) JADRO CHYBY - 'zmeskany' bod spred zmeny intervalu sa neuzna")
 print("=" * 96)
-# ADA-like: slot 3, offset (3-1)*65 = 130
-#   off-hours 4h: 130 mod 240 = 130 -> 02:10, 06:10, 10:10
-#   trading   2h: 130 mod 120 =  10 -> 00:10, 02:10 ... 08:10, 10:10
+# ADA-like: slot 3 pri 20 slotoch (14.9.), offset (3-1)*63 = 126
+#   off-hours 4h: 126 mod 240 = 126 -> 02:06, 06:06, 10:06
+#   trading   2h: 126 mod 120 =   6 -> 00:06, 02:06 ... 08:06, 10:06
+check("mriezka 20 slotov (krok 63 min)", (config.RUN_SLOT_COUNT, config.RUN_SLOT_WIDTH_MINUTES), (20, 3.0))
 now = WED.replace(hour=10, minute=1)
 due = trade_cycle._slot_due_point(now, 2.0, 3, 0)
 print(f"  o {now:%H:%M} pri 2h mriezke je posledny bod {due:%H:%M}")
-check("je to 08:10 (bod, ktory pocas off-hours neexistoval)", due.strftime("%H:%M"), "08:10")
+check("je to 08:06 (bod, ktory pocas off-hours neexistoval)", due.strftime("%H:%M"), "08:06")
 rs = trade_cycle._interval_regime_start(A, now)
-check("rezim zacal az 10:00, takze 08:10 sa NEUZNA", due < rs, True)
+check("rezim zacal az 10:00, takze 08:06 sa NEUZNA", due < rs, True)
 
 later = WED.replace(hour=10, minute=11)
 due2 = trade_cycle._slot_due_point(later, 2.0, 3, 0)
-check("o 10:11 uz je bod 10:10", due2.strftime("%H:%M"), "10:10")
+check("o 10:11 uz je bod 10:06", due2.strftime("%H:%M"), "10:06")
 check("a ten uz v rezime lezi", due2 >= trade_cycle._interval_regime_start(A, later), True)
 
 print()

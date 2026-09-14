@@ -181,7 +181,7 @@ def _slot_due_point(now: datetime, interval_hours: float, slot: int,
     1 = 0), co je ocakavane a spravne: tam sa kolizii vyhnut neda a je lepsie
     ostat na predvidatelnej mriezke."""
     interval_min = interval_hours * 60
-    # Krok medzi slotmi je HODINA + sirka slotu (pri 12 slotoch 65 min), nie len
+    # Krok medzi slotmi je HODINA + sirka slotu (pri 20 slotoch 63 min), nie len
     # sirka slotu. Slot 1 tak bezi o :00, slot 2 o 1:05, slot 3 o 2:10 atd.
     # Bez tej hodiny by sa pri dlhom intervale zmestili vsetky sloty do jedinej
     # hodiny a zvysok bloku by bol prazdny - pri 12h intervale by cely den

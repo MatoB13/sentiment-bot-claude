@@ -428,7 +428,11 @@ AI_CLOSE_CONFIRM_MAX_WAIT_MINUTES = _int("AI_CLOSE_CONFIRM_MAX_WAIT_MINUTES", 30
 # od posledneho PLNEHO cyklu ubehlo viac nez TRIAGE_FORCE_FULL_HOURS - sken
 # spravy necita, takze bot nesmie byt bez nich lubovolne dlho.
 TRIAGE_MODE = os.getenv("TRIAGE_MODE", "off").strip().lower()
-TRIAGE_FORCE_FULL_HOURS = _float("TRIAGE_FORCE_FULL_HOURS", 6)
+# 2026-09-14 (na ziadost pouzivatela) 6 -> 24 h: vynuteny plny cyklus staci raz
+# denne, zvysok kryje sken (od 14.9. vidi titulky Benzinga so znackou NOVE) a
+# watch/alarm triggery. Pri 6 h hranici a 6 h intervale rozhodovalo o tom, ci
+# sken vobec pobezi, len to, ako dlho trvala predosla analyza (zapis CycleLog).
+TRIAGE_FORCE_FULL_HOURS = _float("TRIAGE_FORCE_FULL_HOURS", 24)
 # Model skenu - default rovnaky ako hlavny. Haiku sa da skusit az ked shadow
 # data ukazu, ze sken rozhoduje spolahlivo.
 TRIAGE_MODEL = os.getenv("TRIAGE_MODEL", "") or CLAUDE_MODEL
@@ -535,16 +539,20 @@ TRADE_INTERVAL_HOURS = _float("TRADE_INTERVAL_HOURS", 4)
 # CENA: mriezka sa pri prechode trading -> off-hours -> vikend prekotvi, co
 # obcas prida beh navyse - simulacia ukazala +13% cyklov. Proti predcasnemu
 # behu chrani RUN_SLOT_MIN_GAP_FRACTION nizsie.
-RUN_SLOT_COUNT = _int("RUN_SLOT_COUNT", 12)
+# 2026-09-14 (na ziadost pouzivatela) 12 -> 20: pri 19 aktivnych tickeroch ma
+# kazdy vlastny slot a hodinovy posun zdielanych slotov (run_slot_hour_offset)
+# sa zatial nepouzije. Krok medzi slotmi je 63 min (viz _slot_due_point).
+RUN_SLOT_COUNT = _int("RUN_SLOT_COUNT", 20)
 # 2026-09-02 (navrh pouzivatela) - slot je PEVNA CAST HODINY, nie zlomok
-# vlastneho intervalu tickera. Pri 12 slotoch je to 5 minut: slot 1 = :00,
-# slot 2 = :05, ... slot 12 = :55. Odvodene z RUN_SLOT_COUNT, takze zmena
+# vlastneho intervalu tickera. Pri 20 slotoch su to 3 minuty: slot 1 = :00,
+# slot 2 = :03, ... slot 20 = :57. Odvodene z RUN_SLOT_COUNT, takze zmena
 # poctu slotov automaticky zmeni ich sirku.
 RUN_SLOT_WIDTH_MINUTES = 60.0 / RUN_SLOT_COUNT
-# Ako casto tika scheduler. MUSI delit interval/RUN_SLOT_COUNT bez zvysku,
-# inak by sa slotove okno mohlo minut. Pri 12 slotoch a 2h intervale je okno
-# 10 min, takze 5 min tick ho vzdy trafi.
-SCHEDULER_TICK_MINUTES = _float("SCHEDULER_TICK_MINUTES", 5)
+# Ako casto tika scheduler. Default = sirka slotu: pri hrubsom ticku by sa susedne
+# sloty zliali do jedneho tiku (simulacia 14.9., 20 slotov: tick 5 min = 11
+# tyzdennych kolizii, tick 3 min = 3). Beh bez due tickera konci pred akymkolvek
+# fetchom (run_all_cycles), takze castejsi tick stoji len par DB dotazov.
+SCHEDULER_TICK_MINUTES = _float("SCHEDULER_TICK_MINUTES", RUN_SLOT_WIDTH_MINUTES)
 # Poistka: nikdy nespustit dalsi cyklus skor nez po tomto podiele intervalu od
 # posledneho behu. Chrani pred tym, ze prekotvenie mriezky pri zmene intervalu
 # (trading -> off-hours) spusti cyklus hned po predchadzajucom.
@@ -1261,6 +1269,6 @@ TSLA_SL_PCT = _float("TSLA_SL_PCT", 4.0)
 TSLA_TP_PCT = _float("TSLA_TP_PCT", 6.0)
 # 4/6/12 h na ziadost pouzivatela - NIE zdielane defaulty. Obchodne hodiny ma
 # zdielane NYSE (TRADING_HOURS_START/END_UTC), Tesla je NASDAQ titul.
-TSLA_TRADE_INTERVAL_HOURS = _float("TSLA_TRADE_INTERVAL_HOURS", 4)
-TSLA_OFF_HOURS_INTERVAL_HOURS = _float("TSLA_OFF_HOURS_INTERVAL_HOURS", 6)
+TSLA_TRADE_INTERVAL_HOURS = _float("TSLA_TRADE_INTERVAL_HOURS", 6)
+TSLA_OFF_HOURS_INTERVAL_HOURS = _float("TSLA_OFF_HOURS_INTERVAL_HOURS", 9)
 TSLA_WEEKEND_INTERVAL_HOURS = _float("TSLA_WEEKEND_INTERVAL_HOURS", 12)
