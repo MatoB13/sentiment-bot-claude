@@ -2370,11 +2370,14 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                     symbol, session, datetime.now(timezone.utc))
             except Exception as e:
                 print(f"[{name}] Vypocet casu od posledneho plneho cyklu zlyhal: {e}")
+            # Tolerancia - viz config.TRIAGE_FORCE_FULL_GRACE_MINUTES.
             overdue = (hours_since_full is not None
-                       and hours_since_full >= config.TRIAGE_FORCE_FULL_HOURS)
+                       and hours_since_full >= config.TRIAGE_FORCE_FULL_HOURS
+                       - config.TRIAGE_FORCE_FULL_GRACE_MINUTES / 60)
             if overdue:
                 print(f"[{name}] Posledny plny cyklus bol pred {hours_since_full:.1f} h "
-                      f"(>= {config.TRIAGE_FORCE_FULL_HOURS}) - sken preskakujem, "
+                      f"(hranica {config.TRIAGE_FORCE_FULL_HOURS} h, tolerancia "
+                      f"{config.TRIAGE_FORCE_FULL_GRACE_MINUTES:.0f} min) - sken preskakujem, "
                       f"idem rovno na plny cyklus.")
             else:
                 try:

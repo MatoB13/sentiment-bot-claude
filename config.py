@@ -439,11 +439,15 @@ AI_CLOSE_CONFIRM_MAX_WAIT_MINUTES = _int("AI_CLOSE_CONFIRM_MAX_WAIT_MINUTES", 30
 # od posledneho PLNEHO cyklu ubehlo viac nez TRIAGE_FORCE_FULL_HOURS - sken
 # spravy necita, takze bot nesmie byt bez nich lubovolne dlho.
 TRIAGE_MODE = os.getenv("TRIAGE_MODE", "off").strip().lower()
-# 2026-09-14 (na ziadost pouzivatela) 6 -> 24 h: vynuteny plny cyklus staci raz
-# denne, zvysok kryje sken (od 14.9. vidi titulky Benzinga so znackou NOVE) a
-# watch/alarm triggery. Pri 6 h hranici a 6 h intervale rozhodovalo o tom, ci
-# sken vobec pobezi, len to, ako dlho trvala predosla analyza (zapis CycleLog).
-TRIAGE_FORCE_FULL_HOURS = _float("TRIAGE_FORCE_FULL_HOURS", 24)
+# 2026-09-14 (na ziadost pouzivatela) 6 -> 24 h, vecer to iste 24 -> 12 h:
+# vynuteny plny cyklus najneskor raz za 12 h, zvysok kryje sken (vidi titulky
+# Benzinga a Google News so znackou NOVE) a watch/alarm triggery.
+TRIAGE_FORCE_FULL_HOURS = _float("TRIAGE_FORCE_FULL_HOURS", 12)
+# Tolerancia: cas plneho pohladu sa zapisuje az PO analyze (o minuty neskor nez
+# jeho slot), takze cyklus "presne o 12 h" nameria 11.9x h. Bez tolerancie by pri
+# 6 h a 12 h intervaloch o vynuteni rozhodovala len dlzka predoslej analyzy
+# (namerane pri starych 6 h: 5.5-6 h sken, 6-6.5 h vynuteny, pol na pol).
+TRIAGE_FORCE_FULL_GRACE_MINUTES = _float("TRIAGE_FORCE_FULL_GRACE_MINUTES", 15)
 # Model skenu - default rovnaky ako hlavny. Haiku sa da skusit az ked shadow
 # data ukazu, ze sken rozhoduje spolahlivo.
 TRIAGE_MODEL = os.getenv("TRIAGE_MODEL", "") or CLAUDE_MODEL

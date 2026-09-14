@@ -221,6 +221,22 @@ tc.run_cycle_for_asset(A, CM, SESS, None, None, skip_due_check=True)
 check(f"posledny plny pred >{config.TRIAGE_FORCE_FULL_HOURS} h: sken sa nepyta", calls["triage"], 0)
 check("...a plny cyklus bezal", calls["analyze"], 1)
 
+# 2026-09-14 - hranica 12 h s toleranciou 15 min: cyklus "o 12 h" nameria kvoli
+# zapisu po analyze napr. 11.9 h - aj ten musi byt vynuteny; o 11 h este sken.
+check("default: vynuteny plny cyklus po 12 h, tolerancia 15 min",
+      (config.TRIAGE_FORCE_FULL_HOURS, config.TRIAGE_FORCE_FULL_GRACE_MINUTES), (12.0, 15.0))
+for hrs, want_triage, label in ((config.TRIAGE_FORCE_FULL_HOURS - 0.1, 0, "o 11.9 h (v tolerancii): sken sa nepyta"),
+                                (config.TRIAGE_FORCE_FULL_HOURS - 1.0, 1, "o 11 h: este bezi sken")):
+    sess = get_session()
+    sess.query(CycleLog).delete()
+    sess.add(CycleLog(symbol=SYM, outcome="rejected", usage_output_tokens=500,
+                      created_at=(datetime.now(timezone.utc) - timedelta(hours=hrs)).replace(tzinfo=None)))
+    sess.commit()
+    sess.close()
+    calls["triage"] = calls["analyze"] = 0
+    tc.run_cycle_for_asset(A, CM, SESS, None, None, skip_due_check=True)
+    check(label, calls["triage"], want_triage)
+
 # otvorena pozicia -> health check, sken sa netyka
 sess = get_session()
 sess.query(CycleLog).delete()
