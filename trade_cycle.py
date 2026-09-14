@@ -32,6 +32,7 @@ import risk_manager
 import risk_overrides
 import social_sentiment
 import strike_client
+import ai_close
 import tp_runner
 from db import (AssetConfigLive, CycleLog, DailyRetrospective, FlaggedMacroEvent,
                  PriceBar, RollingRetrospective, Trade, get_session)
@@ -1437,6 +1438,15 @@ def _runner_note(open_trade) -> str | None:
         return (f"AKČNÝ REŽIM: trh sa prudko hýbe v smere pozície, preto sa na take-profite "
                 f"{open_trade.take_profit_price} pozícia nezatvorí - bot tam zamkne zisk a nechá ju "
                 f"bežať za cenou. SL na burze je stále {open_trade.active_stop_price}.")
+    # 2026-09-14 - AI potvrdenie (ai_close.py)
+    if getattr(open_trade, "ai_close_pending_at", None):
+        return (f"TVOJE ODPORÚČANIE ZATVORIŤ ČAKÁ NA POTVRDENIE: pri cene {open_trade.ai_close_pending_price} "
+                f"si odporučil zatvoriť; ak cena do 15 min od toho nebude lepšia, bot pozíciu zavrie, "
+                f"inak posunie SL na túto cenu.")
+    if getattr(open_trade, "ai_protected_at", None):
+        return (f"OCHRANNÝ SL: po tvojom predošlom odporúčaní zatvoriť sa cena zlepšila, preto bot nezavrel "
+                f"a posunul SL na burze na {open_trade.active_stop_price} (cena tvojho rozhodnutia). "
+                f"Pôvodný SL bol {open_trade.stop_loss_price}.")
     return None
 
 
@@ -1890,7 +1900,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
     if pending_stats:
         _save_pending_retrospective(name, symbol, pending_stats, health, session)
 
-    _maybe_ai_early_close(asset, open_trade, health, session)
+    _maybe_ai_early_close(asset, open_trade, health, session, live_price)
 
 
 # 2026-08-21 (na ziadost pouzivatela, po NAS100 SL incidente - Claude odporucil
@@ -1911,7 +1921,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
 # closed_at, zvysok (presny PnL, post-close review, Discord notifikacia, SL/TP
 # recompute) doplni _backfill_missing_exact_data na najblizsom position_monitor
 # tiku (do ~1 min).
-def _maybe_ai_early_close(asset: dict, trade: Trade, health: dict, session) -> None:
+def _maybe_ai_early_close(asset: dict, trade: Trade, health: dict, session, live_price: float | None = None) -> None:
     close_confidence = health.get("close_confidence")
     if health.get("recommendation") != "consider_closing" or not isinstance(close_confidence, (int, float)):
         return
@@ -1920,6 +1930,16 @@ def _maybe_ai_early_close(asset: dict, trade: Trade, health: dict, session) -> N
 
     name = asset["name"]
     symbol = asset["strike_symbol"]
+    # 2026-09-14 - 15-MIN POTVRDENIE (viz ai_close.py): zatvorenie sa len
+    # zapise ako cakajuce; rozhodne o nom position_monitor o
+    # AI_CLOSE_CONFIRM_MINUTES (zavriet, alebo posunut SL na cenu rozhodnutia).
+    # Pri vypnutom potvrdeni (0) alebo chybajucej cene zatvara hned ako predtym.
+    if ai_close.start_pending(trade, live_price, close_confidence, session, datetime.now(timezone.utc)):
+        session.add(trade)
+        session.commit()
+        print(f"[{name}] Claude odporucil consider_closing s close_confidence={close_confidence} - "
+              f"zatvorenie caka {config.AI_CLOSE_CONFIRM_MINUTES} min na potvrdenie cenou.")
+        return
     print(f"[{name}] KRITICKE: Claude odporucil consider_closing s close_confidence="
           f"{close_confidence} (prah {config.AI_EARLY_CLOSE_CONFIDENCE_THRESHOLD}) - "
           "zatvaram poziciu automaticky.")

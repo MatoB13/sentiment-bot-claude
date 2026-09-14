@@ -206,6 +206,10 @@ def manage(trade, live: dict, mark_price: float | None, tick: float | None, sess
         if not ((mark_price >= tp) if sg > 0 else (mark_price <= tp)):
             return out
         new_stop = _round_to_tick(lock_stop, tick)
+        # 2026-09-14 - SL mohlo predtym sprisnit AI potvrdenie (ai_close.py);
+        # zamok ho nesmie uvolnit spat.
+        if trade.active_stop_price is not None and (trade.active_stop_price - new_stop) * sg > 0:
+            new_stop = trade.active_stop_price
         ok = _replace_stop(trade, live_size, new_stop)
         out["orders_changed"] = True
         trade.tp_locked_at = now

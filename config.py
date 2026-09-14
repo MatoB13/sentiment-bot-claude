@@ -381,6 +381,14 @@ HEALTH_CHECK_COOLDOWN_BYPASS_SL_PROXIMITY_FRACTION = _float(
 # potvrdenie druhym cyklom (confidence cislo uz JE kalibrovana miera istoty).
 # Plati pre VSETKY tickery rovnako (na ziadost pouzivatela).
 AI_EARLY_CLOSE_CONFIDENCE_THRESHOLD = _float("AI_EARLY_CLOSE_CONFIDENCE_THRESHOLD", 50)
+# 2026-09-14 (schvalene pouzivatelom) - 15-MIN POTVRDENIE AI zatvorenia, viz
+# ai_close.py. Meranie 14.9.: AI zatvaralo do spicky protipohybu (po zatvoreni
+# 9/16 navrat v prospech); potvrdenie + ochranny SL na cene rozhodnutia by na
+# krypte dalo +5.1 R na 16 obchodoch. 0 = zatvarat hned ako predtym.
+AI_CLOSE_CONFIRM_MINUTES = _int("AI_CLOSE_CONFIRM_MINUTES", 15)
+# Ked po uplynuti potvrdenia chyba mark cena (vypadok /v2/markets), bot caka;
+# po tolkych minutach navyse zavrie aj bez nej (Claudovo rozhodnutie plati).
+AI_CLOSE_CONFIRM_MAX_WAIT_MINUTES = _int("AI_CLOSE_CONFIRM_MAX_WAIT_MINUTES", 30)
 
 # --- 2026-09-04: DVOJFAZOVY CYKLUS (bod 6 auditu) --------------------------
 # Problem: 95 % platenych cyklov konci `none`, planovane cykly su 74 % vsetkych

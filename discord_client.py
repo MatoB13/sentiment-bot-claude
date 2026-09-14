@@ -124,6 +124,7 @@ _CLOSE_REASON_LABELS = {
     "tp_runner_timeout": "PREDLZENY TP - max. doba drzania",
     "tp_runner_far_tp": "PREDLZENY TP - havarijny TP na burze",
     "tp_runner_emergency_close": "PREDLZENY TP - nudzove zatvorenie (SL sa nepodarilo polozit)",
+    "ai_protect_stop": "Ochranny SL na cene AI rozhodnutia (cena sa po 15 min zlepsila, potom vratila)",
 }
 
 
@@ -150,6 +151,46 @@ def notify_tp_runner_locked(symbol: str, direction: str, tp: float, new_stop: fl
         }]
     }
     return _post_webhook(payload, "Notifikacia o predlzenom TP")
+
+
+def notify_ai_close_pending(symbol: str, direction: str, price: float, conf, due) -> bool:
+    """2026-09-14 - Claude chce poziciu zavriet; bot caka 15 min na potvrdenie
+    cenou (viz ai_close.py). Bez @everyone."""
+    if not config.DISCORD_WEBHOOK_URL:
+        return False
+    headline = f"AI CHCE ZAVRIET {_short_ticker(symbol)} - potvrdenie o 15 min"
+    payload = {
+        "content": headline,
+        "embeds": [{
+            "title": headline,
+            "description": ("Claude pri kontrole pozicie odporucil zatvorit. Bot nezatvara hned: ak cena o "
+                            "15 min nebude lepsia, zavrie; ak bude lepsia, posunie SL na tuto cenu."),
+            "fields": [
+                {"name": "Smer", "value": str(direction), "inline": True},
+                {"name": "Cena rozhodnutia", "value": str(price), "inline": True},
+                {"name": "Istota", "value": str(conf), "inline": True},
+                {"name": "Potvrdenie", "value": f"{due:%H:%M} UTC", "inline": True},
+            ],
+        }]
+    }
+    return _post_webhook(payload, "Notifikacia o cakajucom AI zatvoreni")
+
+
+def notify_ai_close_resolved(symbol: str, direction: str, outcome: str, price0: float, price_now: float,
+                             stop: float | None = None) -> bool:
+    """Vysledok 15-min potvrdenia: "closed" (zavrete) alebo "protected" (SL posunuty)."""
+    if not config.DISCORD_WEBHOOK_URL:
+        return False
+    if outcome == "closed":
+        headline = f"AI ZATVORENIE POTVRDENE {_short_ticker(symbol)}"
+        desc = f"Cena sa za 15 min nezlepsila ({price0} -> {price_now}) - pozicia zatvorena trhovo."
+    else:
+        headline = f"AI ZATVORENIE ZRUSENE {_short_ticker(symbol)} - SL posunuty"
+        desc = (f"Cena sa za 15 min zlepsila ({price0} -> {price_now}) - pozicia bezi dalej, "
+                f"SL na burze posunuty na cenu rozhodnutia {stop}.")
+    payload = {"content": headline, "embeds": [{"title": headline, "description": desc,
+                                                "fields": [{"name": "Smer", "value": str(direction), "inline": True}]}]}
+    return _post_webhook(payload, "Notifikacia o vysledku AI potvrdenia")
 
 
 def notify_tp_runner_regime(symbol: str, direction: str, why: str, tp: float) -> bool:

@@ -1594,6 +1594,8 @@ _CLOSE_REASON_PROMPT_LABELS = {
     "tp_runner_timeout": "predĺžený TP - TP dosiahnutý, pozícia bežala ďalej až do max. doby držania",
     "tp_runner_far_tp": "predĺžený TP - TP dosiahnutý, pozícia bežala ďalej až po vzdialený havarijný TP",
     "tp_runner_emergency_close": "predĺžený TP - po dosiahnutí TP zatvorené trhovo (SL sa nepodarilo posunúť)",
+    "ai_protect_stop": ("ochranný SL na cene, pri ktorej si odporučil zatvoriť - cena sa do 15 min zlepšila, "
+                        "bot nezavrel a posunul SL tam; potom sa cena vrátila"),
 }
 
 
@@ -2243,8 +2245,9 @@ vyvíjať V PROSPECH tejto pozície alebo PROTI nej.
 - SL/TP na burze NEMENÍŠ - tie zostávajú presne tam, kde sú, bez ohľadu na tvoju odpoveď.
 - Ale ak zvolíš recommendation="consider_closing" a close_confidence je dosť vysoká (hranicu ti
   zámerne neuvádzame - píš úprimný odhad, nie číslo na výsledok), bot pozíciu ZATVORÍ SÁM
-  trhovým príkazom, okamžite a bez potvrdenia
-  človekom. NIE JE to len názor do logu. Podľa toho zváž, akú istotu tam napíšeš - podhodnotené
+  trhovým príkazom, bez potvrdenia človekom - s 15-minútovým odstupom: ak sa cena za ten čas
+  nezlepší, zavrie; ak sa zlepší, nezavrie, ale posunie SL na burze na cenu tvojho rozhodnutia.
+  NIE JE to len názor do logu. Podľa toho zváž, akú istotu tam napíšeš - podhodnotené
   číslo znamená, že pozícia zostane otvorená aj vtedy, keď si myslíš, že by nemala.
 - Máš aj TRETIU možnosť medzi "držím ďalej" a "zatváram teraz": watch_price + watch_direction.
   Lacný poller sleduje živú cenu každú minútu a keď tvoju úroveň dosiahne, zavolá ťa na

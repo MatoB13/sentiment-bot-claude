@@ -2,6 +2,7 @@
 - zaznamenanie zatvorenia a PnL."""
 from datetime import datetime, timedelta, timezone
 
+import ai_close
 import assets
 import config
 import discord_client
@@ -83,7 +84,7 @@ _EVALUATION_ONLY_CLOSE_REASONS = {"stop_loss", "liquidation", "ai_early_close"}
 # 2026-09-12 - + dovody predlzovaneho TP (tp_runner.RUNNER_REASONS): ziskovy
 # vystup ako TP, review aj notifikacia ako pri TP (nie "len vyhodnotenie").
 _NOTIFY_CLOSE_REASONS = {"take_profit", "stop_loss", "liquidation", "force_closed_by_bot",
-                         "ai_early_close"} | tp_runner.RUNNER_REASONS
+                         "ai_early_close", ai_close.REASON_PROTECT} | tp_runner.RUNNER_REASONS
 
 # Kolko minut NAVYSE po POSITION_MAX_HOURS sa cakalo pred SL/TP grid-search
 # prepoctom (2026-08-19, na ziadost pouzivatela) - vid _check_and_queue_recompute
@@ -388,7 +389,8 @@ def _apply_exact_close(trade: Trade, fallback_close_reason: str) -> None:
         # bez podmienky pouzijeme, co vratila.
         # 2026-09-12 - obchod v predlzovanom TP rezime dostane vlastny dovod
         # (tp_runner_stop/...), aby nebol zamenitelny s klasickym TP/SL.
-        trade.close_reason = tp_runner.runner_close_reason(trade, exact["close_reason"])
+        # 2026-09-14 - ochranny SL z AI potvrdenia (ai_close.py) tiez vlastny dovod.
+        trade.close_reason = ai_close.close_reason(trade, tp_runner.runner_close_reason(trade, exact["close_reason"]))
         trade.entry_fill_price = exact["entry_fill_price"]
         trade.close_fill_price = exact["close_fill_price"]
         trade.fees_usd = exact["fees_usd"]
@@ -1047,7 +1049,7 @@ def check_open_trades():
         # potrebuje mark cenu a minutove vzorky (price_buffer) pre rychly spustac.
         markets_by_symbol = {}
         now = datetime.now(timezone.utc)
-        if any(t.tp_mode in tp_runner.MANAGED_MODES for t in open_trades):
+        if any(t.tp_mode in tp_runner.MANAGED_MODES or t.ai_close_pending_at is not None for t in open_trades):
             try:
                 markets_by_symbol = {m.get("symbol"): m for m in strike_client.get_markets()}
             except Exception as e:
@@ -1135,7 +1137,20 @@ def check_open_trades():
                     # potom posuvanie SL (viz tp_runner.py). Chyba tu nesmie
                     # zastavit zvysok kontroly pozicie.
                     runner = {"orders_changed": False, "closed": False}
-                    if trade.tp_mode in tp_runner.MANAGED_MODES and markets_by_symbol:
+                    # 2026-09-14 - AI zatvorenie caka na 15-min potvrdenie (ai_close.py).
+                    # Bezi PRED predlzenym TP; ked prekreslilo prikazy, predlzeny TP
+                    # tento tik vynecha (a oprava noh tiez).
+                    if trade.ai_close_pending_at is not None:
+                        market = markets_by_symbol.get(trade.symbol) or {}
+                        try:
+                            mark = float(market["mark_price"]) if market.get("mark_price") else None
+                            tick = float(market["order_tick_price"]) if market.get("order_tick_price") else None
+                            runner = ai_close.resolve(trade, live, mark, tick, session, now)
+                        except Exception as e:
+                            print(f"[position_monitor] Trade {trade.id} [{trade.symbol}]: AI potvrdenie "
+                                  f"zlyhalo (SL na burze plati dalej, skusim o minutu): {e}")
+                    if (not runner["orders_changed"] and trade.tp_mode in tp_runner.MANAGED_MODES
+                            and markets_by_symbol):
                         market = markets_by_symbol.get(trade.symbol) or {}
                         try:
                             mark = float(market["mark_price"]) if market.get("mark_price") else None

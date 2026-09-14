@@ -147,6 +147,15 @@ class Trade(Base):
     trail_best_price = Column(Float, nullable=True)
     entry_atr = Column(Float, nullable=True)
 
+    # 2026-09-14 - AI zatvorenie s 15-min potvrdenim (viz ai_close.py).
+    # pending_* = Claude chcel zavriet, cena a cas rozhodnutia; o
+    # AI_CLOSE_CONFIRM_MINUTES sa bud zavrie (cena nie je lepsia), alebo sa
+    # SL na burze posunie na cenu rozhodnutia (ai_protected_at, active_stop_price).
+    ai_close_pending_at = Column(DateTime, nullable=True)
+    ai_close_pending_price = Column(Float, nullable=True)
+    ai_close_pending_conf = Column(Integer, nullable=True)
+    ai_protected_at = Column(DateTime, nullable=True)
+
 
 class TpRunnerEvent(Base):
     """Dennik predlzovaneho TP (2026-09-12, na ziadost pouzivatela: "vsetky tieto
