@@ -6,12 +6,17 @@ su vtedy zatvorene), zatial co Strike perpy obchoduju nonstop. Jeden bulk
 GET /v2/markets call pokryje vsetky aktivne tickery naraz - ziadne extra
 platene/premium data, len live mark_price.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import assets
 import market_data
 import strike_client
-from db import AccountSnapshot, FundingRateBar, PriceBar, get_session
+from db import AccountSnapshot, FundingRateBar, PriceBar, PriceMinute, get_session
+
+# Minutove ceny (PriceMinute) - kolko dni sa drzia. Graf "posledna hodina" na
+# dashboarde potrebuje hodinu; 3 dni su rezerva na spatne dohladanie priebehu
+# (napr. ZHIPU #224 14.9. - co sa dialo v minutach okolo AI zatvorenia).
+PRICE_MINUTES_KEEP_DAYS = 3
 
 
 def _microstructure(market: dict) -> dict | None:
@@ -136,6 +141,7 @@ def poll_prices() -> None:
                 bar.close = price
                 bar.updated_at = now.replace(tzinfo=None)
             _accumulate_micro(bar, micro_by_symbol.get(symbol))
+            session.add(PriceMinute(symbol=symbol, ts=now.replace(tzinfo=None), price=price))
             updated += 1
 
             raw_funding = funding_rates.get(symbol)
@@ -162,6 +168,12 @@ def poll_prices() -> None:
             snapshot.unrealized_pnl = float(account["unrealized_pnl"])
             snapshot.total_margin = float(account["total_margin"])
             snapshot.updated_at = now.replace(tzinfo=None)
+
+        # Upratanie minutovych cien - raz za hodinu (prvy tik hodiny), nie
+        # kazdu minutu. Jeden DELETE nad indexom ts.
+        if now.minute == 0:
+            cutoff = (now - timedelta(days=PRICE_MINUTES_KEEP_DAYS)).replace(tzinfo=None)
+            session.query(PriceMinute).filter(PriceMinute.ts < cutoff).delete(synchronize_session=False)
 
         session.commit()
         print(f"[price_poller] {updated}/{len(assets.ALL_ASSETS)} tickerov "

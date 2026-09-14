@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import (Column, DateTime, Float, Integer, String, Boolean,
-                         JSON, UniqueConstraint, create_engine, inspect, text)
+                         Index, JSON, UniqueConstraint, create_engine, inspect, text)
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 import config
@@ -488,6 +488,22 @@ class PriceBar(Base):
     # stare data, hoci close sa priebezne aktualizuje kazdu minutu - viz
     # nas100-monitor-web computeUnrealizedPnl.
     updated_at = Column(DateTime, nullable=True)
+
+
+class PriceMinute(Base):
+    """Minutova mark cena kazdeho tickera (2026-09-14, na ziadost pouzivatela -
+    graf "posledna hodina" pri otvorenej pozicii na dashboarde). Zapisuje ju
+    ten isty minutovy tik price_pollera ako PriceBar (ziadne volanie navyse);
+    doteraz sa minutova cena len prepisala do hodinovej sviecky a zahodila.
+    Drzi sa PRICE_MINUTES_KEEP_DAYS dni (price_poller maze starsie raz za hodinu).
+    ts = skutocny cas tiku, naive UTC."""
+    __tablename__ = "price_minutes"
+    __table_args__ = (Index("ix_price_minutes_symbol_ts", "symbol", "ts"),)
+
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False)
+    ts = Column(DateTime, nullable=False, index=True)
+    price = Column(Float, nullable=False)
 
 
 class FundingRateBar(Base):
