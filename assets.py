@@ -833,6 +833,40 @@ ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX, AAOI, MIN
               GOOGL, UNITREE, NEAR, AAPL, ZHIPU, CRCL, PUMP, TSLA]
 
 
+# --- 2026-09-14: Google News pre SLABO POKRYTE tickery (google_news_client.py) ---
+# Meranie 14.9. (7 dni): podiel skenov s aspon 1 titulkom priamo o tickeri z
+# doterajsich zdrojov - MINIMAX/NEAR/NIGHT/PUMP 0 %, ADA 6 %, ZHIPU 15 %, HYPE 30 %,
+# CRCL 40 %, UNITREE 42 %, AAOI 50 %, ZEC 72 %. Ostatne (NVDA, GOOGL, TSLA, BTC,
+# NAS100, XAU, SKHYNIX) maju 75-100 % z Benzingy/Marketaux - tam by to bol len sum.
+# queries: [(jazyk, dotaz)] v syntaxi Google News; match: regexy "titulok je o
+# tickeri" (bez nich sa pouziju news_keywords). Cinske firmy aj po cinsky - v cinskej
+# tlaci je o nich radovo viac (14.9.: ZHIPU 43 zh, UNITREE 25 zh za 24 h).
+GOOGLE_NEWS = {
+    "ADA": {"queries": [("en", '"Cardano"')]},
+    "NEAR": {"queries": [("en", '"NEAR Protocol" OR "NEAR token" OR "NEAR AI" OR "NEAR Foundation"')],
+             "match": [r"\bnear (protocol|token|ai|foundation)\b", r"\$NEAR\b"]},
+    "NIGHT": {"queries": [("en", '"Midnight Network" OR "Midnight blockchain" OR "NIGHT token" '
+                                 'OR "Midnight Foundation"')]},
+    "PUMP": {"queries": [("en", '"pump.fun" OR "PUMP token"')],
+             "match": [r"pump\.?fun", r"\bPUMP token\b", r"\$PUMP\b"]},
+    "HYPE": {"queries": [("en", '"Hyperliquid"')]},
+    "ZEC": {"queries": [("en", '"Zcash"')]},
+    "CRCL": {"queries": [("en", '"Circle Internet" OR "CRCL stock" OR "CRCL shares"')],
+             "match": [r"\bcircle\b(?!\s*k\b)", r"\bCRCL\b"]},
+    "AAOI": {"queries": [("en", '"Applied Optoelectronics"')],
+             "match": [r"applied optoelectronics", r"\bAAOI\b"]},
+    "MINIMAX": {"queries": [("en", '"MiniMax" (AI OR model OR IPO OR shares OR Hailuo OR "Hong Kong")'),
+                            ("zh", "MiniMax 大模型")],
+                "match": [r"\bminimax\b", r"hailuo", r"稀宇", r"海螺"]},
+    "ZHIPU": {"queries": [("en", '"Zhipu" OR "Z.ai" OR "ChatGLM"'), ("zh", "智谱")],
+              "match": [r"\bzhipu\b", r"\bz\.ai\b", r"chatglm", r"\bGLM-\d", r"智谱"]},
+    "UNITREE": {"queries": [("en", '"Unitree"'), ("zh", "宇树科技")],
+                "match": [r"\bunitree\b", r"宇树"]},
+}
+for _a in ALL_ASSETS:
+    _a["google_news"] = GOOGLE_NEWS.get(_a["name"])
+
+
 # --- 2026-08-31: run_slot (rozprestretie cyklov v case) ---------------------
 # Slot 1..RUN_SLOT_COUNT urcuje, v ktorej dvanastine sveho intervalu je ticker
 # "due" - viz config.RUN_SLOT_COUNT a trade_cycle._is_due. Default sa odvodi

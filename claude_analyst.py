@@ -1663,6 +1663,28 @@ def _benzinga_block(instrument: str, items: list[dict] | None,
     return head + "\n".join(lines) + "\n" + tail
 
 
+def _google_news_block(instrument: str, items: list[dict] | None,
+                       since: datetime | None) -> str:
+    """Google News (google_news_client) pre PLNY cyklus a health check - 2026-09-14,
+    len pre slabo pokryte tickery. Len titulky (Google odkazy su presmerovania, text
+    by sa musel stahovat z kazdeho media zvlast) - detail si Claude overi web_searchom."""
+    if not items:
+        return ""
+    lines = []
+    for a in items:
+        tag = f"NOVÉ, pred {_news_age(a['age_hours'])}" if a.get("new") else f"pred {_news_age(a['age_hours'])}"
+        src = f" ({a['source']})" if a.get("source") else ""
+        lines.append(f"- [{tag}] {a['title']}{src}")
+    since_txt = (f" ({since.strftime('%a %d.%m. %H:%M')} UTC)" if since else "")
+    new_count = sum(1 for a in items if a.get("new"))
+    return (f"\n## Google News o {instrument} (rôzne médiá, aj čínske; NIE web_search)\n"
+            f"Len titulky, už odfiltrované: spomínajú nástroj, bez cenových predpovedí a "
+            f"rutinných článkov. NOVÉ = vyšlo po tvojom poslednom plnom pohľade{since_txt} "
+            f"({new_count} z {len(items)}). Novú udalosť, ktorá môže pohnúť cenou, zhodnoť v "
+            f"reasoning, aj keď nesúvisí s doterajšou tézou; detail si over cez web_search.\n"
+            + "\n".join(lines) + "\n")
+
+
 def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                         social: list[dict], btc_proxy: dict | None,
                         prev_assumptions: str | None,
@@ -1687,7 +1709,9 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                         portfolio_exposure: list[dict] | None = None,
                         alarm_note: str | None = None,
                         benzinga_news: list[dict] | None = None,
-                        benzinga_since: datetime | None = None) -> str:
+                        benzinga_since: datetime | None = None,
+                        google_news: list[dict] | None = None,
+                        google_since: datetime | None = None) -> str:
     instrument = asset["name"]
     social_block = "\n".join(
         f"- ({p.get('likes')}♥/{p.get('retweets')}rt) {p.get('text')}"
@@ -2005,6 +2029,7 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
         )
 
     benzinga_block = _benzinga_block(instrument, benzinga_news, benzinga_since)
+    benzinga_block += _google_news_block(instrument, google_news, google_since)
 
     # CoinMarketCal (2026-08-19, na ziadost pouzivatela) - strukturovany zdroj
     # nadchadzajucich krypto-projektovych udalosti (burzove listingy,
@@ -2585,7 +2610,9 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
             portfolio_exposure: list[dict] | None = None,
             alarm_note: str | None = None,
             benzinga_news: list[dict] | None = None,
-            benzinga_since: datetime | None = None) -> tuple[dict, list[dict], dict]:
+            benzinga_since: datetime | None = None,
+            google_news: list[dict] | None = None,
+            google_since: datetime | None = None) -> tuple[dict, list[dict], dict]:
     """Vrati (decision, web_search_log, usage). web_search_log je zoznam
     {"query": str, "sources": [{"title", "url", "page_age"}]} pre kazde
     vyhladavanie, ktore Claude spravil - sluzi na audit (co realne citas,
@@ -2623,7 +2650,9 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
                                       portfolio_exposure=portfolio_exposure,
                                       alarm_note=alarm_note,
                                       benzinga_news=benzinga_news,
-                                      benzinga_since=benzinga_since)
+                                      benzinga_since=benzinga_since,
+                                      google_news=google_news,
+                                      google_since=google_since)
     decision, web_search_log, usage = _call_claude(asset, system_blocks, user_prompt,
                                                      DECISION_TOOL, "submit_trade_decision")
     try:
@@ -2660,7 +2689,9 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                              recent_trades_context: list[dict] | None = None,
                              portfolio_exposure: list[dict] | None = None,
                              benzinga_news: list[dict] | None = None,
-                             benzinga_since: datetime | None = None) -> tuple[dict, list[dict], dict]:
+                             benzinga_since: datetime | None = None,
+                             google_news: list[dict] | None = None,
+                             google_since: datetime | None = None) -> tuple[dict, list[dict], dict]:
     """Ako analyze(), ale pre UZ OTVORENU poziciu (viz
     trade_cycle._run_position_health_check) - namiesto rozhodnutia o novom
     obchode (direction/SL/TP) sa Claude vyjadri, ci povodne predpoklady este
@@ -2689,7 +2720,9 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                                       recent_trades_context=recent_trades_context,
                                       portfolio_exposure=portfolio_exposure,
                                       benzinga_news=benzinga_news,
-                                      benzinga_since=benzinga_since)
+                                      benzinga_since=benzinga_since,
+                                      google_news=google_news,
+                                      google_since=google_since)
     decision, web_search_log, usage = _call_claude(asset, system_blocks, user_prompt,
                                                      POSITION_HEALTH_TOOL, "submit_position_health_check")
     try:
@@ -3274,7 +3307,8 @@ def _build_triage_prompt(asset: dict, ta: dict, cross_market: dict, session: dic
                           schedule: dict | None,
                           market_news: list[dict] | None = None,
                           alpaca_news: list[dict] | None = None,
-                          named_news: list[dict] | None = None) -> str:
+                          named_news: list[dict] | None = None,
+                          google_news: list[dict] | None = None) -> str:
     """User prompt pre lacny sken - podmnozina plneho promptu (bez makro pravidiel,
     bez historie obchodov, bez retrospektivy, bez snippetov clankov). Viz triage()."""
     instrument = asset["name"]
@@ -3350,6 +3384,22 @@ def _build_triage_prompt(asset: dict, ta: dict, cross_market: dict, session: dic
             "titulky (ratingy, opcie, 'what's going on', prehlady trhu, porovnania akcii)\n"
             "samy o sebe NIE SU dovod na ANO.\n" + lines + "\n")
 
+    # 2026-09-14 - Google News pre slabo pokryte tickery (google_news_client.py):
+    # uz odfiltrovane (spominaju nastroj, bez cenovych predpovedi a SEO clankov).
+    google_block = ""
+    if google_news:
+        lines = "\n".join(
+            f"- [{'NOVE, ' if g.get('new') else ''}pred {_news_age(g['age_hours'])}] {g['title']}"
+            + (f" ({g['source']})" if g.get("source") else "")
+            for g in google_news)
+        google_block = (
+            "\n## Google News: titulky o tomto nastroji (rozne media, aj cinske)\n"
+            "Len nadpisy, uz odfiltrovane - spominaju nastroj, bez cenovych predpovedi.\n"
+            "NOVE = vyslo po poslednom dokladnom pohlade. Rozhoduje, ci ide o skutocnu\n"
+            "udalost, ktora moze pohnut cenou (firma, produkt, financovanie, regulacia,\n"
+            "partnerstvo, burzovy pohyb) - nie zhoda s predpokladmi. Viac titulkov o tej\n"
+            "istej udalosti = ta ista sprava, nie viac dovodov.\n" + lines + "\n")
+
     watch_block = "(ziadna aktivna uroven)"
     if active_watch and active_watch.get("watch_price") is not None:
         parts = [f"{active_watch.get('watch_direction')} {active_watch.get('watch_price')}"]
@@ -3384,7 +3434,7 @@ def _build_triage_prompt(asset: dict, ta: dict, cross_market: dict, session: dic
 {btc_block}
 ## Cerstve titulky (Marketaux - len nadpisy, plne spravy vidi az plna analyza)
 {news_block}
-{market_block}{named_block}{alpaca_block}
+{market_block}{named_block}{alpaca_block}{google_block}
 
 ## Kluc. predpoklady z posledneho dokladneho pohladu
 {prev_block}
@@ -3457,7 +3507,8 @@ def triage(asset: dict, ta: dict, cross_market: dict, session: dict,
             schedule: dict | None = None,
             market_news: list[dict] | None = None,
             alpaca_news: list[dict] | None = None,
-            named_news: list[dict] | None = None) -> tuple[dict, dict]:
+            named_news: list[dict] | None = None,
+            google_news: list[dict] | None = None) -> tuple[dict, dict]:
     """LACNY SKEN pred plnym cyklom (2026-09-04, bod 6 auditu) - vrati
     (verdikt, usage). Bez web_search, kratky vlastny system prompt, effort low.
 
@@ -3472,7 +3523,7 @@ def triage(asset: dict, ta: dict, cross_market: dict, session: dict,
     prompt = _build_triage_prompt(asset, ta, cross_market, session, btc_proxy,
                                    prev_assumptions, prev_cycle_time, marketaux_news,
                                    hours_since_full, active_watch, schedule, market_news,
-                                   alpaca_news, named_news)
+                                   alpaca_news, named_news, google_news)
     verdict, usage = _call_triage(asset, prompt)
     verdict["worth_full_look"] = bool(verdict.get("worth_full_look"))
     _drop_already_met_watch(verdict, (ta or {}).get("last_price"), f" [{asset['name']} triage]")

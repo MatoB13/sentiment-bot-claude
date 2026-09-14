@@ -26,6 +26,7 @@ import market_data
 import marketaux_client
 import market_news_client
 import alpaca_news_client
+import google_news_client
 import performance_facts
 import retrospective
 import risk_manager
@@ -1580,6 +1581,23 @@ def _benzinga_news(asset: dict, symbol: str, session) -> tuple[list[dict] | None
         return None, {"ok": False, "error": str(e)[:80], "count": 0}, since
 
 
+def _google_news(asset: dict, symbol: str, session) -> tuple[list[dict] | None, dict | None,
+                                                               datetime | None]:
+    """Google News pre slabo pokryte tickery (2026-09-14, viz google_news_client).
+    Rovnaky tvar ako _benzinga_news: (polozky, stav pre DB, cas posledneho plneho
+    pohladu). Neblokujuce; tickery bez dotazov v assets.GOOGLE_NEWS -> (None, None, None)."""
+    if not (google_news_client.covers(asset) and google_news_client.enabled()):
+        return None, None, None
+    since = None
+    try:
+        since = _last_full_look_at(symbol, session)
+        items = google_news_client.get_headlines_for_asset(asset, since=since)
+        return items, google_news_client.last_status(asset["name"]), since
+    except Exception as e:
+        print(f"[{asset['name']}] Google News zlyhal (pokracujem): {e}")
+        return None, {"ok": False, "errors": [str(e)[:80]], "count": 0}, since
+
+
 def _active_watch_context(symbol: str, session) -> dict | None:
     """Watch uroven, ktoru poller PRAVE TERAZ sleduje (najnovsi CycleLog riadok
     symbolu - rovnaka logika ako watch_monitor). Sken ju ma vidiet, aby
@@ -1900,6 +1918,9 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
     benzinga_items, benzinga_status, benzinga_since = (
         _benzinga_news(asset, symbol, session) if config.ALPACA_NEWS_FULL_CYCLE
         else (None, None, None))
+    google_items, google_status, google_since = (
+        _google_news(asset, symbol, session) if config.GOOGLE_NEWS_FULL_CYCLE
+        else (None, None, None))
 
     try:
         health, web_search_log, usage = claude_analyst.analyze_position_health(
@@ -1915,6 +1936,8 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
             portfolio_exposure=portfolio_exposure,
             benzinga_news=benzinga_items,
             benzinga_since=benzinga_since,
+            google_news=google_items,
+            google_since=google_since,
         )
     except Exception as e:
         print(f"[{name}] Position health check zlyhal: {e}")
@@ -1925,6 +1948,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
             trade_id=open_trade.id,
             trigger_source=_trigger_source(macro_event, watch_triggered),
             benzinga_news=benzinga_status,
+            google_news=google_status,
             **_source_usage_fields(asset, marketaux_news, social, coinmarketcal_events),
             **_failed_analysis_fields(e),
         ))
@@ -1946,6 +1970,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         key_assumptions=health.get("key_assumptions") or prev_assumptions,
         web_search_log=web_search_log,
         benzinga_news=benzinga_status,
+        google_news=google_status,
         **_source_usage_fields(asset, marketaux_news, social, coinmarketcal_events),
         health_recommendation=health.get("recommendation"),
         health_expected_direction=health.get("expected_direction"),
@@ -2327,6 +2352,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
         # posledneho plneho pohladu. Zasobnik je zdielany a kesovany, takze to
         # nic nestoji ani ked sken nebezi.
         benzinga_items, benzinga_status, benzinga_since = _benzinga_news(asset, symbol, session)
+        google_items, google_status, google_since = _google_news(asset, symbol, session)
 
         # --- LACNY SKEN (bod 6 auditu, 2026-09-04) --------------------------
         # Bezi LEN pre planovany cyklus bez otvorenej pozicie. Mimoriadne cykly
@@ -2389,6 +2415,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                         market_news=market_news,
                         alpaca_news=benzinga_items,
                         named_news=named_news,
+                        google_news=google_items,
                         hours_since_full=hours_since_full,
                         active_watch=_active_watch_context(symbol, session),
                         schedule=_schedule_context(asset, datetime.now(timezone.utc)),
@@ -2400,7 +2427,8 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                                       # dal ukazat na dashboarde, nie len v logu.
                                       "market_news": market_news_status,
                                       "market_news_named": named_news_status,
-                                      "alpaca_news": benzinga_status}
+                                      "alpaca_news": benzinga_status,
+                                      "google_news": google_status}
                     print(f"[{name}] Sken: worth_full_look={verdict.get('worth_full_look')} "
                           f"attention={verdict.get('attention')} - {verdict.get('reason')}")
                 except Exception as e:
@@ -2441,6 +2469,8 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
 
         full_benzinga = benzinga_items if config.ALPACA_NEWS_FULL_CYCLE else None
         full_benzinga_status = benzinga_status if full_benzinga is not None else None
+        full_google = google_items if config.GOOGLE_NEWS_FULL_CYCLE else None
+        full_google_status = google_status if full_google is not None else None
         try:
             decision, web_search_log, usage = claude_analyst.analyze(
                 asset, ta, cross_market, market_session, social, btc_proxy,
@@ -2462,6 +2492,8 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 alarm_note=_alarm_note(alarm),
                 benzinga_news=full_benzinga,
                 benzinga_since=benzinga_since,
+                google_news=full_google,
+                google_since=google_since,
             )
         except Exception as e:
             print(f"[{name}] Claude analyza zlyhala, preskakujem cyklus: {e}")
@@ -2473,6 +2505,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 trigger_source=_trigger_source(macro_event, watch_triggered, closed_trade, alarm),
                 triage=triage_payload,
                 benzinga_news=full_benzinga_status,
+                google_news=full_google_status,
                 **_source_usage_fields(asset, marketaux_news, social, coinmarketcal_events),
                 **_failed_analysis_fields(e),
             ))
@@ -2531,6 +2564,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             reasoning=decision.get("reasoning"),
             web_search_log=web_search_log,
             benzinga_news=full_benzinga_status,
+            google_news=full_google_status,
             **_source_usage_fields(asset, marketaux_news, social, coinmarketcal_events),
             key_assumptions=decision.get("key_assumptions"),
             watch_price=watch_price,

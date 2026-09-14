@@ -267,6 +267,9 @@ class CycleLog(Base):
     # alpaca_news_client.last_status: items s new/full_text, bez textov).
     # NULL = zdroj vypnuty alebo lacny sken (ten ma svoje v triage.alpaca_news).
     benzinga_news = Column(JSON, nullable=True)
+    # 2026-09-14 - Google News (google_news_client.last_status, items s new) pre
+    # plny cyklus / health check; sken ma svoje v triage.google_news.
+    google_news = Column(JSON, nullable=True)
 
     key_assumptions = Column(String, nullable=True)  # kluc. predpoklady tohto rozhodnutia - overuju sa dalsi cyklus
     # Volitelne - Claude sem napise strucny popis, ak vstupne data pre tento

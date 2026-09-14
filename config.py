@@ -334,6 +334,17 @@ ALPACA_NEWS_FULL_CYCLE = _bool("ALPACA_NEWS_FULL_CYCLE", "true")
 ALPACA_NEWS_POOL_HOURS = _float("ALPACA_NEWS_POOL_HOURS", 36.0)
 # Strop na NOVE titulky (stare sa zobrazia len do ALPACA_NEWS_MAX_ITEMS celkom).
 ALPACA_NEWS_MAX_NEW_ITEMS = _int("ALPACA_NEWS_MAX_NEW_ITEMS", 15)
+# Google News (verejne RSS vyhladavanie) pre slabo pokryte tickery - 2026-09-14,
+# viz google_news_client.py. Dotazy su v assets.py (GOOGLE_NEWS).
+GOOGLE_NEWS_ENABLED = _bool("GOOGLE_NEWS_ENABLED", "true")
+GOOGLE_NEWS_FULL_CYCLE = _bool("GOOGLE_NEWS_FULL_CYCLE", "true")
+GOOGLE_NEWS_MAX_AGE_HOURS = _float("GOOGLE_NEWS_MAX_AGE_HOURS", 24.0)
+GOOGLE_NEWS_MAX_ITEMS = _int("GOOGLE_NEWS_MAX_ITEMS", 8)
+GOOGLE_NEWS_MAX_NEW_ITEMS = _int("GOOGLE_NEWS_MAX_NEW_ITEMS", 10)
+# Kesovanie per ticker - kazdy dotaz na Google najviac raz za tento cas.
+GOOGLE_NEWS_CACHE_MINUTES = _float("GOOGLE_NEWS_CACHE_MINUTES", 30.0)
+# Okno vyhladavania ("when:Nd") - musi pokryt aj NOVE od posledneho plneho pohladu.
+GOOGLE_NEWS_QUERY_DAYS = _int("GOOGLE_NEWS_QUERY_DAYS", 2)
 # Kolko novych clankov ide do plneho cyklu aj s textom a kolko znakov z kazdeho.
 # 3 x 3000 znakov ~ 2.2k tokenov ~ 0.005 $ na cyklus.
 ALPACA_NEWS_FULL_TEXT_ITEMS = _int("ALPACA_NEWS_FULL_TEXT_ITEMS", 3)
