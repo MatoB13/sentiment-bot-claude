@@ -1494,12 +1494,13 @@ def _trigger_source(macro_event=None, watch_triggered=False, closed_trade=None, 
 _TRIAGE_SKIP_OUTCOME = "triage_skip"
 
 
-def _hours_since_full_cycle(symbol: str, session, now: datetime) -> float | None:
-    """Hodiny od posledneho PLNEHO (plateneho, spravy citajuceho) cyklu tohto
-    tickera. None = taky cyklus zatial neexistuje.
+def _last_full_look_at(symbol: str, session) -> datetime | None:
+    """Kedy bol posledny PLNY (plateneho, spravy citajuceho) cyklus alebo health
+    check tohto tickera. None = taky cyklus zatial neexistuje.
 
     Riadky lacneho skenu (outcome=triage_skip) sa NErataju - inak by sken sam
-    seba udrziaval "cerstvym" a plny cyklus by uz nikdy nemusel prist."""
+    seba udrziaval "cerstvym" a plny cyklus by uz nikdy nemusel prist. Mechanicka
+    kontrola pozicie tokeny nema, takze sa nerata tiez."""
     log = (
         session.query(CycleLog.created_at)
         .filter(CycleLog.symbol == symbol,
@@ -1514,7 +1515,32 @@ def _hours_since_full_cycle(symbol: str, session, now: datetime) -> float | None
     created = log[0]
     if created.tzinfo is None:
         created = created.replace(tzinfo=timezone.utc)
+    return created
+
+
+def _hours_since_full_cycle(symbol: str, session, now: datetime) -> float | None:
+    """Hodiny od posledneho plneho pohladu (viz _last_full_look_at)."""
+    created = _last_full_look_at(symbol, session)
+    if created is None:
+        return None
     return (now - created).total_seconds() / 3600
+
+
+def _benzinga_news(asset: dict, symbol: str, session) -> tuple[list[dict] | None, dict | None,
+                                                                datetime | None]:
+    """Titulky Benzinga pre tento ticker s oznacenim NOVE od posledneho plneho
+    pohladu (2026-09-14, po NVDA - viz alpaca_news_client). Vrati (polozky, stav
+    pre DB, cas posledneho plneho pohladu). Neblokujuce: pri chybe (None, stav, None)."""
+    if not (alpaca_news_client.covers(asset) and alpaca_news_client.enabled()):
+        return None, None, None
+    since = None
+    try:
+        since = _last_full_look_at(symbol, session)
+        items = alpaca_news_client.get_headlines_for_asset(asset, since=since)
+        return items, alpaca_news_client.last_status(asset["name"]), since
+    except Exception as e:
+        print(f"[{asset['name']}] Alpaca titulky zlyhali (pokracujem): {e}")
+        return None, {"ok": False, "error": str(e)[:80], "count": 0}, since
 
 
 def _active_watch_context(symbol: str, session) -> dict | None:
@@ -1834,6 +1860,10 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         print(f"[{name}] Vypocet portfolio-wide expozicie zlyhal (pokracujem bez nej): {e}")
         portfolio_exposure = None
 
+    benzinga_items, benzinga_status, benzinga_since = (
+        _benzinga_news(asset, symbol, session) if config.ALPACA_NEWS_FULL_CYCLE
+        else (None, None, None))
+
     try:
         health, web_search_log, usage = claude_analyst.analyze_position_health(
             asset, open_position, ta, cross_market, market_session, social, btc_proxy,
@@ -1846,6 +1876,8 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
             coinmarketcal_events=coinmarketcal_events,
             recent_trades_context=recent_trades_context,
             portfolio_exposure=portfolio_exposure,
+            benzinga_news=benzinga_items,
+            benzinga_since=benzinga_since,
         )
     except Exception as e:
         print(f"[{name}] Position health check zlyhal: {e}")
@@ -1854,6 +1886,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
             session_data=market_session, config_snapshot=_config_snapshot(asset),
             outcome="error", reject_reason=f"health_check_failed: {e}", trade_id=open_trade.id,
             trigger_source=_trigger_source(macro_event, watch_triggered),
+            benzinga_news=benzinga_status,
             **_source_usage_fields(asset, marketaux_news, social, coinmarketcal_events),
         ))
         session.commit()
@@ -1873,6 +1906,7 @@ def _run_position_health_check(asset: dict, open_trade: Trade, cross_market: dic
         # cyklus (prev_log query vyssie) proste zmizol.
         key_assumptions=health.get("key_assumptions") or prev_assumptions,
         web_search_log=web_search_log,
+        benzinga_news=benzinga_status,
         **_source_usage_fields(asset, marketaux_news, social, coinmarketcal_events),
         health_recommendation=health.get("recommendation"),
         health_expected_direction=health.get("expected_direction"),
@@ -2250,6 +2284,11 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             except Exception as e:
                 print(f"[{name}] CoinMarketCal cache-read zlyhal (pokracujem bez neho): {e}")
 
+        # Benzinga (2026-09-14) - pre sken AJ plny cyklus, s oznacenim NOVE od
+        # posledneho plneho pohladu. Zasobnik je zdielany a kesovany, takze to
+        # nic nestoji ani ked sken nebezi.
+        benzinga_items, benzinga_status, benzinga_since = _benzinga_news(asset, symbol, session)
+
         # --- LACNY SKEN (bod 6 auditu, 2026-09-04) --------------------------
         # Bezi LEN pre planovany cyklus bez otvorenej pozicie. Mimoriadne cykly
         # (watch/makro/post-close) preskakuje zamerne: tam UZ nastala udalost,
@@ -2303,24 +2342,13 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                         except Exception as e:
                             print(f"[{name}] Krypto titulky podla nazvu zlyhali (pokracujem): {e}")
                             named_news_status = {"count": 0, "error": str(e)[:80]}
-                    # 2026-09-11 - titulky Benzinga cez Alpaca (viz alpaca_news_client.py).
-                    # Zdielany zasobnik celeho feedu, ticker si vyberie svoje podla
-                    # symbolu alebo nazvu - aj ked o nom dnes nikto nepise, zajtra
-                    # to zachyti sam. Neblokujuce rovnako ako trhove titulky vyssie.
-                    alpaca_news = None
-                    alpaca_news_status = None
-                    if alpaca_news_client.covers(asset) and alpaca_news_client.enabled():
-                        try:
-                            alpaca_news = alpaca_news_client.get_headlines_for_asset(asset)
-                            alpaca_news_status = alpaca_news_client.last_status(name)
-                        except Exception as e:
-                            print(f"[{name}] Alpaca titulky zlyhali (pokracujem): {e}")
-                            alpaca_news_status = {"ok": False, "error": str(e)[:80], "count": 0}
+                    # 2026-09-11 - titulky Benzinga cez Alpaca (viz alpaca_news_client.py);
+                    # stiahnute vyssie (benzinga_items), lebo ich dostava aj plny cyklus.
                     verdict, triage_usage = claude_analyst.triage(
                         asset, ta, cross_market, market_session, btc_proxy,
                         prev_assumptions, prev_cycle_time, marketaux_news,
                         market_news=market_news,
-                        alpaca_news=alpaca_news,
+                        alpaca_news=benzinga_items,
                         named_news=named_news,
                         hours_since_full=hours_since_full,
                         active_watch=_active_watch_context(symbol, session),
@@ -2333,7 +2361,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                                       # dal ukazat na dashboarde, nie len v logu.
                                       "market_news": market_news_status,
                                       "market_news_named": named_news_status,
-                                      "alpaca_news": alpaca_news_status}
+                                      "alpaca_news": benzinga_status}
                     print(f"[{name}] Sken: worth_full_look={verdict.get('worth_full_look')} "
                           f"attention={verdict.get('attention')} - {verdict.get('reason')}")
                 except Exception as e:
@@ -2372,6 +2400,8 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                     session.commit()
                     return
 
+        full_benzinga = benzinga_items if config.ALPACA_NEWS_FULL_CYCLE else None
+        full_benzinga_status = benzinga_status if full_benzinga is not None else None
         try:
             decision, web_search_log, usage = claude_analyst.analyze(
                 asset, ta, cross_market, market_session, social, btc_proxy,
@@ -2391,6 +2421,8 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 recent_trades_context=recent_trades_context,
                 portfolio_exposure=portfolio_exposure,
                 alarm_note=_alarm_note(alarm),
+                benzinga_news=full_benzinga,
+                benzinga_since=benzinga_since,
             )
         except Exception as e:
             print(f"[{name}] Claude analyza zlyhala, preskakujem cyklus: {e}")
@@ -2401,6 +2433,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
                 outcome="error", reject_reason=str(e),
                 trigger_source=_trigger_source(macro_event, watch_triggered, closed_trade, alarm),
                 triage=triage_payload,
+                benzinga_news=full_benzinga_status,
                 **_source_usage_fields(asset, marketaux_news, social, coinmarketcal_events),
             ))
             session.commit()
@@ -2457,6 +2490,7 @@ def run_cycle_for_asset(asset: dict, cross_market: dict, market_session: dict,
             stop_loss_price=decision.get("stop_loss_price"), take_profit_price=decision.get("take_profit_price"),
             reasoning=decision.get("reasoning"),
             web_search_log=web_search_log,
+            benzinga_news=full_benzinga_status,
             **_source_usage_fields(asset, marketaux_news, social, coinmarketcal_events),
             key_assumptions=decision.get("key_assumptions"),
             watch_price=watch_price,

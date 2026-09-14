@@ -674,6 +674,10 @@ mas len ceny, indikatory, cross-market a titulky.
 Povedz ANO, ked: cena sa vyrazne pohla alebo prerazila uroven, objem je nezvycajny, cross-market
 sa otocil (VIX/vynosy/BTC), titulky naznacuju novu udalost, blizi sa makro udalost, alebo sa
 technicky obraz zmenil oproti predpokladom z posledneho pohladu.
+Titulky oznacene NOVE vysli po poslednom dokladnom pohlade. Ci su dovod na ANO, posudzuj podla
+toho, ci ide o skutocnu udalost, ktora moze pohnut cenou (firma, sektor, lidri odvetvia,
+regulacia, makro) - NIE podla toho, ci suvisi s predpokladmi z posledneho pohladu. Tema, ktoru
+predpoklady nespominaju, je prave to, co analytik nevie.
 Povedz NIE, ked je obraz v podstate rovnaky: cena v pasme bez prerazenia, priemerny objem,
 ziadne nove titulky, indikatory bez zmeny rezimu.
 
@@ -1366,6 +1370,13 @@ stav rokovaní, výsledok eventu), TVOJ DOTAZ MUSÍ OBSAHOVAŤ konkrétne meno/e
 (napr. ak predpoklad hovorí o Iráne/Hormuze, dotaz musí obsahovať "Iran"/"Hormuz") - všeobecný
 dotaz len na cenu nástroja túto tému neoverí a nechá ťa nevedomky pracovať so zastaraným stavom.
 
+Overovanie starých predpokladov ale nesmie byť JEDINÉ, čo hľadáš: tak nájdeš len pokračovanie
+témy, ktorú už poznáš, a novú tému nie. Aspoň jeden z dotazov v každom cykle preto musí byť
+ŠIROKÝ - na sektor alebo trh nástroja, bez témy z predpokladov (napr. "AI chip stocks news
+[dátum]", "crypto market news today", "oil market news [dátum]"). Ak z neho vyjde nová udalosť
+(vyjadrenia lídrov odvetvia, regulácia, sektorový šok), zhodnoť ju v reasoning, aj keď
+nesúvisí s doterajšou tézou. Rovnako nové správy Benzinga v user správe.
+
 KRITICKÉ pravidlo o integrite zdrojov: nikdy nenapíš "web search potvrdzuje X" alebo "podľa
 vyhľadávania X", pokiaľ X nie je PRIAMO doložené konkrétnym zdrojom, ktorý si SKUTOČNE dostal
 vo výsledkoch TOHTO cyklu (nie spomienkou, nie odhadom, nie tým, čo "zvyčajne platí"). Toto
@@ -1619,6 +1630,39 @@ def _ta_for_prompt(ta: dict | None) -> dict | None:
     return out
 
 
+def _news_age(hours: float) -> str:
+    return f"{hours * 60:.0f} min" if hours < 1 else f"{hours:.1f} h"
+
+
+def _benzinga_block(instrument: str, items: list[dict] | None,
+                    since: datetime | None) -> str:
+    """Benzinga (alpaca_news_client) pre PLNY cyklus a health check - 2026-09-14,
+    po NVDA: sprava o vyzve na spomalenie AI bola v Benzinge v piatok, plne cykly
+    ju nevideli (Benzinga isla len do skenu) a cez vikend hladali len
+    pokracovanie starej tezy. NOVE clanky su vyznacene; tie s full_text idu aj
+    s textom (najviac ALPACA_NEWS_FULL_TEXT_ITEMS, skratene), ostatne titulkom."""
+    if not items:
+        return ""
+    lines = []
+    for a in items:
+        tag = f"NOVÉ, pred {_news_age(a['age_hours'])}" if a.get("new") else f"pred {_news_age(a['age_hours'])}"
+        line = f"- [{tag}] {a['title']}"
+        if a.get("full_text") and a.get("text"):
+            line += f"\n  Text: {a['text']}"
+        lines.append(line)
+    since_txt = (f" ({since.strftime('%a %d.%m. %H:%M')} UTC)" if since else "")
+    new_count = sum(1 for a in items if a.get("new"))
+    head = (f"\n## Správy Benzinga o {instrument} (profesionálna agentúra, NIE web_search)\n"
+            f"NOVÉ = vyšlo po tvojom poslednom plnom pohľade na tento nástroj{since_txt} - "
+            f"tieto si ešte nevidel ({new_count} z {len(items)}). Nová správa o nástroji, jeho "
+            f"sektore, lídroch, regulácii alebo makre, ktorá môže pohnúť cenou, sa počíta, aj keď "
+            f"NESÚVISÍ s doterajšou tézou - vtedy ju v reasoning výslovne zhodnoť. Rutinné "
+            f"články (ratingy, opcie, prehľady) sú len pozadie.\n")
+    tail = ("(Text pod titulkom je začiatok článku, skrátený. Nové články bez textu si môžeš "
+            "dohľadať cez web_search, ak titulok vyzerá dôležito.)\n")
+    return head + "\n".join(lines) + "\n" + tail
+
+
 def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                         social: list[dict], btc_proxy: dict | None,
                         prev_assumptions: str | None,
@@ -1641,7 +1685,9 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
                         coinmarketcal_events: list[dict] | None = None,
                         recent_trades_context: list[dict] | None = None,
                         portfolio_exposure: list[dict] | None = None,
-                        alarm_note: str | None = None) -> str:
+                        alarm_note: str | None = None,
+                        benzinga_news: list[dict] | None = None,
+                        benzinga_since: datetime | None = None) -> str:
     instrument = asset["name"]
     social_block = "\n".join(
         f"- ({p.get('likes')}♥/{p.get('retweets')}rt) {p.get('text')}"
@@ -1661,7 +1707,9 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
             f"predpoklady stále platia, alebo sa niečo zmenilo (event už prebehol, správa sa "
             f"nenaplnila, sentiment sa otočil...). V reasoning výslovne napíš, či držia alebo čo "
             f"sa zmenilo - a ak si to tento cyklus cielene neoveril, napíš to takisto explicitne "
-            f"namiesto toho, aby si predpoklad len zopakoval ako potvrdený."
+            f"namiesto toho, aby si predpoklad len zopakoval ako potvrdený. Popri overovaní "
+            f"predpokladov polož aj aspoň jeden ŠIROKÝ dotaz na sektor/trh nástroja bez témy "
+            f"z predpokladov - inak novú tému, ktorá medzitým vznikla, nenájdeš."
         )
     elif prev_assumptions:
         prev_block = (
@@ -1956,6 +2004,8 @@ def _build_user_prompt(asset: dict, ta: dict, cross_market: dict, session: dict,
             f"vsetky clanky su uz vopred filtrovane na mladsie nez {config.MARKETAUX_MAX_ARTICLE_AGE_HOURS:.0f}h)\n"
         )
 
+    benzinga_block = _benzinga_block(instrument, benzinga_news, benzinga_since)
+
     # CoinMarketCal (2026-08-19, na ziadost pouzivatela) - strukturovany zdroj
     # nadchadzajucich krypto-projektovych udalosti (burzove listingy,
     # hlasovania, protokolove upgrady, token unlocky), doplnajuci existujuci
@@ -2085,7 +2135,7 @@ Tento cyklus beží každých {interval_h}h - zaujímajú ťa hlavne udalosti/sp
 {btc_block}
 ## Social media sentiment
 {social_block}
-{marketaux_block}{coinmarketcal_block}
+{marketaux_block}{benzinga_block}{coinmarketcal_block}
 
 ## Kľúčové predpoklady z predchádzajúceho cyklu (~{interval_h}h dozadu)
 {prev_block}
@@ -2533,7 +2583,9 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
             watch_set_context: dict | None = None,
             recent_trades_context: list[dict] | None = None,
             portfolio_exposure: list[dict] | None = None,
-            alarm_note: str | None = None) -> tuple[dict, list[dict], dict]:
+            alarm_note: str | None = None,
+            benzinga_news: list[dict] | None = None,
+            benzinga_since: datetime | None = None) -> tuple[dict, list[dict], dict]:
     """Vrati (decision, web_search_log, usage). web_search_log je zoznam
     {"query": str, "sources": [{"title", "url", "page_age"}]} pre kazde
     vyhladavanie, ktore Claude spravil - sluzi na audit (co realne citas,
@@ -2569,7 +2621,9 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
                                       coinmarketcal_events=coinmarketcal_events,
                                       recent_trades_context=recent_trades_context,
                                       portfolio_exposure=portfolio_exposure,
-                                      alarm_note=alarm_note)
+                                      alarm_note=alarm_note,
+                                      benzinga_news=benzinga_news,
+                                      benzinga_since=benzinga_since)
     decision, web_search_log, usage = _call_claude(asset, system_blocks, user_prompt,
                                                      DECISION_TOOL, "submit_trade_decision")
     try:
@@ -2604,7 +2658,9 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                              new_stats_text: str | None = None,
                              coinmarketcal_events: list[dict] | None = None,
                              recent_trades_context: list[dict] | None = None,
-                             portfolio_exposure: list[dict] | None = None) -> tuple[dict, list[dict], dict]:
+                             portfolio_exposure: list[dict] | None = None,
+                             benzinga_news: list[dict] | None = None,
+                             benzinga_since: datetime | None = None) -> tuple[dict, list[dict], dict]:
     """Ako analyze(), ale pre UZ OTVORENU poziciu (viz
     trade_cycle._run_position_health_check) - namiesto rozhodnutia o novom
     obchode (direction/SL/TP) sa Claude vyjadri, ci povodne predpoklady este
@@ -2631,7 +2687,9 @@ def analyze_position_health(asset: dict, open_position: dict, ta: dict, cross_ma
                                       close_verdict=close_verdict,
                                       coinmarketcal_events=coinmarketcal_events,
                                       recent_trades_context=recent_trades_context,
-                                      portfolio_exposure=portfolio_exposure)
+                                      portfolio_exposure=portfolio_exposure,
+                                      benzinga_news=benzinga_news,
+                                      benzinga_since=benzinga_since)
     decision, web_search_log, usage = _call_claude(asset, system_blocks, user_prompt,
                                                      POSITION_HEALTH_TOOL, "submit_position_health_check")
     _validate_health_decision(decision)
@@ -3261,16 +3319,23 @@ def _build_triage_prompt(asset: dict, ta: dict, cross_market: dict, session: dic
     # QQQ pre NAS100, GLD pre zlato, USO pre ropu) alebo ho spominaju nazvom v
     # nadpise. Vek sa pise v minutach, lebo pri skene rozhoduje, ci je sprava
     # NOVSIA nez posledny plny pohlad.
+    # 2026-09-14 (po NVDA) - titulky vydane PO poslednom dokladnom pohlade maju
+    # znacku NOVE (alpaca_news_client, pole `new`). Sken predtym dvakrat odbil
+    # vyzvu na spomalenie AI ako "nesuvisiacu s tezou o DOJ/Groq" - rozhodovat
+    # ma novost a dosah, nie zhoda so starou tezou.
     alpaca_block = ""
     if alpaca_news:
-        def _age(h):
-            return f"{h * 60:.0f} min" if h < 1 else f"{h:.1f} h"
-        lines = "\n".join(f"- [pred {_age(a['age_hours'])}] {a['title']}" for a in alpaca_news)
+        lines = "\n".join(
+            f"- [{'NOVE, ' if a.get('new') else ''}pred {_news_age(a['age_hours'])}] {a['title']}"
+            for a in alpaca_news)
         alpaca_block = (
             "\n## Cerstve titulky Benzinga (profesionalna agentura, tykaju sa tohto nastroja)\n"
-            "Len nadpisy. Rozhoduje, ci je nieco z toho NOVE od posledneho dokladneho pohladu\n"
-            "a moze to pohnut cenou; rutinne titulky (ratingy, 'what's going on', prehlady\n"
-            "trhu) samy o sebe NIE SU dovod na ANO.\n" + lines + "\n")
+            "Len nadpisy. NOVE = vyslo po poslednom dokladnom pohlade, analytik to este\n"
+            "nevidel. NOVY titulok o nastroji, jeho sektore, lidroch, regulacii alebo makre,\n"
+            "ktory moze pohnut cenou, je dovod na ANO, aj ked NESUVISI s predpokladmi z\n"
+            "posledneho pohladu - nesuvislost znamena, ze analytik o nom nevie. Rutinne\n"
+            "titulky (ratingy, opcie, 'what's going on', prehlady trhu, porovnania akcii)\n"
+            "samy o sebe NIE SU dovod na ANO.\n" + lines + "\n")
 
     watch_block = "(ziadna aktivna uroven)"
     if active_watch and active_watch.get("watch_price") is not None:

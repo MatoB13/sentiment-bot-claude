@@ -87,6 +87,9 @@ check("ziadne volanie siete", len(calls), 0)
 print("\n2) Zasobnik: strankovanie, vek, vyber podla symbolu aj nazvu")
 config.ALPACA_API_KEY_ID, config.ALPACA_API_SECRET_KEY = "PKtest", "secret"
 config.ALPACA_NEWS_MAX_AGE_HOURS, config.ALPACA_NEWS_MAX_ITEMS = 12.0, 3
+# Bez `since` je vsetko do 12 h NOVE (2026-09-14) - strop tu drzi MAX_NEW_ITEMS.
+config.ALPACA_NEWS_MAX_NEW_ITEMS = 3
+config.ALPACA_NEWS_POOL_HOURS = 12.0
 config.ALPACA_NEWS_CACHE_MINUTES = 5.0
 reset()
 state["pages"] = [

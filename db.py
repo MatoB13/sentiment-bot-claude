@@ -263,6 +263,10 @@ class CycleLog(Base):
     marketaux_used = Column(Boolean, nullable=True)
     social_post_count = Column(Integer, nullable=True)
     coinmarketcal_used = Column(Boolean, nullable=True)
+    # 2026-09-14 - co z Benzingy dostal PLNY cyklus / health check (stav z
+    # alpaca_news_client.last_status: items s new/full_text, bez textov).
+    # NULL = zdroj vypnuty alebo lacny sken (ten ma svoje v triage.alpaca_news).
+    benzinga_news = Column(JSON, nullable=True)
 
     key_assumptions = Column(String, nullable=True)  # kluc. predpoklady tohto rozhodnutia - overuju sa dalsi cyklus
     # Volitelne - Claude sem napise strucny popis, ak vstupne data pre tento

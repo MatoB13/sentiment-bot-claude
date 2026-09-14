@@ -325,6 +325,19 @@ ALPACA_NEWS_ENABLED = _bool("ALPACA_NEWS_ENABLED", "true")
 ALPACA_NEWS_MAX_AGE_HOURS = _float("ALPACA_NEWS_MAX_AGE_HOURS", 12.0)
 ALPACA_NEWS_MAX_ITEMS = _int("ALPACA_NEWS_MAX_ITEMS", 8)
 ALPACA_NEWS_CACHE_MINUTES = _float("ALPACA_NEWS_CACHE_MINUTES", 5.0)
+# 2026-09-14 (po NVDA: vyzvu na spomalenie AI videl bot az po 2,5 dna) - Benzinga
+# ide aj do PLNEHO cyklu a health checku, clanky NOVE od posledneho plneho
+# pohladu su oznacene a najnovsie z nich idu aj s textom. Viz alpaca_news_client.
+ALPACA_NEWS_FULL_CYCLE = _bool("ALPACA_NEWS_FULL_CYCLE", "true")
+# Ako daleko dozadu drzi zasobnik clanky - posledny plny pohlad moze byt starsi
+# nez ALPACA_NEWS_MAX_AGE_HOURS (vikend, dlhe drzanie pozicie bez eskalacie).
+ALPACA_NEWS_POOL_HOURS = _float("ALPACA_NEWS_POOL_HOURS", 36.0)
+# Strop na NOVE titulky (stare sa zobrazia len do ALPACA_NEWS_MAX_ITEMS celkom).
+ALPACA_NEWS_MAX_NEW_ITEMS = _int("ALPACA_NEWS_MAX_NEW_ITEMS", 15)
+# Kolko novych clankov ide do plneho cyklu aj s textom a kolko znakov z kazdeho.
+# 3 x 3000 znakov ~ 2.2k tokenov ~ 0.005 $ na cyklus.
+ALPACA_NEWS_FULL_TEXT_ITEMS = _int("ALPACA_NEWS_FULL_TEXT_ITEMS", 3)
+ALPACA_NEWS_FULL_TEXT_CHARS = _int("ALPACA_NEWS_FULL_TEXT_CHARS", 3000)
 
 
 # treba premerat znova. Nastavenie oboch na 0 branu vypne.
