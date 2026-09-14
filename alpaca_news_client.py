@@ -47,6 +47,7 @@ vypadok dal ukazat na dashboarde (rovnaky vzor ako market_news_client).
 """
 import html
 import re
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -78,6 +79,15 @@ _pool_fetched_at: float = 0.0
 _pool_status: dict = {"ok": None, "error": None, "size": 0}
 # {asset_name: stav posledneho vyberu} - ide do triage.alpaca_news pri cykle.
 _last_status: dict = {}
+# 2026-09-14 - zasobnik citaju cykly (paralelne vlakna) aj news_watch; bez zamku
+# by iteracia pocas doplnania mohla spadnut na "dictionary changed size".
+_lock = threading.Lock()
+
+
+def _pool_snapshot() -> list[dict]:
+    with _lock:
+        _refresh_pool()
+        return list(_pool.values())
 
 
 def enabled() -> bool:
@@ -209,14 +219,14 @@ def get_headlines_for_asset(asset: dict, since: datetime | None = None) -> list[
     text) a text. `text` sa do stavu (a teda do DB) nezapisuje."""
     if not enabled() or not covers(asset):
         return []
-    _refresh_pool()
+    pool = _pool_snapshot()
     now = datetime.now(timezone.utc)
     if since is None:
         since = now - timedelta(hours=config.ALPACA_NEWS_MAX_AGE_HOURS)
     elif since.tzinfo is None:
         since = since.replace(tzinfo=timezone.utc)
     matched = []
-    for item in _pool.values():
+    for item in pool:
         by = _match(asset, item)
         if not by:
             continue
@@ -260,3 +270,22 @@ def get_headlines_for_asset(asset: dict, since: datetime | None = None) -> list[
         "items": [{k: v for k, v in i.items() if k != "text"} for i in result],
     }
     return result
+
+
+def items_for_asset(asset: dict) -> list[dict]:
+    """VSETKY titulky zo zasobnika priradene tickeru, bez stropov a BEZ zapisu stavu
+    (last_status patri cyklom) - pre tienove meranie news_watch (2026-09-14).
+    [{title, created, routine}] od najnovsieho, dedup podla titulku."""
+    if not enabled() or not covers(asset):
+        return []
+    seen, out = set(), []
+    for item in sorted(_pool_snapshot(), key=lambda x: x["created"], reverse=True):
+        if not _match(asset, item):
+            continue
+        k = item["title"].lower()
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append({"title": item["title"], "created": item["created"],
+                    "routine": is_routine(item["title"])})
+    return out

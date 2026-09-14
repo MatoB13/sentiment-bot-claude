@@ -522,6 +522,38 @@ class PriceMinute(Base):
     price = Column(Float, nullable=False)
 
 
+class NewsEvent(Base):
+    """TIENOVE meranie "rychlej vrstvy" (2026-09-14, na ziadost pouzivatela) - kazda
+    nova sprava o tickeri z Benzingy / Google News, ked ju news_watch prvy raz uvidel.
+    Do rozhodovania NEVSTUPUJE. Otazka: chodi sprava PRED pohybom ceny, a o kolko
+    skor by bot reagoval, keby cyklus spustala sprava namiesto ceny/rozvrhu?
+    Ceny po sprave dopina news_watch priebezne z price_minutes (tie sa drzia len
+    3 dni). baseline = sprava, ktora uz bola v zasobniku pri prvom behu procesu
+    (start alebo restart) - jej seen_at nie je cas prichodu, do vyhodnotenia nejde.
+    Casy naive UTC."""
+    __tablename__ = "news_events"
+    __table_args__ = (UniqueConstraint("symbol", "title_norm", name="uq_news_events_symbol_title"),)
+
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False, index=True)
+    source = Column(String, nullable=False)            # "benzinga" | "google"
+    title = Column(String, nullable=False)
+    title_norm = Column(String, nullable=False)
+    media = Column(String, nullable=True)              # Google: nazov media
+    published_at = Column(DateTime, nullable=True)
+    seen_at = Column(DateTime, nullable=False, index=True)
+    routine = Column(Boolean, nullable=True)           # Benzinga rutinny titulok (Google ich uz vyhodil)
+    baseline = Column(Boolean, nullable=False, default=False)
+    atr = Column(Float, nullable=True)                 # atr14 z posledneho cyklu tickera
+    price_pre_4h = Column(Float, nullable=True)        # cena 4 h pred seen_at (bola sprava az po pohybe?)
+    price_at_seen = Column(Float, nullable=True)
+    price_1h = Column(Float, nullable=True)
+    price_4h = Column(Float, nullable=True)
+    price_12h = Column(Float, nullable=True)
+    high_12h = Column(Float, nullable=True)
+    low_12h = Column(Float, nullable=True)
+
+
 class FundingRateBar(Base):
     """Vlastna hodinova historia AKTUALNEJ trhovej funding rate (2026-08-15) -
     NEZAVISLA od FundingPayment nizsie (ktora zaznamenava len REALIZOVANE platby

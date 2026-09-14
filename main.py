@@ -13,6 +13,7 @@ import deribit_options_poller
 import extreme_alarm
 import liq_heatmap
 import long_short_poller
+import news_watch
 import position_monitor
 import price_poller
 import sl_calibration
@@ -144,6 +145,13 @@ def main():
                        minutes=1,
                        next_run_time=now + timedelta(minutes=1),
                        id="price_poller")
+    # 2026-09-14 (na ziadost pouzivatela) - TIENOVE meranie rychlej vrstvy sprav
+    # (viz news_watch.py): len zapis novych sprav do news_events z uz existujucich
+    # zasobnikov Benzinga/Google News, ziadne Claude volanie, do rozhodovania nic.
+    scheduler.add_job(news_watch.poll_news, "interval",
+                       minutes=config.NEWS_WATCH_INTERVAL_MINUTES,
+                       next_run_time=now + timedelta(minutes=2),
+                       id="news_watch")
     # 2026-08-21 (na ziadost pouzivatela, pred cestou bez pocitaca) - "je bot
     # nazivo?" kontrola, viz heartbeat_check.py pre plny kontext a DOLEZITE
     # OBMEDZENIE (zachyti len zaseknuty proces, nie uplny pad - ten sa neda

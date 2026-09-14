@@ -149,6 +149,32 @@ def _norm(title: str) -> str:
     return re.sub(r"\W+", " ", title.lower()).strip()
 
 
+def _filtered(asset: dict, raw: list[dict]) -> list[dict]:
+    """Titulky o tickeri bez rutinnych/blokovanych zdrojov, dedup, od najnovsieho."""
+    rx = _match_re(asset)
+    seen, out = set(), []
+    for i in sorted(raw, key=lambda x: x["created"], reverse=True):
+        if rx is not None and not rx.search(i["title"]):
+            continue
+        if is_routine(i["title"]) or (i["source"] or "").strip().lower() in _BLOCKED_SOURCES:
+            continue
+        key = _norm(i["title"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(i)
+    return out
+
+
+def items_for_asset(asset: dict) -> list[dict]:
+    """Vsetky prefiltrovane titulky tickera BEZ zapisu stavu (last_status patri
+    cyklom) - pre tienove meranie news_watch. [{title, source, created}]."""
+    if not enabled() or not covers(asset):
+        return []
+    raw, _errors, _ok = _raw_for_asset(asset)
+    return _filtered(asset, raw)
+
+
 def get_headlines_for_asset(asset: dict, since: datetime | None = None) -> list[dict]:
     """Titulky o tickeri od najnovsieho: {title, age_hours, source, new}.
     since = posledny plny pohlad (NOVE su po nom, ukazu sa do GOOGLE_NEWS_MAX_NEW_ITEMS
@@ -163,17 +189,8 @@ def get_headlines_for_asset(asset: dict, since: datetime | None = None) -> list[
         since = now - timedelta(hours=config.GOOGLE_NEWS_MAX_AGE_HOURS)
     elif since.tzinfo is None:
         since = since.replace(tzinfo=timezone.utc)
-    rx = _match_re(asset)
-    seen, unique = set(), []
-    for i in sorted(raw, key=lambda x: x["created"], reverse=True):
-        if rx is not None and not rx.search(i["title"]):
-            continue
-        if is_routine(i["title"]) or (i["source"] or "").strip().lower() in _BLOCKED_SOURCES:
-            continue
-        key = _norm(i["title"])
-        if key in seen:
-            continue
-        seen.add(key)
+    unique = []
+    for i in _filtered(asset, raw):
         age = max(0.0, (now - i["created"]).total_seconds() / 3600)
         new = i["created"] > since
         if not new and age > config.GOOGLE_NEWS_MAX_AGE_HOURS:

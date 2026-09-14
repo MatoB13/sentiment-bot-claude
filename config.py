@@ -345,6 +345,10 @@ GOOGLE_NEWS_MAX_NEW_ITEMS = _int("GOOGLE_NEWS_MAX_NEW_ITEMS", 10)
 GOOGLE_NEWS_CACHE_MINUTES = _float("GOOGLE_NEWS_CACHE_MINUTES", 30.0)
 # Okno vyhladavania ("when:Nd") - musi pokryt aj NOVE od posledneho plneho pohladu.
 GOOGLE_NEWS_QUERY_DAYS = _int("GOOGLE_NEWS_QUERY_DAYS", 2)
+# Tienove meranie "rychlej vrstvy" (news_watch.py, 2026-09-14) - LEN zber do
+# news_events, do rozhodovania nevstupuje. Zdroje sa nestahuju navyse (zdielane kese).
+NEWS_WATCH_ENABLED = _bool("NEWS_WATCH_ENABLED", "true")
+NEWS_WATCH_INTERVAL_MINUTES = _float("NEWS_WATCH_INTERVAL_MINUTES", 5.0)
 # Kolko novych clankov ide do plneho cyklu aj s textom a kolko znakov z kazdeho.
 # 3 x 3000 znakov ~ 2.2k tokenov ~ 0.005 $ na cyklus.
 ALPACA_NEWS_FULL_TEXT_ITEMS = _int("ALPACA_NEWS_FULL_TEXT_ITEMS", 3)
