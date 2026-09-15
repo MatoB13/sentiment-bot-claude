@@ -198,7 +198,10 @@ DECISION_TOOL = {
         "properties": {
             "direction": {
                 "type": "string", "enum": ["long", "short", "none"],
-                "description": "Obchodny smer.",
+                # 2026-09-15 - WTI 14.9. a AAOI 15.9.: Claude sa rozhodol neobchodovat
+                # (watch urovne, uvaha "ani long, ani short"), ale pole vynechal.
+                "description": ("Obchodny smer. VZDY vypln - aj ked neobchodujes ('none'); "
+                                "bez neho sa cele rozhodnutie zahodi."),
             },
             "confidence": {
                 "type": "integer", "minimum": 0, "maximum": 100,
@@ -2655,6 +2658,7 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
                                       google_since=google_since)
     decision, web_search_log, usage = _call_claude(asset, system_blocks, user_prompt,
                                                      DECISION_TOOL, "submit_trade_decision")
+    _recover_missing_direction(decision, asset["name"])
     try:
         _validate_decision(decision)
     except ValueError as e:
@@ -3238,8 +3242,32 @@ class MalformedDecision(ValueError):
         self.decision = decision or {}
 
 
+_DECISION_REQUIRED = {"direction", "confidence", "stop_loss_price", "take_profit_price", "reasoning"}
+_DIRECTION_RECOVERED_NOTE = "Smer v odpovedi chybal - doplnene 'none' (pozicia sa neotvorila)."
+
+
+def _recover_missing_direction(decision: dict, asset_name: str) -> bool:
+    """Ked v rozhodnuti chyba LEN `direction` a vsetky ostatne povinne polia prisli,
+    doplni 'none'. True = doplnene.
+
+    2026-09-15 (na ziadost pouzivatela) - WTI 14.9. aj AAOI 15.9.: stop_reason=tool_use
+    (nie orezanie), uvaha jasne "ani long, ani short", nastavene watch urovne - Claude
+    len vynechal pole smeru a cele zaplatene rozhodnutie sa zahodilo aj s watch
+    urovnami. 'none' je BEZPECNE: pozicia sa neotvori, rovnako ako pri zahodeni -
+    ale watch urovne a predpoklady ostanu. Ak chyba cokolvek dalsie (typicky orezana
+    odpoved), nedoplna sa nic a rozhodnutie sa zahodi ako doteraz."""
+    if _DECISION_REQUIRED - decision.keys() != {"direction"}:
+        return False
+    decision["direction"] = "none"
+    note = decision.get("data_issue")
+    decision["data_issue"] = f"{note} | {_DIRECTION_RECOVERED_NOTE}" if note else _DIRECTION_RECOVERED_NOTE
+    print(f"[claude_analyst] [{asset_name}] POZOR: rozhodnutie prislo bez 'direction' "
+          f"(ostatne polia v poriadku) - doplnam 'none', watch urovne a predpoklady ostavaju.")
+    return True
+
+
 def _validate_decision(decision: dict) -> None:
-    required = {"direction", "confidence", "stop_loss_price", "take_profit_price", "reasoning"}
+    required = _DECISION_REQUIRED
     missing = required - decision.keys()
     if missing:
         raise ValueError(f"Chýbajúce polia v rozhodnutí: {missing}")
