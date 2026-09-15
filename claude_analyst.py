@@ -2660,6 +2660,7 @@ def analyze(asset: dict, ta: dict, cross_market: dict, session: dict, social: li
                                                      DECISION_TOOL, "submit_trade_decision")
     _recover_missing_direction(decision, asset["name"])
     try:
+        _normalize_decision_numbers(decision, asset["name"])
         _validate_decision(decision)
     except ValueError as e:
         # Doplnime kontext, ktory _validate_decision nema - viz MalformedDecision.
@@ -3264,6 +3265,70 @@ def _recover_missing_direction(decision: dict, asset_name: str) -> bool:
     print(f"[claude_analyst] [{asset_name}] POZOR: rozhodnutie prislo bez 'direction' "
           f"(ostatne polia v poriadku) - doplnam 'none', watch urovne a predpoklady ostavaju.")
     return True
+
+
+# 2026-09-15 (na ziadost pouzivatela, ADA cyklus #8480) - Claude vratil pri 'none'
+# (istota 28) stop_loss_price ako TEXT "0.196}," - kus JSON-u v hodnote. Validacia typ
+# SL/TP nekontrolovala, riadok CycleLog potom spadol pri zapise (Postgres DataError na
+# float stlpci) - zaplatena analyza sa zahodila aj s watch urovnami. Toto sa robi
+# PRED _validate_decision: cisty cislovy text sa prevedie, pri 'none' sa nepouzitelne
+# SL/TP vyprazdnia (pri 'none' ich nic nepouziva), pri long/short sa rozhodnutie
+# zahodi ako nepouzitelne (MalformedDecision) - cenu pre skutocny obchod nehadame.
+_JSON_TAIL_RE = re.compile(r"""[\s"'}\],]+$""")
+_NUMBER_RE = re.compile(r"[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?")
+
+
+def _as_number(value) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value) if value == value and abs(value) != float("inf") else None
+    if isinstance(value, str):
+        s = _JSON_TAIL_RE.sub("", value.strip()).strip().strip("\"'")
+        if _NUMBER_RE.fullmatch(s):
+            return float(s)
+    return None
+
+
+def _normalize_decision_numbers(decision: dict, asset_name: str) -> list[str]:
+    """Opravi ciselne polia rozhodnutia, ktore prisli ako text. Vrati zoznam oprav
+    (zapisu sa do data_issue). ValueError = pole je nepouzitelne pre obchod."""
+    fixes = []
+    is_none = str(decision.get("direction", "")).lower() == "none"
+    for field in ("confidence", "stop_loss_price", "take_profit_price"):
+        if field not in decision:
+            continue            # chybajuce pole riesi _validate_decision
+        raw = decision[field]
+        if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+            continue
+        num = _as_number(raw)
+        if num is not None:
+            decision[field] = int(round(num)) if field == "confidence" else num
+            fixes.append(f"{field} {raw!r} -> {decision[field]}")
+        elif field != "confidence" and is_none:
+            decision[field] = None
+            fixes.append(f"{field} {raw!r} -> prazdne (pri 'none' sa nepouziva)")
+        else:
+            raise ValueError(f"Neplatne {field}: {raw!r}")
+    # watch urovne: nepouzitelna uroven sa vynecha (cely par), rozhodnutie ostava
+    for price_f, dir_f in (("watch_price", "watch_direction"), ("watch_price_2", "watch_direction_2")):
+        raw = decision.get(price_f)
+        if raw is None or (isinstance(raw, (int, float)) and not isinstance(raw, bool)):
+            continue
+        num = _as_number(raw)
+        if num is not None:
+            decision[price_f] = num
+            fixes.append(f"{price_f} {raw!r} -> {num}")
+        else:
+            decision[price_f] = None
+            decision[dir_f] = None
+            fixes.append(f"{price_f} {raw!r} neplatne - watch uroven vynechana")
+    if fixes:
+        note = "Poskodene cisla v odpovedi opravene: " + "; ".join(fixes)
+        prev = decision.get("data_issue")
+        decision["data_issue"] = f"{prev} | {note}" if prev else note
+        print(f"[claude_analyst] [{asset_name}] POZOR: {note}")
+    return fixes
 
 
 def _validate_decision(decision: dict) -> None:

@@ -189,5 +189,62 @@ check("  predpoklady ulozene", log.key_assumptions, "95.5 plytko")
 check("  poznamka o doplneni v data_issue", ca_fresh._DIRECTION_RECOVERED_NOTE in (log.data_issue or ""), True)
 s.close()
 
+print("\n6) 15.9. - poskodene cisla (ADA #8480: stop_loss_price = \"0.196},\" pri 'none')")
+ADA_8480 = dict(AAOI_LIKE, direction="none", confidence=28, stop_loss_price="0.196},", take_profit_price=0.23,
+                watch_price=0.25, watch_price_2=0.20)
+d = dict(ADA_8480)
+fx = ca._normalize_decision_numbers(d, "ADA")
+check("'none': cislo s chvostom JSON-u sa opravi na 0.196", d["stop_loss_price"], 0.196)
+check("  oprava v data_issue", "stop_loss_price '0.196},' -> 0.196" in d["data_issue"], True)
+d = dict(ADA_8480, stop_loss_price="neviem}")
+ca._normalize_decision_numbers(d, "ADA")
+check("'none': nepouzitelne SL -> prazdne, rozhodnutie ostava", (d["stop_loss_price"], d["direction"]), (None, "none"))
+d = dict(ADA_8480, direction="long", stop_loss_price="neviem}")
+try:
+    ca._normalize_decision_numbers(d, "ADA")
+    check("long s nepouzitelnym SL -> ValueError", False, True)
+except ValueError as e:
+    check("long s nepouzitelnym SL -> ValueError (cenu pre obchod nehadame)", "stop_loss_price" in str(e), True)
+d = dict(ADA_8480, direction="long", stop_loss_price=" 0.21 ", confidence="61")
+ca._normalize_decision_numbers(d, "ADA")
+check("long: cisty cislovy text sa prevedie (SL 0.21, istota 61)", (d["stop_loss_price"], d["confidence"]), (0.21, 61))
+d = dict(ADA_8480, confidence=None)
+try:
+    ca._normalize_decision_numbers(d, "ADA")
+    check("istota None -> ValueError", False, True)
+except ValueError:
+    check("istota None -> ValueError (predtym TypeError = pad cyklu)", True, True)
+d = dict(ADA_8480, watch_price="0.25\"}", watch_price_2="nizsie")
+ca._normalize_decision_numbers(d, "ADA")
+check("watch: opravitelna uroven ostane, nepouzitelna sa vynecha aj so smerom",
+      (d["watch_price"], d["watch_direction"], d["watch_price_2"], d["watch_direction_2"]), (0.25, "above", None, None))
+d = dict(ADA_8480, stop_loss_price=0.21)
+check("REGRESIA ciste cisla: ziadna oprava, data_issue netknute",
+      (ca._normalize_decision_numbers(d, "ADA"), d.get("data_issue")), ([], None))
+check("bool nie je cislo", ca._as_number(True), None)
+ca._call_claude = lambda *a, **k: (dict(ADA_8480, direction="long", stop_loss_price="neviem}"), list(WS), dict(USAGE))
+try:
+    ca.analyze(ADA, TA_ADA, {}, {}, [], None, None)
+    check("analyze long s nepouzitelnym SL -> MalformedDecision", False, True)
+except ca.MalformedDecision as e:
+    check("analyze long s nepouzitelnym SL -> MalformedDecision (uvaha sa ulozi)", "stop_loss_price" in str(e), True)
+ca._call_claude = real_call
+
+print("\n7) Integracne: cyklus ADA #8480 sa zapise ako bezny 'none' s watch urovnami")
+ca._call_claude = lambda *a, **k: (dict(ADA_8480), list(WS), dict(USAGE))
+s = get_session()
+s.query(CycleLog).delete()
+s.commit()
+s.close()
+tc.run_cycle_for_asset(ADA, {}, {}, None, None, skip_due_check=True)
+ca._call_claude = real_call
+s = get_session()
+log = s.query(CycleLog).order_by(CycleLog.created_at.desc()).first()
+check("outcome rejected (none), nie error", (log.outcome, log.direction, log.confidence), ("rejected", "none", 28))
+check("  SL ulozene ako cislo 0.196 (Postgres by text odmietol)", (log.stop_loss_price, type(log.stop_loss_price).__name__),
+      (0.196, "float"))
+check("  watch urovne v DB", (log.watch_price, log.watch_price_2), (0.25, 0.20))
+s.close()
+
 print("\nVYSLEDOK:", "OK" if ok else "CHYBA")
 sys.exit(0 if ok else 1)
