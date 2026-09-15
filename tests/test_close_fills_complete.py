@@ -106,5 +106,22 @@ check("prah 0.999", pm._CLOSE_SIZE_COMPLETE_FRACTION, 0.999)
 check("najmensi fill #214 (477 ADA = 2.3 %) by prah zachytil",
       (20858 - 477) / 20858 < pm._CLOSE_SIZE_COMPLETE_FRACTION, True)
 
+print("\n6) 15.9. - rucne zatvorenie blizko zamknuteho SL predlzeneho TP (cena zatvorenia ~0.20928)")
+state["fills"] = entry_fills + close_fills
+
+
+def own_close(status, reason):
+    t = trade(5)
+    t.status, t.close_reason, t.active_stop_price, t.tp_locked_at = status, reason, 0.2093, t.closed_at
+    return pm._lookup_exact_close(t)["close_reason"]
+
+
+check("kill-switch nasou objednavkou -> manual_kill_switch (nie SL podla ceny)",
+      own_close("closed_by_user", "manual_kill_switch"), "manual_kill_switch")
+check("AI zatvorenie nasou objednavkou -> ai_early_close", own_close("closed_by_ai", "ai_early_close"), "ai_early_close")
+check("pozicia zmizla pred kill-switchom (mohol ju zavriet SL) -> cena rozhodne",
+      own_close("closed_by_exchange", "manual_kill_switch"), "stop_loss")
+check("REGRESIA nas timeout pri SL -> stop_loss podla ceny", own_close("closed_by_timeout", "timeout"), "stop_loss")
+
 print("\nVYSLEDOK:", "OK" if ok else "CHYBA")
 sys.exit(0 if ok else 1)

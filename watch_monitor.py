@@ -109,6 +109,15 @@ def _check_manual_close_requests(session) -> None:
             print(f"[watch_monitor] Kill-switch Trade {trade.id} [{trade.symbol}]: "
                   f"zatvorenie zlyhalo, skusim znova na dalsom tiku: {e}")
             continue
+        # 2026-09-15 - druhe upratanie PO zatvoreni: position_monitor bezi v tej
+        # istej minute a mohol (predlzeny TP / oprava noh) polozit SL/TP medzi
+        # nasim cancel_all a zatvorenim. Obchod je potom zatvoreny a nikto by
+        # tu reduce-only sirotu uz nezrusil.
+        try:
+            strike_client.cancel_all_orders(trade.symbol)
+        except Exception as e:
+            print(f"[watch_monitor] Kill-switch Trade {trade.id} [{trade.symbol}]: "
+                  f"upratanie objednavok po zatvoreni zlyhalo (neblokujuce): {e}")
         trade.status = "closed_by_user"
         trade.closed_at = now
         trade.close_reason = "manual_kill_switch"

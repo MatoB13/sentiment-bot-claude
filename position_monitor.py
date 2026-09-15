@@ -358,7 +358,14 @@ def _lookup_exact_close(trade: Trade) -> dict | None:
         # samotnej TP/SL bracket nohy - dorefinujeme podla skutocnej PRIEMERNEJ
         # ceny zatvorenia (s malou tolerantnostou na slippage/zaokruhlenie).
         if close_reason == "force_closed_by_bot":
-            reclassified = _reclassify_by_close_price(trade, close_agg["avg_price"])
+            # 2026-09-15 - ked poziciu PREUKAZATELNE zavrela nasa vlastna trhova
+            # objednavka (kill-switch -> closed_by_user, AI -> closed_by_ai; obe
+            # nastavia status az PO uspesnom close_position_market), cena
+            # zatvorenia nerozhoduje. Inak rucne zatvorenie predlzeneho TP blizko
+            # zamknuteho SL dostalo dovod tp_runner_stop.
+            own = trade.close_reason if (trade.status, trade.close_reason) in (
+                ("closed_by_user", "manual_kill_switch"), ("closed_by_ai", "ai_early_close")) else None
+            reclassified = None if own else _reclassify_by_close_price(trade, close_agg["avg_price"])
             if reclassified:
                 close_reason = reclassified
             elif trade.close_reason in ("manual_kill_switch", "ai_early_close"):
@@ -1097,7 +1104,13 @@ def check_open_trades():
                               f"(neblokujuce, skusi sa znova nabuduce): {e}")
                     trade.status = "closed_by_exchange"
                     trade.closed_at = now
-                    _apply_exact_close(trade, "not_found_in_open_positions (TP/SL/liquidation)")
+                    # 2026-09-15 - kill-switch ju mohol zavriet v tej istej minute
+                    # (bezi paralelne): bez tohto by nezhoda s TP/SL skoncila ako
+                    # force_closed_by_bot / tp_runner_timeout namiesto rucneho.
+                    if trade.manual_close_requested_at is not None:
+                        trade.close_reason = "manual_kill_switch"
+                    _apply_exact_close(trade, "manual_kill_switch" if trade.manual_close_requested_at is not None
+                                       else "not_found_in_open_positions (TP/SL/liquidation)")
                     if trade.tp_mode == tp_runner.RUNNER:
                         tp_runner.log_event(session, trade, "close", trade.close_fill_price,
                                             trade.active_stop_price, f"zatvorene burzou ({trade.close_reason})")
@@ -1115,7 +1128,9 @@ def check_open_trades():
                 if expires_at.tzinfo is None:
                     expires_at = expires_at.replace(tzinfo=timezone.utc)
 
-                if now >= expires_at:
+                # Pri cakajucom rucnom zatvoreni zatvara kill-switch, nie timeout
+                # (inak dve trhove zatvorenia v tej istej minute).
+                if now >= expires_at and trade.manual_close_requested_at is None:
                     max_h = config.TP_RUNNER_MAX_HOURS if trade.tp_locked_at else config.POSITION_MAX_HOURS
                     print(f"[position_monitor] Trade {trade.id} presiahol {max_h}h, zatvaram.")
                     try:
@@ -1157,6 +1172,15 @@ def check_open_trades():
                         except Exception as e:
                             print(f"[position_monitor] Trade {trade.id} [{trade.symbol}]: AI potvrdenie "
                                   f"zlyhalo (SL na burze plati dalej, skusim o minutu): {e}")
+                    # 2026-09-15 - cakajuce rucne zatvorenie: obchod patri kill-switchu
+                    # (watch_monitor, bezi v tej istej minute). Predlzeny TP (posun SL)
+                    # ani oprava noh uz nesmu klast objednavky - polozene tesne po
+                    # jeho cancel_all by po zatvoreni ostali na burze ako siroty.
+                    if trade.manual_close_requested_at is not None:
+                        print(f"[position_monitor] Trade {trade.id} [{trade.symbol}]: caka na rucne "
+                              "zatvorenie - predlzeny TP ani opravu noh nerobim.")
+                        session.add(trade)
+                        continue
                     if (not runner["orders_changed"] and trade.tp_mode in tp_runner.MANAGED_MODES
                             and markets_by_symbol):
                         market = markets_by_symbol.get(trade.symbol) or {}

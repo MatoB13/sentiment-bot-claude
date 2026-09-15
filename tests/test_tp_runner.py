@@ -569,6 +569,65 @@ tp_runner.manage(n8, {"size": -3}, 212.5, 0.01, s, now); s.commit()
 check("TP_RUNNER_REVERT_HOURS=0 -> navrat vypnuty", n8.tp_mode, "runner")
 config.TP_RUNNER_REVERT_HOURS = 4.0
 
+print("\n21) 15.9. - rucne zatvorenie zamknuteho predlzeneho TP (otazka pouzivatela, ZHIPU #225)")
+import watch_monitor  # noqa: E402
+for t in s.query(Trade).filter(Trade.status == "open").all():
+    t.status = "archiv"
+s.commit()
+# short 93.34, zamknute na 89.63, najlepsia 87.65; pri 87.0 by predlzeny TP posunul SL na 88.84
+m1 = mk(70, "MAN-USD", direction="Short", entry=93.34, sl=96.51, tp=88.71, atr=0.92)
+m1.tp_locked_at, m1.active_stop_price, m1.trail_best_price, m1.tp_exchange_price = NOWN, 89.63, 87.65, 47.06
+m1.expires_at = NOWN + timedelta(hours=40)
+m1.manual_close_requested_at = NOWN
+s.commit()
+state["positions"] = [{"symbol": "MAN-USD", "size": -10}]
+state["markets"] = [market("MAN-USD", 87.0)]
+state["open_orders"] = []                 # watch_monitor uz zrusil nohy -> oprava by ich polozila znova
+calls.clear(); discord_msgs.clear()
+pm.check_open_trades()                    # minutovy tik monitora ...
+s2 = get_session()
+watch_monitor._check_manual_close_requests(s2)   # ... a kill-switch v tej istej minute
+s2.close()
+s.expire_all(); m1 = s.get(Trade, 70)
+check("monitor nepolozil ziadny SL/TP (ani posun, ani oprava noh)",
+      [n for n in names() if n.startswith("place_")], [])
+check("zamknuty SL ostal 89.63, zatvorene rucne", (m1.active_stop_price, m1.status, m1.close_reason),
+      (89.63, "closed_by_user", "manual_kill_switch"))
+check("kill-switch: zrus, zatvor, zrus znova (sirota z paralelneho tiku)", names(),
+      ["cancel_all_orders", "close_position_market", "cancel_all_orders"])
+check("ziadna REPAIR notifikacia", [m for m in discord_msgs if m[0] == "repair"], [])
+# timeout v tej istej minute ako rucne zatvorenie -> zatvara len kill-switch
+m2 = mk(71, "MAN2-USD", direction="Short", entry=93.34, sl=96.51, tp=88.71, atr=0.92)
+m2.tp_locked_at, m2.active_stop_price, m2.expires_at, m2.manual_close_requested_at = NOWN, 89.63, NOWN - timedelta(minutes=1), NOWN
+s.commit()
+state["positions"] = [{"symbol": "MAN2-USD", "size": -10}]
+state["markets"] = [market("MAN2-USD", 88.0)]
+calls.clear()
+pm.check_open_trades()
+s.expire_all()
+check("vyprsany limit + rucna ziadost: monitor nezatvara (urobi to kill-switch)",
+      (names(), s.get(Trade, 71).status), ([], "open"))
+# kill-switch zavrel skor, nez monitor nacital pozicie -> monitor ju uz nevidi
+exact["reason"] = None
+state["positions"] = []
+pm.check_open_trades()
+s.expire_all()
+check("pozicia zmizla pri cakajucej rucnej ziadosti -> manual_kill_switch (nie tp_runner_timeout)",
+      s.get(Trade, 71).close_reason, "manual_kill_switch")
+# REGRESIA: bez rucnej ziadosti sa zamknuty runner dalej posuva
+m3 = mk(72, "MAN3-USD", direction="Short", entry=93.34, sl=96.51, tp=88.71, atr=0.92)
+m3.tp_locked_at, m3.active_stop_price, m3.trail_best_price, m3.tp_exchange_price = NOWN, 89.63, 87.65, 47.06
+m3.expires_at = NOWN + timedelta(hours=40)
+s.commit()
+state["positions"] = [{"symbol": "MAN3-USD", "size": -10}]
+state["markets"] = [market("MAN3-USD", 87.0)]
+state["open_orders"] = [{"Status": "open", "Type": "stop", "Size": "10", "Filled": "0"},
+                        {"Status": "open", "Type": "take_profit_limit"}]
+calls.clear()
+pm.check_open_trades()
+s.expire_all()
+check("REGRESIA bez ziadosti: SL posunuty 89.63 -> 88.84", s.get(Trade, 72).active_stop_price, 88.84)
+
 s.close()
 print("\nVYSLEDOK:", "OK" if ok else "CHYBA")
 sys.exit(0 if ok else 1)
