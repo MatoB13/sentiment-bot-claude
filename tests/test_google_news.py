@@ -4,10 +4,12 @@ import os as _os
 _ROOT = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..")
 import ast
 import os
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 from urllib.parse import parse_qs, urlparse
+from xml.sax.saxutils import escape as xml_escape
 
 DB = os.environ["TEMP"].replace("\\", "/") + "/gnews.db"
 if os.path.exists(DB):
@@ -43,6 +45,7 @@ NOW = datetime.now(timezone.utc)
 
 def item(title, hours, source="Reuters"):
     ts = format_datetime(NOW - timedelta(hours=hours))
+    title = xml_escape(title)       # ako skutocne RSS ("Oil &amp; Gas", "S&amp;P")
     return (f"<item><title>{title} - {source}</title><link>https://news.google.com/x</link>"
             f"<pubDate>{ts}</pubDate><source url=\"https://x\">{source}</source></item>")
 
@@ -91,9 +94,14 @@ config.GOOGLE_NEWS_CACHE_MINUTES, config.GOOGLE_NEWS_QUERY_DAYS = 30.0, 2
 
 print("1) Ktore tickery maju Google News")
 covered = sorted(a["name"] for a in assets.ALL_ASSETS if gn.covers(a))
-check("slabo pokryte tickery", covered,
-      sorted(["ADA", "NEAR", "NIGHT", "PUMP", "HYPE", "ZEC", "CRCL", "AAOI", "MINIMAX", "ZHIPU", "UNITREE"]))
-check("dobre pokryte (NVDA/GOOGL/TSLA/BTC) nie", [n for n in ("NVDA", "GOOGL", "TSLA", "BTC") if gn.covers(A[n])], [])
+check("slabo pokryte tickery + WTI/GOLD (15.9.)", covered,
+      sorted(["ADA", "NEAR", "NIGHT", "PUMP", "HYPE", "ZEC", "CRCL", "AAOI", "MINIMAX", "ZHIPU", "UNITREE",
+              "WTI", "GOLD"]))
+check("dobre pokryte (NVDA/GOOGL/TSLA/BTC/NAS100) nie",
+      [n for n in ("NVDA", "GOOGL", "TSLA", "BTC", "NAS100") if gn.covers(A[n])], [])
+check("WTI/GOLD len Reuters a Investing.com (bez site: lavina SEO)",
+      [q for n in ("WTI", "GOLD") for _, q in A[n]["google_news"]["queries"]
+       if not (q.endswith("site:reuters.com") or q.endswith("site:investing.com"))], [])
 check("kazdy ma regex 'titulok je o tickeri'", [n for n in covered if gn._match_re(A[n]) is None], [])
 check("cinske firmy maju aj cinsky dotaz",
       [n for n in ("MINIMAX", "ZHIPU", "UNITREE") if not any(l == "zh" for l, _ in A[n]["google_news"]["queries"])], [])
@@ -156,6 +164,57 @@ KEEP = ["Z.ai shares tumble over 10% after $5 billion fundraising",
         "Zcash (ZEC), Litecoin (LTC) Achieve New Listing in Europe Despite 2027 Ban Looming"]
 check("rutinne vyradene (10)", [t[:40] for t in ROUT if not gn.is_routine(t)], [])
 check("udalosti ponechane (6)", [t[:40] for t in KEEP if gn.is_routine(t)], [])
+
+print("\n3b) WTI a GOLD - titulky z Reuters/Investing.com (vzorky z 15.9.)")
+gn._cache.pop("WTI", None)      # kes ZHIPU zo sekcie 2 ostava - sekcia 4 ho testuje
+gn._cache.pop("GOLD", None)
+W, G = A["WTI"], A["GOLD"]
+INV = "Investing.com"
+feeds[("en-US", W["google_news"]["queries"][0][1])] = rss(
+    item("EXCLUSIVE: ADNOC Trading buys millions of barrels of Iraqi crude, sources say", 1.0, "Reuters"),
+    item("Poland to revive windfall tax on oil firms, use proceeds for fuel price relief", 3.3, "Reuters"))
+feeds[("en-US", W["google_news"]["queries"][1][1])] = rss(
+    item("Oil prices edge higher amid Saudi Arabia pipeline outage, Houthi attacks By Reuters", 5.3, INV),
+    item("Oil prices edge higher amid Saudi Arabia pipeline outage, Houthi attacks", 5.4, INV),
+    item("Soaring Oil Prices Put Fed on Track for September Rate Hike By Investing.com", 1.5, INV),
+    item("Crude Oil WTI Futures Live Chart", 2.2, INV),
+    item("Crude Oil WTI consolidates near $105 resistance: Live levels", 5.9, INV),
+    item("AgEagle director Brent Klavon buys $4,999 in company stock", 2.1, INV),
+    item("India’s Edible Oil Imports Surge as Refiners Build Festival Stocks By Kedia Advisory", 3.4, INV),
+    item("4 Oil & Gas Stocks Stifel Is Constructive On as Energy Prices Stay High", 1.2, INV),
+    item("Brent Oil Perpetual Futures News Today", 8.0, INV),
+    item("Fed seen hiking rates on Wednesday", 1.0, INV))                   # nespomina ropu
+wt = [i["title"] for i in gn.get_headlines_for_asset(W, since=NOW - timedelta(hours=6))]
+check("WTI: udalosti presli (ADNOC, Poland, Saudi, Fed/oil)",
+      [t[:20] for t in wt], ["EXCLUSIVE: ADNOC Tra", "Soaring Oil Prices P", "Poland to revive win", "Oil prices edge high"])
+check("WTI: ' By Reuters' odrezane a duplicita len raz",
+      wt.count("Oil prices edge higher amid Saudi Arabia pipeline outage, Houthi attacks"), 1)
+check("WTI: ' By Investing.com' odrezane", "Soaring Oil Prices Put Fed on Track for September Rate Hike" in wt, True)
+check("WTI: live chart/levels, obchod manazera, jedly olej, zoznam akcii, stranka nastroja vyradene",
+      [t for t in wt if re.search(r"Live|AgEagle|Edible|4 Oil|Perpetual", t)], [])
+check("' By X' sa reze LEN pri Investing.com",
+      gn._clean_title("Deal Approved By Federal Regulators - Reuters", "Reuters"), "Deal Approved By Federal Regulators")
+feeds[("en-US", G["google_news"]["queries"][0][1])] = rss(
+    item("India's August goods trade deficit narrows as gold imports plunge", 4.5, "Reuters"))
+feeds[("en-US", G["google_news"]["queries"][1][1])] = rss(
+    item("Gold Falls as Energy Prices Strengthen Rate Hike Expectations", 0.4, INV),
+    item("Citi cuts gold exposure on hawkish Fed outlook By Investing.com", 4.5, INV),
+    item("Gold slips below $4,300 as firmer dollar, Fed hike bets pressure bullion", 7.2, INV),
+    item("Solstice Gold completes Leckie Gold Zone acquisition in Ontario", 3.3, INV),
+    item("Big Ridge Gold appoints Garett Macdonald to board of directors", 3.3, INV),
+    item("Why is Wesdome Gold stock sliding today?", 5.0, INV),
+    item("Gold.com CEO Gregory Roberts sells $458k in shares", 6.0, INV),
+    item("Dakota Gold at H.C. Wainwright conference: richmond hill gains traction", 7.0, INV),
+    item("Galantas Gold warrants exercised for 25,000 shares at C$0.12", 8.0, INV),
+    item("Mako Mining enters gold stream deal with Sailfish Royalty", 9.0, INV),
+    item("Meridian Mining added to VanEck junior gold miners ETF", 10.0, INV),
+    item("China Southern Shanghai Gold ETF Analysis", 11.0, INV),
+    item("626A Stock Price | iFreeETF Gold plus Income ETF", 12.0, INV),
+    item("Goldman Sachs raises S&P 500 target", 2.0, INV))                  # "Goldman" nie je zlato
+gt = [i["title"] for i in gn.get_headlines_for_asset(G, since=NOW - timedelta(hours=8))]
+check("GOLD: len titulky o cene zlata (4)", [t[:20] for t in gt],
+      ["Gold Falls as Energy", "India's August goods", "Citi cuts gold expos", "Gold slips below $4,"])
+check("stare tickery: nove pravidla nezasiahli vzorky udalosti", [t[:40] for t in KEEP if gn.is_routine(t)], [])
 
 print("\n4) Kesovanie a vypadok")
 before = len(calls)

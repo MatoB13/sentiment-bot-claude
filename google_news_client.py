@@ -1,6 +1,13 @@
 """Titulky z Google News (verejne RSS vyhladavanie) pre SLABO POKRYTE tickery -
 vstup pre sken aj plny cyklus (2026-09-14, na ziadost pouzivatela).
 
+2026-09-15 - aj WTI a GOLD, len titulky Reuters a Investing.com (site: v dotaze).
+Meranie 12.-15.9.: lacny sken WTI dostal 4 titulky v 14 skenoch (11 skenov bez
+jedineho titulku, pritom cez den 17-22 titulkov Reuters/Investing o rope za 6 h),
+GOLD 1 titulok v 12 skenoch. Benzinga o komoditach takmer nepise. Investing.com
+nema API (oficialne FAQ), Reuters priamo = LSEG len firmam - Google News je legalna
+cesta k obom.
+
 PRECO: meranie 14.9. (7 dni, podiel skenov s aspon 1 titulkom PRIAMO o tickeri
 z Marketaux + Benzinga + krypto RSS podla nazvu): MINIMAX, NEAR, NIGHT, PUMP 0 %,
 ADA 6 %, ZHIPU 15 %, HYPE 30 %, CRCL 40 %, UNITREE 42 %, AAOI 50 %. Nase krypto
@@ -59,7 +66,20 @@ _ROUTINE_RE = re.compile(
     # platene tlacove spravy s reklamou na presale ("... While X Presale Pulls $10M")
     r"\bpre-?sale\b|"
     r"should you buy|how to buy|top \d+ |price movement explained|volatility explained|"
-    r"股价行情|股票股价", re.I)
+    r"股价行情|股票股价|"
+    # 2026-09-15 (WTI/GOLD cez Reuters a Investing.com) - stranky nastroja na
+    # Investing.com ("Crude Oil WTI Futures Live Chart", "Gold Futures News",
+    # "... Forum", "... ETF Analysis", "... Compare against Competitors")
+    r"live (chart|levels)|streaming chart|futures (news|analysis)( today)?$|\bforum$|"
+    r"etf analysis|compare against competitors|perpetual futures\b|stock price \||historical data\b|"
+    # obchody manazerov s vlastnymi akciami ("AgEagle director X buys $4,999 in company
+    # stock", "Gold.com CEO Y sells $458k in shares") - Investing.com ich pise desiatky denne
+    r"\b(director|ceo|cfo|cto|coo|chairman|president|officer|svp|evp|insider|founder)\b"
+    r"[^.]{0,60}\b(buys|sells|acquires|purchases)\b[^.]{0,15}\$[\d,.]+", re.I)
+
+# 2026-09-15 - Investing.com pri prebratych clankoch pripaja " By Reuters" / " By Investing.com" /
+# " By Kedia Advisory" - bez odrezania by ta ista sprava presla deduplikaciou dvakrat.
+_INVESTING_BY_RE = re.compile(r"\s+By [A-Z][\w.&'-]*(?: [A-Z][\w.&'-]*){0,2}$")
 
 # Zdroje, ktore su len platene tlacove spravy / SEO (14.9.: openPR = presale reklamy
 # s vymyslenymi cenami, napr. "Cardano Price Holds $0.20" pri realnych $0.58).
@@ -91,6 +111,8 @@ def _clean_title(title: str, source: str) -> str:
     title = (title or "").strip()
     if source and title.endswith(" - " + source):
         title = title[: -len(source) - 3].rstrip()
+    if "investing" in (source or "").lower():
+        title = _INVESTING_BY_RE.sub("", title)
     return title
 
 
@@ -145,6 +167,13 @@ def _match_re(asset: dict):
     return re.compile("|".join(f"(?:{p})" for p in pats), re.I) if pats else None
 
 
+def _exclude_re(asset: dict):
+    """2026-09-15 - volitelne regexy "titulok spomina ticker, ale nie je o nom" (GOLD:
+    "Solstice Gold completes acquisition" = tazobna firma, nie cena zlata)."""
+    pats = list(asset["google_news"].get("exclude") or [])
+    return re.compile("|".join(f"(?:{p})" for p in pats), re.I) if pats else None
+
+
 def _norm(title: str) -> str:
     return re.sub(r"\W+", " ", title.lower()).strip()
 
@@ -152,9 +181,12 @@ def _norm(title: str) -> str:
 def _filtered(asset: dict, raw: list[dict]) -> list[dict]:
     """Titulky o tickeri bez rutinnych/blokovanych zdrojov, dedup, od najnovsieho."""
     rx = _match_re(asset)
+    ex = _exclude_re(asset)
     seen, out = set(), []
     for i in sorted(raw, key=lambda x: x["created"], reverse=True):
         if rx is not None and not rx.search(i["title"]):
+            continue
+        if ex is not None and ex.search(i["title"]):
             continue
         if is_routine(i["title"]) or (i["source"] or "").strip().lower() in _BLOCKED_SOURCES:
             continue

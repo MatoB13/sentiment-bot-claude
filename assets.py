@@ -837,7 +837,9 @@ ALL_ASSETS = [NAS100, NVDA, ADA, GOLD, WTI, NIGHT, BTC, HYPE, SKHYNIX, AAOI, MIN
 # Meranie 14.9. (7 dni): podiel skenov s aspon 1 titulkom priamo o tickeri z
 # doterajsich zdrojov - MINIMAX/NEAR/NIGHT/PUMP 0 %, ADA 6 %, ZHIPU 15 %, HYPE 30 %,
 # CRCL 40 %, UNITREE 42 %, AAOI 50 %, ZEC 72 %. Ostatne (NVDA, GOOGL, TSLA, BTC,
-# NAS100, XAU, SKHYNIX) maju 75-100 % z Benzingy/Marketaux - tam by to bol len sum.
+# NAS100, SKHYNIX) maju 75-100 % z Benzingy/Marketaux - tam by to bol len sum.
+# (XAU tu 14.9. tiez bol, ale meranie 15.9. na titulkoch o zlate/rope ukazalo opak -
+# viz WTI/GOLD nizsie.)
 # queries: [(jazyk, dotaz)] v syntaxi Google News; match: regexy "titulok je o
 # tickeri" (bez nich sa pouziju news_keywords). Cinske firmy aj po cinsky - v cinskej
 # tlaci je o nich radovo viac (14.9.: ZHIPU 43 zh, UNITREE 25 zh za 24 h).
@@ -862,6 +864,23 @@ GOOGLE_NEWS = {
               "match": [r"\bzhipu\b", r"\bz\.ai\b", r"chatglm", r"\bGLM-\d", r"智谱"]},
     "UNITREE": {"queries": [("en", '"Unitree"'), ("zh", "宇树科技")],
                 "match": [r"\bunitree\b", r"宇树"]},
+    # 2026-09-15 - komodity: len Reuters + Investing.com (bez site: by prisla lavina SEO).
+    # Meranie 12.-15.9.: sken WTI dostal 4 titulky v 14 skenoch, GOLD 1 v 12 (len Benzinga);
+    # Reuters/Investing mali cez den 17-22 (WTI) a 5-15 (GOLD) titulkov za 6 h pred skenom.
+    "WTI": {"queries": [("en", "(intitle:oil OR intitle:crude OR intitle:OPEC OR intitle:Brent) site:reuters.com"),
+                        ("en", "(intitle:oil OR intitle:crude OR intitle:OPEC OR intitle:Brent) site:investing.com")],
+            "match": [r"\b(oil|crude|opec\+?|brent|wti|hormuz)\b"],
+            "exclude": [r"\b(edible|palm|olive|vegetable|cooking|castor|essential) oils?\b",
+                        r"\b\d+ oil (&|and) gas stocks\b"]},
+    "GOLD": {"queries": [("en", "(intitle:gold OR intitle:bullion) site:reuters.com"),
+                         ("en", "(intitle:gold OR intitle:bullion) site:investing.com")],
+             "match": [r"\b(gold|bullion)\b"],
+             # tazobne firmy s "Gold" v nazve ("Solstice Gold completes ...", "Wesdome Gold stock")
+             "exclude": [r"\b[A-Z][\w.'-]* Gold (appoints|completes|closes|plans|reports|releases|announces|"
+                         r"files|drills|intersects|stock|shares|corp|inc|ltd|limited|mines|mining|resources)\b",
+                         r"\bgold\.com\b", r"\bgold x2\b", r"\bjunior gold miners?\b",
+                         r"\bgold (stream|project|mine|deposit|royalty)\b", r"\bwarrants?\b",
+                         r"\bat [\w.&' -]{0,40}conference\b"]},
 }
 for _a in ALL_ASSETS:
     _a["google_news"] = GOOGLE_NEWS.get(_a["name"])
