@@ -472,6 +472,29 @@ _T.tp_locked_at = NOWN
 check("zamknuty: poznamka PREDĹŽENÝ TP", (trade_cycle._runner_note(_T) or "").startswith("PREDĹŽENÝ TP"), True)
 check("obchod bez novych stlpcov (stary objekt) nespadne", trade_cycle._runner_note(object()), None)
 
+print("\n18) 15.9. - posun SL zdokumentovany s povodnou hodnotou")
+notes = [e.note for e in s.query(TpRunnerEvent).filter_by(trade_id=2, kind="trail").order_by(TpRunnerEvent.id)]
+check("trail: 'stary -> novy' v poznamke", notes[-1].startswith("103.4 -> 108 |"), True)
+check("  aj najlepsia cena a odstup", "najlepsia cena 110" in notes[-1] and "odstup 2" in notes[-1], True)
+
+print("\n19) 15.9. - zalozne urcenie dovodu podla ceny pozna AKTUALNY SL/TP na burze (ZHIPU #225)")
+# ZHIPU-like short: vstup 93.34, povodny SL 96.51 / TP 88.71, zamknute na 89.63, havarijny TP 47.06
+z = mk(90, "ZZZ-USD", direction="Short", entry=93.34, sl=96.51, tp=88.71, atr=0.92)
+z.tp_locked_at, z.active_stop_price, z.tp_exchange_price = NOWN, 89.63, 47.06
+s.commit()
+check("trailing stop 89.63 zasiahnuty -> stop_loss", pm._reclassify_by_close_price(z, 89.66), "stop_loss")
+check("  ... a po premenovani tp_runner_stop (predtym tp_runner_timeout)",
+      tp_runner.runner_close_reason(z, pm._reclassify_by_close_price(z, 89.66)), "tp_runner_stop")
+z.active_stop_price = 88.40            # SL posunuty ZA povodny TP 88.71
+check("SL za povodnym TP: stop, nie 'take_profit' (predtym tp_runner_far_tp)",
+      tp_runner.runner_close_reason(z, pm._reclassify_by_close_price(z, 88.42)), "tp_runner_stop")
+check("havarijny TP 47.06 -> tp_runner_far_tp",
+      tp_runner.runner_close_reason(z, pm._reclassify_by_close_price(z, 47.0)), "tp_runner_far_tp")
+check("cena mimo SL aj TP (nas timeout) -> None", pm._reclassify_by_close_price(z, 86.0), None)
+reg = mk(91, "RRR-USD", mode=None)       # klasicky long 100 / SL 97 / TP 104
+check("REGRESIA klasicky: TP podla povodneho TP", pm._reclassify_by_close_price(reg, 104.0), "take_profit")
+check("REGRESIA klasicky: SL podla povodneho SL", pm._reclassify_by_close_price(reg, 97.0), "stop_loss")
+
 s.close()
 print("\nVYSLEDOK:", "OK" if ok else "CHYBA")
 sys.exit(0 if ok else 1)

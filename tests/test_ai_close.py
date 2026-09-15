@@ -275,6 +275,36 @@ check("cakajuce: poznamka o potvrdeni", (trade_cycle._runner_note(wt) or "").sta
 check("ochranny SL: poznamka s cenou", "OCHRANNÝ SL" in (trade_cycle._runner_note(b) or "") and "95.78" in trade_cycle._runner_note(b), True)
 check("REGRESIA klasicky obchod: ziadna poznamka", trade_cycle._runner_note(pl), None)
 
+print("\n8) 15.9. - predlzeny TP so zamknutym ziskom: AI zatvorenie sa NEUPLATNI (ZHIPU #225)")
+z = mk(30, SYM, entry=93.34, sl=96.51, tp=88.71, mode="runner", tp_exchange_price=47.06,
+       active_stop_price=89.63, tp_locked_at=NOWN - timedelta(minutes=40))
+state["positions"] = [{"symbol": SYM, "size": -6}]
+calls.clear()
+trade_cycle._maybe_ai_early_close(ASSET, z, {"recommendation": "consider_closing", "close_confidence": 63}, s, 88.38)
+s.expire_all()
+z = s.get(Trade, 30)
+check("istota 63 nad prahom, ale zamknuty zisk: ziadne cakanie, ziadne zatvorenie",
+      (z.status, z.ai_close_pending_at, names()), ("open", None, []))
+check("  SL ostava zamknuty 89.63 (nie cena rozhodnutia 88.38)", z.active_stop_price, 89.63)
+check("  dennik: ai_skip s dovodom", ev(30)[-1:], ["ai_skip"])
+check("  REGRESIA: pri vypnutom potvrdeni by False = zatvor hned - vynimka je pred tym",
+      trade_cycle._maybe_ai_early_close.__code__.co_names.index("excluded")
+      < trade_cycle._maybe_ai_early_close.__code__.co_names.index("start_pending"), True)
+# zisk sa zamkol POCAS 15-min cakania
+y = mk(31, "F31-USD", entry=94.0, mode="runner", tp_exchange_price=58.0, active_stop_price=96.6)
+ai_close.start_pending(y, 91.0, 60, s, NOW - timedelta(minutes=16)); s.commit()
+y.tp_locked_at, y.active_stop_price = NOWN - timedelta(minutes=2), 91.2
+s.commit()
+calls.clear()
+r = ai_close.resolve(y, {"size": -5}, 90.5, 0.01, s, NOW)
+check("zamknute pocas cakania: potvrdenie zrusene, burza netknuta",
+      (r, y.ai_close_pending_at, y.active_stop_price, names()), ({"closed": False, "orders_changed": False}, None, 91.2, []))
+check("  dennik: ai_cancel", ev(31)[-1], "ai_cancel")
+check("REGRESIA: prepnuty, ale este NEzamknuty obchod AI zatvorenie ma (zatial)", ai_close.excluded(
+      mk(32, "F32-USD", mode="runner", tp_exchange_price=58.0, active_stop_price=96.6)), None)
+check("Claude vie, ze consider_closing sa pri zamknutom zisku nevykona",
+      "NEVYKONÁ" in (trade_cycle._runner_note(z) or ""), True)
+
 s.close()
 print("\nVYSLEDOK:", "OK" if ok else "CHYBA")
 sys.exit(0 if ok else 1)

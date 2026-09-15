@@ -1470,7 +1470,8 @@ def _runner_note(open_trade) -> str | None:
         return (f"PREDĹŽENÝ TP: take-profit {open_trade.take_profit_price} už bol dosiahnutý, pozícia sa "
                 f"zámerne nezatvorila a beží ďalej so zamknutým ziskom. SL na burze je teraz "
                 f"{open_trade.active_stop_price} (posúva sa za cenou, nikdy späť), pozícia smie bežať "
-                f"najneskôr do {open_trade.expires_at:%d.%m. %H:%M} UTC.")
+                f"najneskôr do {open_trade.expires_at:%d.%m. %H:%M} UTC. Výstup riadi zámok a posúvanie "
+                f"SL - odporúčanie consider_closing sa pri zamknutom zisku NEVYKONÁ; zhodnoť len, či téza drží.")
     if getattr(open_trade, "tp_mode", None) == tp_runner.RUNNER:
         return (f"AKČNÝ REŽIM: trh sa prudko hýbe v smere pozície, preto sa na take-profite "
                 f"{open_trade.take_profit_price} pozícia nezatvorí - bot tam zamkne zisk a nechá ju "
@@ -2028,6 +2029,17 @@ def _maybe_ai_early_close(asset: dict, trade: Trade, health: dict, session, live
 
     name = asset["name"]
     symbol = asset["strike_symbol"]
+    # 2026-09-15 - na obchod v predlzenom TP so zamknutym ziskom sa AI zatvorenie
+    # nevztahuje (viz ai_close.excluded). MUSI byt pred start_pending: jeho False
+    # znamena "zatvor hned" a obchod by sa zatvoril trhovo.
+    why = ai_close.excluded(trade)
+    if why:
+        print(f"[{name}] Claude odporucil consider_closing (istota {close_confidence}), "
+              f"ale AI zatvorenie sa neuplatni: {why}.")
+        tp_runner.log_event(session, trade, "ai_skip", live_price, None,
+                            f"Claude odporucil zatvorit (istota {close_confidence}) - neuplatnene: {why}")
+        session.commit()
+        return
     # 2026-09-14 - 15-MIN POTVRDENIE (viz ai_close.py): zatvorenie sa len
     # zapise ako cakajuce; rozhodne o nom position_monitor o
     # AI_CLOSE_CONFIRM_MINUTES (zavriet, alebo posunut SL na cenu rozhodnutia).

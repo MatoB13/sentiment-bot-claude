@@ -155,6 +155,11 @@ class Trade(Base):
     ai_close_pending_price = Column(Float, nullable=True)
     ai_close_pending_conf = Column(Integer, nullable=True)
     ai_protected_at = Column(DateTime, nullable=True)
+    # 2026-09-15 (na ziadost pouzivatela) - "zamrznuty" graf obchodu v momente
+    # zatvorenia pre detail v tabe Vsetky obchody: minutove ceny poslednej hodiny
+    # pred zatvorenim (price_minutes sa drzia len 3 dni) + hodinove sviecky
+    # 24 h pred nim. Plni trade_snapshot.py, viz jeho hlavicka.
+    close_snapshot = Column(JSON, nullable=True)
 
 
 class TpRunnerEvent(Base):

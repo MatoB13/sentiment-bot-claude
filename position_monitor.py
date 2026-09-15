@@ -153,8 +153,16 @@ def _reclassify_by_close_price(trade: Trade, close_price: float) -> str | None:
     volajuci), skusi urcit skutocny dovod zatvorenia podla toho, ci sa realna
     cena zatvorenia zhoduje s TP alebo SL urovnou TEJTO pozicie (s malou
     tolerantnostou na slippage/zaokruhlenie). Vrati None, ak sa nezhoduje so
-    ziadnou z nich (teda ide skutocne o timeout/manualne zatvorenie mimo TP/SL)."""
-    sl, tp = trade.stop_loss_price, trade.take_profit_price
+    ziadnou z nich (teda ide skutocne o timeout/manualne zatvorenie mimo TP/SL).
+
+    2026-09-15 (ZHIPU #225, overenie na ziadost pouzivatela) - porovnava sa s
+    AKTUALNYM SL a TP NA BURZE, nie s povodnymi. Predlzeny TP posuva SL do zisku
+    (active_stop_price) a TP na burze je havarijny (tp_exchange_price); AI
+    potvrdenie SL sprisnuje. Pri povodnych urovniach vysiel trailing stop na 89.63
+    ako "ani TP ani SL" -> tp_runner_timeout, a stop posunuty za povodny TP ako
+    "take_profit" -> tp_runner_far_tp. Oboje zle; spravne je tp_runner_stop."""
+    sl = trade.active_stop_price if trade.active_stop_price is not None else trade.stop_loss_price
+    tp = trade.tp_exchange_price if trade.tp_exchange_price is not None else trade.take_profit_price
     is_long = (trade.direction or "").lower() == "long"
     if tp is not None:
         tp_hit = close_price >= tp * (1 - _CLOSE_PRICE_TOLERANCE) if is_long \

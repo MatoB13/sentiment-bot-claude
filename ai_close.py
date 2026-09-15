@@ -45,6 +45,20 @@ def _aware(dt):
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+def excluded(trade) -> str | None:
+    """Dovod, preco sa AI zatvorenie na obchod NEVZTAHUJE, inak None.
+
+    2026-09-15 (ZHIPU #225, na ziadost pouzivatela): obchod v predlzenom TP so
+    ZAMKNUTYM ziskom ma vlastne pravidla vystupu (zamok, trailing 2 ATR, 48 h).
+    15-min potvrdenie by ho bud zatvorilo, alebo posunulo SL na cenu rozhodnutia
+    (#225: 88.38 pri cene 88.20 namiesto 89.63) - presne tesny stop, ktory v
+    backteste predlzeneho TP utal najvacsie vyhry. Kombinaciu AI zatvorenie +
+    predlzeny TP nepokryval ziadny backtest."""
+    if getattr(trade, "tp_locked_at", None) is not None:
+        return "predlzeny TP so zamknutym ziskom - vystup riadi zamok a trailing"
+    return None
+
+
 def start_pending(trade, price: float | None, conf, session, now) -> bool:
     """Volane z trade_cycle._maybe_ai_early_close. True = zatvorenie odlozene
     (volajuci nezatvara); False = potvrdenie vypnute alebo chyba cena
@@ -120,6 +134,15 @@ def resolve(trade, live: dict, mark_price: float | None, tick: float | None, ses
         trade.ai_close_pending_at = None
         tp_runner.log_event(session, trade, "ai_close", trade.ai_close_pending_price, None,
                             "AI potvrdenie zrusene - pouzivatel poziciu zatvara rucne")
+        return out
+    # 2026-09-15 - zisk sa zamkol pocas cakania: potvrdenie sa zrusi (viz excluded).
+    why = excluded(trade)
+    if why:
+        tp_runner.log_event(session, trade, "ai_cancel", trade.ai_close_pending_price, None,
+                            f"AI zatvorenie zrusene - {why}")
+        trade.ai_close_pending_at = None
+        trade.ai_close_pending_price = None
+        trade.ai_close_pending_conf = None
         return out
     pending_at = _aware(trade.ai_close_pending_at)
     due = pending_at + timedelta(minutes=config.AI_CLOSE_CONFIRM_MINUTES)

@@ -240,8 +240,11 @@ def manage(trade, live: dict, mark_price: float | None, tick: float | None, sess
             _emergency_close(trade, live_size, mark_price, session, now)
             out["closed"] = True
             return out
+        # 2026-09-15 (na ziadost pouzivatela) - kazdy posun zdokumentovany aj s
+        # POVODNOU hodnotou, aby sa dal v priebehu precitat bez dopocitavania.
+        log_event(session, trade, "trail", mark_price, cand,
+                  f"{current:.6g} -> {cand:.6g} | najlepsia cena {best:.6g}, odstup {trail:.6g}")
         trade.active_stop_price = cand
-        log_event(session, trade, "trail", mark_price, cand, f"najlepsia cena {best}")
     return out
 
 

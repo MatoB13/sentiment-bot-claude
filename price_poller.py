@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 import assets
 import market_data
 import strike_client
+import trade_snapshot
 from db import AccountSnapshot, FundingRateBar, PriceBar, PriceMinute, get_session
 
 # Minutove ceny (PriceMinute) - kolko dni sa drzia. Graf "posledna hodina" na
@@ -171,11 +172,16 @@ def poll_prices() -> None:
 
         # Upratanie minutovych cien - raz za hodinu (prvy tik hodiny), nie
         # kazdu minutu. Jeden DELETE nad indexom ts.
+        session.commit()
         if now.minute == 0:
+            # 2026-09-15 - najprv snimka cien zatvorenych obchodov (trade_snapshot.py),
+            # AZ POTOM mazanie starych minut - inak by sa minuty pred zatvorenim
+            # obchodu stratili skor, nez sa ulozia. Po commite cien, aby chyba
+            # snimky (vlastny rollback) nezahodila zapis tohto tiku.
+            trade_snapshot.snapshot_recent_closes(session, now)
             cutoff = (now - timedelta(days=PRICE_MINUTES_KEEP_DAYS)).replace(tzinfo=None)
             session.query(PriceMinute).filter(PriceMinute.ts < cutoff).delete(synchronize_session=False)
-
-        session.commit()
+            session.commit()
         print(f"[price_poller] {updated}/{len(assets.ALL_ASSETS)} tickerov "
               f"aktualizovanych (hodina {hour_start.isoformat()}).")
     except Exception as e:
