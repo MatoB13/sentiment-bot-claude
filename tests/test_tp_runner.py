@@ -495,6 +495,80 @@ reg = mk(91, "RRR-USD", mode=None)       # klasicky long 100 / SL 97 / TP 104
 check("REGRESIA klasicky: TP podla povodneho TP", pm._reclassify_by_close_price(reg, 104.0), "take_profit")
 check("REGRESIA klasicky: SL podla povodneho SL", pm._reclassify_by_close_price(reg, 97.0), "stop_loss")
 
+print("\n20) 15.9. - akcny rezim vyprchal -> navrat na klasicky TP po 4 h (NVDA #226)")
+config.TP_RUNNER_REVERT_HOURS = 4.0
+price_buffer._buffer.clear()
+
+
+def mk_runner(tid, sym, last_hours_ago, direction="Short", entry=212.05, sl=216.21, tp=206.14):
+    t = mk(tid, sym, direction=direction, entry=entry, sl=sl, tp=tp, atr=0.68)
+    t.tp_regime_last_at = None if last_hours_ago is None else NOWN - timedelta(hours=last_hours_ago)
+    s.commit()
+    return t
+
+
+n1 = mk_runner(60, "NV1-USD", 5)            # rezim naposledy pred 5 h, cena pri vstupe
+calls.clear()
+r = tp_runner.manage(n1, {"size": -3}, 212.5, 0.01, s, now); s.commit()
+check("5 h bez rezimu: zrus, ten isty SL, KLASICKY TP 206.14",
+      [(c[0], c[1][3] if len(c[1]) > 3 else None) for c in calls],
+      [("cancel_all_orders", None), ("place_stop_order", 216.21), ("place_take_profit_order", 206.14)])
+check("  obchod znova armed, bez havarijneho TP", (n1.tp_mode, n1.tp_exchange_price), ("armed", None))
+check("  oprava noh v tomto tiku preskocena", r["orders_changed"], True)
+check("  dennik: revert", [e.kind for e in s.query(TpRunnerEvent).filter_by(trade_id=60)], ["revert"])
+n2 = mk_runner(61, "NV2-USD", 3)
+calls.clear()
+tp_runner.manage(n2, {"size": -3}, 212.5, 0.01, s, now); s.commit()
+check("3 h bez rezimu: este runner, burza netknuta", (n2.tp_mode, names()), ("runner", []))
+n3 = mk_runner(62, "NV3-USD", 6)
+price_buffer.record_price("NV3-USD", now - timedelta(minutes=15), 215.0)   # prave teraz pad -1.6 % a 5.1 ATR za 15 min
+calls.clear()
+tp_runner.manage(n3, {"size": -3}, 211.5, 0.01, s, now); s.commit()
+check("rezim prave splneny: cas sa obnovi, ziadny navrat",
+      (n3.tp_mode, names(), n3.tp_regime_last_at is not None and n3.tp_regime_last_at >= NOWN - timedelta(minutes=1)),
+      ("runner", [], True))
+n4 = mk_runner(63, "NV4-USD", 8)
+n4.tp_locked_at, n4.active_stop_price = NOWN - timedelta(hours=7), 205.5
+s.commit()
+calls.clear()
+tp_runner.manage(n4, {"size": -3}, 204.0, 0.01, s, now); s.commit()
+check("ZAMKNUTY zisk sa nikdy nevracia", (n4.tp_mode, n4.tp_locked_at is not None), ("runner", True))
+# obchod prepnuty pred 15.9. (stlpec prazdny): zaciatok = posledne prepnutie v denniku
+n5 = mk_runner(64, "NV5-USD", None)
+s.add(TpRunnerEvent(trade_id=64, symbol="NV5-USD", kind="regime", price=209.4, stop_price=216.21,
+                    at=NOWN - timedelta(hours=14)))
+s.commit()
+calls.clear()
+tp_runner.manage(n5, {"size": -3}, 212.6, 0.01, s, now); s.commit()
+check("stary obchod: prepnutie z dennika pred 14 h -> navrat", n5.tp_mode, "armed")
+n6 = mk_runner(65, "NV6-USD", None)
+calls.clear()
+tp_runner.manage(n6, {"size": -3}, 212.6, 0.01, s, now); s.commit()
+check("bez akehokolvek zaznamu: zacne odpocitavat odteraz, nic nerobi",
+      (n6.tp_mode, names(), n6.tp_regime_last_at is not None), ("runner", [], True))
+# po navrate sa pri novom rezime prepne znova
+price_buffer.record_price("NV1-USD", now - timedelta(minutes=15), 215.0)
+calls.clear()
+tp_runner.manage(n1, {"size": -3}, 211.5, 0.01, s, now); s.commit()
+check("po navrate novy prudky pad -> prepne sa znova", (n1.tp_mode, n1.tp_exchange_price is not None), ("runner", True))
+check("  dennik: revert, regime", [e.kind for e in s.query(TpRunnerEvent).filter_by(trade_id=60).order_by(TpRunnerEvent.id)],
+      ["revert", "regime"])
+# zlyhany SL pri navrate: obchod aj tak armed a oprava noh v tom istom tiku doplni SL aj klasicky TP
+n7 = mk_runner(66, "NV7-USD", 5)
+state["fail_stop"] = 2
+calls.clear()
+r = tp_runner.manage(n7, {"size": -3}, 212.5, 0.01, s, now); s.commit()
+state["fail_stop"] = 0
+check("SL pri navrate zlyhal: armed, oprava noh sa NEpreskoci", (n7.tp_mode, n7.tp_exchange_price, r["orders_changed"]),
+      ("armed", None, False))
+check("  oprava noh by polozila klasicky TP (tp_exchange_price je None)",
+      (n7.tp_exchange_price or n7.take_profit_price), 206.14)
+config.TP_RUNNER_REVERT_HOURS = 0
+n8 = mk_runner(67, "NV8-USD", 30)
+tp_runner.manage(n8, {"size": -3}, 212.5, 0.01, s, now); s.commit()
+check("TP_RUNNER_REVERT_HOURS=0 -> navrat vypnuty", n8.tp_mode, "runner")
+config.TP_RUNNER_REVERT_HOURS = 4.0
+
 s.close()
 print("\nVYSLEDOK:", "OK" if ok else "CHYBA")
 sys.exit(0 if ok else 1)

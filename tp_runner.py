@@ -10,8 +10,11 @@ obchodu v akcnom rezime:
     (rychly spustac - crash/vystrel), ALEBO
   - za 24 h >= TP_RUNNER_DAY_PCT % (postupny silny trend).
 Ked ano, PREPNE (tp_mode = RUNNER): cancel_all + ten isty SL + HAVARIJNY TP
-(TP_RUNNER_EXCHANGE_TP_MULT x dalej). Rezim sa uz spat neprepina. Povodny
-variant A (predlzenie pre kazdy obchod, TP na burze nikdy) pouzivatel odmietol.
+(TP_RUNNER_EXCHANGE_TP_MULT x dalej). Povodny variant A (predlzenie pre kazdy
+obchod, TP na burze nikdy) pouzivatel odmietol.
+2026-09-15: kym zisk NIE JE zamknuty a akcny rezim TP_RUNNER_REVERT_HOURS (4 h)
+nebol znova splneny, obchod sa vrati na klasicky TP (ARMED) - viz _maybe_revert.
+Po zamknuti sa uz spat neprepina.
 
 V REZIME RUNNER: skutocny TP nie je na burze, len HAVARIJNY TP. Bot kazdu
 minutu (position_monitor) pozera mark cenu; ked dosiahne TP:
@@ -204,7 +207,8 @@ def manage(trade, live: dict, mark_price: float | None, tick: float | None, sess
 
     if trade.tp_locked_at is None:
         if not ((mark_price >= tp) if sg > 0 else (mark_price <= tp)):
-            return out
+            # 2026-09-15 - pred zamknutim: ked akcny rezim vyprchal, klasicky TP spat.
+            return _maybe_revert(trade, live_size, mark_price, atr, session, now, out)
         new_stop = _round_to_tick(lock_stop, tick)
         # 2026-09-14 - SL mohlo predtym sprisnit AI potvrdenie (ai_close.py);
         # zamok ho nesmie uvolnit spat.
@@ -248,11 +252,73 @@ def manage(trade, live: dict, mark_price: float | None, tick: float | None, sess
     return out
 
 
-def _maybe_switch(trade, live_size, mark_price, tick, atr, session, now, out) -> dict:
-    """ARMED -> RUNNER, ked je trh v smere obchodu v akcnom rezime."""
+def _aware(dt):
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _regime_now(trade, mark_price, atr, session, now) -> str | None:
+    """Je trh PRAVE TERAZ v smere obchodu v akcnom rezime? (popis spustaca alebo None)"""
     ref_fast = price_buffer.price_at(trade.symbol, now - timedelta(minutes=config.TP_RUNNER_FAST_MINUTES),
                                      tolerance_min=2)
-    why = regime_hit(trade.direction, mark_price, ref_fast, _day_ref(session, trade.symbol, now), atr)
+    return regime_hit(trade.direction, mark_price, ref_fast, _day_ref(session, trade.symbol, now), atr)
+
+
+def _last_regime_event(session, trade):
+    row = (session.query(TpRunnerEvent.at)
+           .filter(TpRunnerEvent.trade_id == trade.id, TpRunnerEvent.kind == "regime")
+           .order_by(TpRunnerEvent.at.desc()).first())
+    return row[0] if row else None
+
+
+def _maybe_revert(trade, live_size, mark_price, atr, session, now, out) -> dict:
+    """RUNNER (este NEzamknuty) -> ARMED, ked akcny rezim TP_RUNNER_REVERT_HOURS nebol
+    znova splneny (2026-09-15, NVDA #226: prepnuta na otvoreni NYSE, potom 14 h chop
+    pri vstupe). Klasicky TP ide spat na burzu; pri novom splneni sa obchod prepne znova
+    (_maybe_switch). Backtest runner_expiry.py: krypto +371 vs +337 $/1000, crash +122
+    vs +119 R, akcie bez rozdielu, najvacsie vyhry zachovane."""
+    if _regime_now(trade, mark_price, atr, session, now):
+        trade.tp_regime_last_at = _aware(now).replace(tzinfo=None)
+        return out
+    hours = config.TP_RUNNER_REVERT_HOURS
+    if not hours or hours <= 0:
+        return out
+    # Obchod prepnuty pred 15.9. stlpec nema - zaciatok = posledne prepnutie v denniku.
+    last = trade.tp_regime_last_at or _last_regime_event(session, trade)
+    if last is None:
+        trade.tp_regime_last_at = _aware(now).replace(tzinfo=None)
+        return out
+    if _aware(now) - _aware(last) < timedelta(hours=hours):
+        return out
+
+    stop = trade.active_stop_price if trade.active_stop_price is not None else trade.stop_loss_price
+    close_side = "sell" if trade.direction == "Long" else "buy"
+    trade.tp_mode = ARMED
+    trade.tp_exchange_price = None
+    strike_client.cancel_all_orders(trade.symbol)
+    placed = False
+    for attempt in (1, 2):
+        try:
+            strike_client.place_stop_order(trade.symbol, close_side, live_size, stop)
+            placed = True
+            break
+        except Exception as e:
+            print(f"[tp_runner] Trade {trade.id}: SL {stop} pri navrate zlyhal (pokus {attempt}): {e}")
+    try:
+        strike_client.place_take_profit_order(trade.symbol, close_side, live_size, trade.take_profit_price)
+    except Exception as e:
+        print(f"[tp_runner] Trade {trade.id}: klasicky TP pri navrate zlyhal (doplni oprava noh): {e}")
+    # Pri zlyhanom SL orders_changed ostava False - oprava noh v TOMTO tiku doplni SL
+    # aj klasicky TP (tp_exchange_price je uz None), rovnako ako pri switch_fail.
+    out["orders_changed"] = placed
+    log_event(session, trade, "revert", mark_price, stop,
+              f"akcny rezim {hours:g} h nesplneny (naposledy {_aware(last):%d.%m %H:%M} UTC) - klasicky TP "
+              f"{trade.take_profit_price} spat na burze" + ("" if placed else ", SL doplni oprava noh"))
+    return out
+
+
+def _maybe_switch(trade, live_size, mark_price, tick, atr, session, now, out) -> dict:
+    """ARMED -> RUNNER, ked je trh v smere obchodu v akcnom rezime."""
+    why = _regime_now(trade, mark_price, atr, session, now)
     if why is None or _recent_switch_fail(session, trade, now):
         return out
     entry = trade.entry_fill_price or trade.entry_price
@@ -269,6 +335,7 @@ def _maybe_switch(trade, live_size, mark_price, tick, atr, session, now, out) ->
         return out
     out["orders_changed"] = True
     trade.tp_mode = RUNNER
+    trade.tp_regime_last_at = _aware(now).replace(tzinfo=None)
     trade.active_stop_price = stop
     log_event(session, trade, "regime", mark_price, stop,
               f"akcny rezim: {why} - TP na burze odsunuty na {trade.tp_exchange_price}, "

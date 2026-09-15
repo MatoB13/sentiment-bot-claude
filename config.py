@@ -172,6 +172,12 @@ TP_RUNNER_FAST_MIN_PCT = _float("TP_RUNNER_FAST_MIN_PCT", 1.5)
 TP_RUNNER_DAY_PCT = _float("TP_RUNNER_DAY_PCT", 8.0)
 # Po neuspesnom prepnuti (SL sa nepodarilo polozit) sa dalsi pokus robi az o tolkoto minut.
 TP_RUNNER_SWITCH_RETRY_MINUTES = _int("TP_RUNNER_SWITCH_RETRY_MINUTES", 10)
+# 2026-09-15 (NVDA #226: prepnuta na otvoreni NYSE, potom 14 h chop pri vstupe) -
+# prepnuty, este NEzamknuty obchod sa vrati na klasicky TP na burze, ked akcny
+# rezim nebol znova splneny tolko hodin; pri novom splneni sa prepne znova.
+# Backtest (runner_expiry.py): krypto +371 vs +337 $/1000 bez navratu, crash
+# +122 vs +119 R, akcie bez rozdielu, najvacsie vyhry zachovane. 0 = vypnute.
+TP_RUNNER_REVERT_HOURS = _float("TP_RUNNER_REVERT_HOURS", 4.0)
 TP_RUNNER_TRAIL_ATR = _float("TP_RUNNER_TRAIL_ATR", 2.0)
 TP_RUNNER_TRAIL_MAX_FRACTION = _float("TP_RUNNER_TRAIL_MAX_FRACTION", 1.0)
 # SL sa na burze posunie, az ked sa zlepsi aspon o tolkoto ATR - nie kazdu minutu

@@ -143,6 +143,9 @@ class Trade(Base):
     tp_mode = Column(String, nullable=True)
     tp_exchange_price = Column(Float, nullable=True)
     tp_locked_at = Column(DateTime, nullable=True)
+    # 2026-09-15 - kedy bol akcny rezim naposledy splneny (tp_runner): bez noveho
+    # splnenia TP_RUNNER_REVERT_HOURS a pred zamknutim sa obchod vrati na klasicky TP.
+    tp_regime_last_at = Column(DateTime, nullable=True)
     active_stop_price = Column(Float, nullable=True)
     trail_best_price = Column(Float, nullable=True)
     entry_atr = Column(Float, nullable=True)
